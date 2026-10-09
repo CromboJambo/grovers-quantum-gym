@@ -32,7 +32,7 @@ fn zeta_complex(s_re: f64, s_im: f64) -> (f64, f64) {
         }
         return (re_sum, -im_sum);
     }
-    
+
     // For critical line, use approximate computation via first N terms
     // with convergence factor (not mathematically rigorous but illustrative)
     let mut re_sum = 0.0;
@@ -55,16 +55,16 @@ fn zeta_magnitude_on_critical_line(t: f64) -> f64 {
 pub fn show_riemann_station() {
     println!("=== RIEMANN HYPOTHESIS MILLENNIUM PRIZE PROBLEM ===");
     println!("Clay Mathematics Institute: $1,000,000 prize for proof\n");
-    
+
     println!("THE QUESTION: Do all non-trivial zeros of the Riemann zeta function");
     println!("ζ(s) = Σ(1/n^s) lie on the critical line Re(s) = 1/2?\n");
-    
+
     println!("The zeta function connects primes to analysis via the Euler product:");
     println!("zeta(s) = Product over all primes p of (1 - p^(-s))^(-1)\n");
-    
+
     println!("--- ZETA FUNCTION ON REAL AXIS ---");
     println!("Computing ζ(s) for real s > 1 (Dirichlet series converges):\n");
-    
+
     let test_values = [2.0, 3.0, 4.0, 5.0, 10.0];
     println!("s      | ζ(s)            | Notes");
     println!("-------|-----------------|------");
@@ -77,46 +77,49 @@ pub fn show_riemann_station() {
         };
         println!("{:5.1} | {:14.6} | {}", s, z, note);
     }
-    
+
     println!("\nAs s → 1⁺, ζ(s) → ∞ (pole at s=1)");
     println!("As s → ∞, ζ(s) → 1\n");
-    
+
     println!("--- CRITICAL LINE EXPLORATION ---");
     println!("Computing |ζ(1/2 + it)| for various t values:");
     println!("Zeros occur where this magnitude is zero.\n");
-    
+
     println!("t       | |ζ(1/2+it)|   | Known zero nearby?");
     println!("--------|-------------|------------------");
-    
+
     // Check around known zeros: 14.13, 21.02, 25.01, 30.42, 32.93
     let test_t = [10.0, 14.13, 15.0, 20.0, 21.02, 22.0, 25.01, 30.0, 30.42];
     for &t in &test_t {
         let mag = zeta_magnitude_on_critical_line(t);
-        let note = if (t - 14.13).abs() < 0.01 || (t - 21.02).abs() < 0.01 
-            || (t - 25.01).abs() < 0.01 || (t - 30.42).abs() < 0.01 {
+        let note = if (t - 14.13).abs() < 0.01
+            || (t - 21.02).abs() < 0.01
+            || (t - 25.01).abs() < 0.01
+            || (t - 30.42).abs() < 0.01
+        {
             "Yes"
         } else {
             "No"
         };
         println!("{:6.2} | {:11.6} | {}", t, mag, note);
     }
-    
+
     println!("\n--- WHAT WE KNOW ---");
     println!("• The first 10^13 zeros have been computed numerically");
     println!("• All lie on the critical line Re(s) = 1/2");
     println!("• No counterexample has been found despite extensive search");
     println!("• But no one has proven it for ALL zeros\n");
-    
+
     println!("--- WHY IT MATTERS ---");
     println!("The distribution of prime numbers is encoded in the zeros.");
     println!("If the Riemann Hypothesis is true, primes are as evenly distributed");
     println!("as possible. Many results in number theory are conditional on RH.\n");
-    
+
     println!("--- CONNECTION TO PHYSICS ---");
     println!("The distribution of zeta zeros matches eigenvalue statistics of");
     println!("random Hermitian matrices (Gaussian Unitary Ensemble). This suggests");
     println!("a deep connection between prime numbers and quantum chaos.\n");
-    
+
     println!("=== RIEMANN HYPOTHESIS STATION COMPLETE ===");
 }
 

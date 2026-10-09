@@ -5,18 +5,22 @@
 //! - Shor's factoring algorithm (classical period-finding components)
 //! - Applications to NP-hard problems: subset sum, SAT, traveling salesman
 
-pub mod grover;
-pub mod shor;
-pub mod problems;
-pub mod benchmarks;
-pub mod lovelace;
-pub mod regex;
 pub mod attention;
-pub mod p_vs_np;
+pub mod benchmarks;
+pub mod fft;
+pub mod grover;
+pub mod lovelace;
 pub mod navier_stokes;
+pub mod p_vs_np;
+pub mod problems;
+pub mod regex;
 pub mod riemann;
+pub mod rsa;
+pub mod shor;
+pub mod sorting_bounds;
+pub mod turing;
 pub mod yang_mills;
 
 // Re-export main types for convenience
-pub use grover::{grover_search, GroverOracle, linear_search};
-pub use shor::{shor_factor, classical_period_finding};
+pub use grover::{GroverOracle, grover_search, linear_search};
+pub use shor::{classical_period_finding, shor_factor};

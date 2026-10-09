@@ -42,7 +42,8 @@ where
     }
 
     // Optimal iterations: π/4 * sqrt(N/M) where M is number of marked states
-    let iterations = ((std::f64::consts::PI / 4.0) * (n as f64 / marked_count as f64).sqrt()) as usize;
+    let iterations =
+        ((std::f64::consts::PI / 4.0) * (n as f64 / marked_count as f64).sqrt()) as usize;
     if iterations < 1 {
         return Some(0); // Trivial case
     }

@@ -16,20 +16,24 @@ This project has evolved into a "quantum gym" — a collection of themed station
 | Station | Year | What it does |
 |---------|------|--------------|
 | Ada Lovelace | 1843 | Computes Bernoulli numbers using her original algorithm for Babbage's Analytical Engine |
+| Turing Machines & Halting Problem | 1936 | Universal TM simulation, balanced-string recognition, halting problem diagonalization argument |
+| Fast Fourier Transform | 1965 | Cooley-Tukey FFT vs direct DFT — O(n log n) vs O(n²), frequency domain analysis |
 | Thompson NFA Regex | 1968 | Ken Thompson's regex engine: parse → AST → NFA compilation via Thompson construction |
 | Grover's Search | 1996 | Amplitude amplification simulation showing O(√N) speedup |
 | Shor's Factoring | 1994 | Period-finding and factorization pipeline |
+| RSA Encryption | 1977 | Public-key cryptography, mod_pow, extended Euclidean inverse — threatened by Shor's algorithm |
 | Attention Mechanism | 2017 | Scaled dot-product attention from "Attention Is All You Need" |
 | P vs NP Millennium Prize | 2000 | Brute-force SAT solving demonstrating exponential blowup |
 | Navier-Stokes Millennium Prize | 2000 | Vortex decay simulation exploring smooth solutions vs singularities |
 | Riemann Hypothesis Millennium Prize | 1859 | Zeta function computation along the critical line searching for zeros |
 | Yang-Mills Existence & Mass Gap Millennium Prize | 1954 | Lattice gauge theory approach with Wilson loops and confinement potential |
+| Sorting Lower Bounds | — | Decision tree model proving Ω(n log n) lower bound for comparison-based sorting |
 
 ## Running
 
 ```bash
 cargo run --release        # Full gym session through all stations
-cargo test                 # All unit tests (37 across 11 modules)
+cargo test                 # All unit tests (47 across 15 modules)
 ```
 
 ## The Big Idea

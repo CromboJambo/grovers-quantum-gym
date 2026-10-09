@@ -39,7 +39,11 @@ fn compile(node: &AstNode, states: &mut HashMap<i32, State>, next_id: &mut i32) 
             let accept = start + 1;
             states.insert(start, new_state());
             states.insert(accept, new_state());
-            states.get_mut(&start).unwrap().transitions.push((*ch, accept));
+            states
+                .get_mut(&start)
+                .unwrap()
+                .transitions
+                .push((*ch, accept));
             *next_id = accept + 1;
             (start, accept)
         }
@@ -48,7 +52,11 @@ fn compile(node: &AstNode, states: &mut HashMap<i32, State>, next_id: &mut i32) 
             let accept = start + 1;
             states.insert(start, new_state());
             states.insert(accept, new_state());
-            states.get_mut(&start).unwrap().transitions.push(('.', accept));
+            states
+                .get_mut(&start)
+                .unwrap()
+                .transitions
+                .push(('.', accept));
             *next_id = accept + 1;
             (start, accept)
         }
@@ -174,7 +182,8 @@ fn match_nfa(start: i32, accept: i32, states: &HashMap<i32, State>, input: &str)
     }
 
     // After consuming all input, compute epsilon closure and check for accept state
-    let final_closure = epsilon_closure(states, &current_states.iter().cloned().collect::<Vec<_>>());
+    let final_closure =
+        epsilon_closure(states, &current_states.iter().cloned().collect::<Vec<_>>());
     final_closure.contains(&accept)
 }
 

@@ -127,11 +127,7 @@ mod tests {
     #[test]
     fn test_tsp() {
         // Simple 3-city TSP
-        let distances = vec![
-            vec![0, 10, 15],
-            vec![10, 0, 20],
-            vec![15, 20, 0],
-        ];
+        let distances = vec![vec![0, 10, 15], vec![10, 0, 20], vec![15, 20, 0]];
         let (tour, _dist) = tsp_nearest_neighbor(&distances);
         assert_eq!(tour.len(), 3);
     }

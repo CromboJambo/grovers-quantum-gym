@@ -61,17 +61,13 @@ fn generate_3sat(n_vars: usize, n_clauses: usize) -> Vec<Vec<(usize, bool)>> {
         let v1 = (i * 7 + 3) % n_vars;
         let v2 = (i * 11 + 5) % n_vars;
         let v3 = (i * 13 + 9) % n_vars;
-        
+
         // Alternate signs for variety
         let s1 = (i & 1) == 0;
         let s2 = (i & 2) == 0;
         let s3 = (i & 4) == 0;
-        
-        clauses.push(vec![
-            (v1, s1),
-            (v2, s2),
-            (v3, s3),
-        ]);
+
+        clauses.push(vec![(v1, s1), (v2, s2), (v3, s3)]);
     }
     clauses
 }
@@ -179,7 +175,7 @@ mod tests {
     fn test_clause_evaluation() {
         // Clause: x0 OR !x1
         let clause = vec![(0, true), (1, false)];
-        
+
         // x0=T, x1=F → T OR T = T
         assert!(eval_clause(&clause, &[true, false]));
         // x0=F, x1=T → F OR F = F

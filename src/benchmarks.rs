@@ -10,13 +10,19 @@ pub fn benchmark_search(n: usize, target: usize) {
     let start = Instant::now();
     let result_classical = linear_search(n, |x| x == target);
     let elapsed_classical = start.elapsed().as_micros();
-    println!("  Classical linear search: {:?} (found: {:?})", elapsed_classical, result_classical);
+    println!(
+        "  Classical linear search: {:?} (found: {:?})",
+        elapsed_classical, result_classical
+    );
 
     // Grover's search
     let start = Instant::now();
     let result_grover = grover_search(n, |x| x == target);
     let elapsed_grover = start.elapsed().as_micros();
-    println!("  Grover's search: {:?} (found: {:?})", elapsed_grover, result_grover);
+    println!(
+        "  Grover's search: {:?} (found: {:?})",
+        elapsed_grover, result_grover
+    );
 
     if elapsed_classical > 0 {
         let speedup = elapsed_classical as f64 / elapsed_grover as f64;
