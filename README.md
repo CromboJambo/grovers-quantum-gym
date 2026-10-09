@@ -22,12 +22,14 @@ This project has evolved into a "quantum gym" — a collection of themed station
 | Attention Mechanism | 2017 | Scaled dot-product attention from "Attention Is All You Need" |
 | P vs NP Millennium Prize | 2000 | Brute-force SAT solving demonstrating exponential blowup |
 | Navier-Stokes Millennium Prize | 2000 | Vortex decay simulation exploring smooth solutions vs singularities |
+| Riemann Hypothesis Millennium Prize | 1859 | Zeta function computation along the critical line searching for zeros |
+| Yang-Mills Existence & Mass Gap Millennium Prize | 1954 | Lattice gauge theory approach with Wilson loops and confinement potential |
 
 ## Running
 
 ```bash
 cargo run --release        # Full gym session through all stations
-cargo test                 # All unit tests (25 across 7 modules)
+cargo test                 # All unit tests (37 across 11 modules)
 ```
 
 ## The Big Idea
@@ -49,5 +51,7 @@ src/
 ├── regex.rs        # Thompson NFA Regex Engine
 ├── attention.rs    # Attention Is All You Need
 ├── p_vs_np.rs      # P vs NP Millennium Prize Problem
-└── navier_stokes.rs # Navier-Stokes Millennium Prize Problem
+├── navier_stokes.rs # Navier-Stokes Millennium Prize Problem
+├── riemann.rs      # Riemann Hypothesis Millennium Prize Problem
+└── yang_mills.rs   # Yang-Mills Existence & Mass Gap Problem
 ```

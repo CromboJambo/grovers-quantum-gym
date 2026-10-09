@@ -106,5 +106,11 @@ fn main() {
     println!("\n--- NAVIER-STOKES MILLENNIUM PRIZE PROBLEM ---");
     shor_grover_exploration::navier_stokes::show_navier_stokes_station();
 
+    println!("\n--- RIEMANN HYPOTHESIS MILLENNIUM PRIZE PROBLEM ---");
+    shor_grover_exploration::riemann::show_riemann_station();
+
+    println!("\n--- YANG-MILLS EXISTENCE AND MASS GAP PROBLEM ---");
+    shor_grover_exploration::yang_mills::show_yang_mills_station();
+
     println!("\n=== EXPLORATION COMPLETE ===");
 }

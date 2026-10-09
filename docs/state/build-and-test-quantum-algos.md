@@ -23,7 +23,7 @@ Build the project in release mode, run all tests, then execute the demo.
 - Demo runs and shows quantum algorithm simulations working ✓
 
 ## Results
-All 25 tests passing across 7 modules:
+All 37 tests passing across 9 modules:
 - grover.rs (4 tests) - Grover's search algorithm
 - shor.rs (3 tests) - Shor's factoring algorithm
 - problems.rs (1 test) - NP-hard problem encodings
@@ -33,5 +33,7 @@ All 25 tests passing across 7 modules:
 - attention.rs (4 tests) - Attention Is All You Need (2017)
 - p_vs_np.rs (3 tests) - P vs NP Millennium Prize Problem
 - navier_stokes.rs (4 tests) - Navier-Stokes Millennium Prize Problem
+- riemann.rs (4 tests) - Riemann Hypothesis Millennium Prize Problem
+- yang_mills.rs (4 tests) - Yang-Mills Existence and Mass Gap Problem
 
-All stations operational: Grover, Shor, Problems, Lovelace, Thompson Regex, Attention, P vs NP, Navier-Stokes.
+All stations operational: Grover, Shor, Problems, Lovelace, Thompson Regex, Attention, P vs NP, Navier-Stokes, Riemann Hypothesis, Yang-Mills.
