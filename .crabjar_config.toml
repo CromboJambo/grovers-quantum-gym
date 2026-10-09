@@ -1,0 +1,9 @@
+name = "shor-grover-exploration"
+description = "Classical simulations of quantum algorithms: Grover search and Shor factoring on NP-hard problems"
+
+tool_execution_enabled = true
+auto_register = true
+
+[[tools]]
+path = "/usr/bin/cargo"
+commands = ["check", "build", "test", "clippy", "fmt", "run"]

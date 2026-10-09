@@ -1,0 +1,14 @@
+[package]
+name = "shor-grover-exploration"
+version = "0.1.0"
+edition = "2024"
+description = "Classical simulations of quantum algorithms: Grover search and Shor factoring on NP-hard problems"
+
+[dependencies]
+rand = { version = "0.8", features = ["std"] }
+rayon = "1.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+criterion = "0.5"
