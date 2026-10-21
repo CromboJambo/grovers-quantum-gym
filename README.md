@@ -16,6 +16,7 @@ This project has evolved into a "quantum gym" — a collection of themed station
 | Station | Year | What it does |
 |---------|------|--------------|
 | Ada Lovelace | 1843 | Computes Bernoulli numbers using her original algorithm for Babbage's Analytical Engine |
+| Euler and the Basel Problem | 1735 | Monte Carlo estimation of π²/6 = Σ(1/n²) via random sampling |
 | Turing Machines & Halting Problem | 1936 | Universal TM simulation, balanced-string recognition, halting problem diagonalization argument |
 | Fast Fourier Transform | 1965 | Cooley-Tukey FFT vs direct DFT — O(n log n) vs O(n²), frequency domain analysis |
 | Thompson NFA Regex | 1968 | Ken Thompson's regex engine: parse → AST → NFA compilation via Thompson construction |
@@ -25,9 +26,19 @@ This project has evolved into a "quantum gym" — a collection of themed station
 | Attention Mechanism | 2017 | Scaled dot-product attention from "Attention Is All You Need" |
 | P vs NP Millennium Prize | 2000 | Brute-force SAT solving demonstrating exponential blowup |
 | Navier-Stokes Millennium Prize | 2000 | Vortex decay simulation exploring smooth solutions vs singularities |
+| **Navier-Stokes Blowup Solver** | — | Pseudo-spectral 3D solver to numerically test blowup claims (ns3d/) |
 | Riemann Hypothesis Millennium Prize | 1859 | Zeta function computation along the critical line searching for zeros |
 | Yang-Mills Existence & Mass Gap Millennium Prize | 1954 | Lattice gauge theory approach with Wilson loops and confinement potential |
 | Sorting Lower Bounds | — | Decision tree model proving Ω(n log n) lower bound for comparison-based sorting |
+| Hugh Everett III: Many-Worlds Interpretation | 1957 | Branching universe simulation, measure problem, decoherence |
+| Kurt Gödel: Incompleteness Theorems | 1931 | Gödel numbering, First and Second Incompleteness Theorems demonstrated |
+| John Stewart Bell's Theorem | 1964 | CHSH inequality, local hidden variables vs quantum mechanics simulation |
+| John Nash: Game Theory and Cooperation | 1950 | Prisoner's Dilemma, iterated cooperation strategies |
+| David Deutsch: The Fabric of Reality | 1997 | Four Strands framework (Many-Worlds, Popperian epistemology, computation, evolution) |
+| Philosophy of Problem-Solving | — | Celebrating collapse, learning from wrong hypotheses, epistemic vs psychological closure |
+| John von Neumann: Measurement and Strategy | 1932/1944 | Quantum measurement theory, projection postulate, game theory foundations |
+| Gregory Chaitin: Algorithmic Information Theory | 1970s | Kolmogorov complexity, halting probability Ω, Gödel's theorems for programs |
+| John Archibald Wheeler: It from Bit | 1967-2008 | Delayed-choice experiments, participation theory, reality emerges from information |
 
 ## Running
 

@@ -320,6 +320,13 @@ pub fn show_navier_stokes_station() {
     println!("4. Singularity forms in finite time\n");
     println!("This is the energy cascade taken to its logical extreme —");
     println!("exactly what this station demonstrates conceptually above.");
+    println!("\n--- NUMERICAL VERIFICATION TOOL ---");
+    println!("The ns3d/ directory contains a pseudo-spectral 3D Navier-Stokes");
+    println!("solver built to numerically test blowup claims. Usage:");
+    println!("  cd ns3d && cargo run --release -- [n] [re] [t_end] [ic]");
+    println!("Initial conditions: 'tg' (Taylor-Green vortex) or 'abc' (Beltrami flow)");
+    println!("The solver validates itself against known exact solutions and");
+    println!("tracks the Beale-Kato-Majama integral ∫max|ω|dt as a blowup indicator.");
 
     println!("\n--- WHY IT'S HARD ---");
     println!("- Navier-Stokes is nonlinear: solutions interact with themselves");

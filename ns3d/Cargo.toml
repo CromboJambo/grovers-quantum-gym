@@ -1,0 +1,11 @@
+[package]
+name = "ns3d"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rustfft = "6"
+rayon = "1"
+
+[profile.release]
+opt-level = 3
