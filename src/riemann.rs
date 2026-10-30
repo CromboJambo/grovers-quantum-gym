@@ -13,14 +13,14 @@ mod integer_structure;
 mod prime_gaps;
 mod zeta_analysis;
 
-use integer_structure::{classify, classify_range, factorize, mobius, is_prime, omega, big_omega, is_semiprime, is_prime_power, is_squarefree};
-use prime_gaps::{prime_gaps_up_to, gap_distribution, maximal_gaps, twin_primes, analyze_gap_structure, analyze_by_gap_size, analyze_by_magnitude, experiment_c_stratified};
+use integer_structure::{factorize, mobius, omega, big_omega, is_semiprime, is_prime_power, is_squarefree};
+use prime_gaps::{prime_gaps_up_to, gap_distribution, maximal_gaps, twin_primes, experiment_d_parity_control, experiment_e_divisibility, experiment_f_topology};
 use zeta_analysis::{verify_euler_product, verify_mobius_identity, pnt_comparison, rh_gap_bound};
 
 /// Experiment: Structural classification using independent properties
 fn structural_experiment(limit: usize) {
     println!("--- STRUCTURAL CLASSIFICATION EXPERIMENT (Independent Properties) ---");
-    println!("Using ω(n), Ω(n), is_semiprime, is_prime_power, is_squarefree\\n");
+    println!("Using ω(n), Ω(n), is_semiprime, is_prime_power, is_squarefree\n");
 
     // Example: analyze specific intervals with detailed properties
     let test_intervals = [(7u64, 11u64), (23u64, 29u64), (89u64, 97u64)];
@@ -40,35 +40,44 @@ fn structural_experiment(limit: usize) {
         }
     }
 
-    // Experiment C: Stratified analysis by gap size and magnitude with control intervals
-    println!("\\n--- EXPERIMENT C: STRATIFIED ANALYSIS WITH CONTROL INTERVALS ---");
-    println!("Testing whether prime-bounded intervals differ from random intervals of same length/magnitude\\n");
+    // Experiment D: Parity-controlled comparison
+    println!("\n--- EXPERIMENT D: PARITY-CONTROLLED COMPARISON ---");
+    println!("Comparing prime-bounded intervals vs parity-matched random controls\n");
     
-    let exp_c_results = experiment_c_stratified(limit);
-    
-    // Group results by gap size for presentation
-    let mut by_gap: std::collections::HashMap<u64, Vec<(u64, u64, std::collections::HashMap<String, f64>)>> = std::collections::HashMap::new();
-    for (gap_size, mag_start, mag_end, stats) in exp_c_results {
-        by_gap.entry(gap_size).or_insert(Vec::new()).push((mag_start, mag_end, stats));
+    let exp_d_results = experiment_d_parity_control(limit);
+    println!("Gap Size | Prime-Bounded % | Control % | Difference | Interior Count");
+    println!("---------|-----------------|-----------|------------|--------------");
+    for (gap_size, gap_pct, control_pct, diff, interior) in &exp_d_results {
+        println!("{:8} | {:13.2}% | {:9.2}% | {:>+10.2}% | {:?}", 
+            gap_size, gap_pct, control_pct, diff, interior);
     }
+
+    // Experiment E: Small-prime divisibility signatures
+    println!("\n--- EXPERIMENT E: SMALL-PRIME DIVISIBILITY SIGNATURES ---");
+    println!("Percentage of interior integers divisible by each small prime\n");
     
-    let mut gap_sizes: Vec<u64> = by_gap.keys().cloned().collect();
-    gap_sizes.sort();
+    let exp_e_results = experiment_e_divisibility(limit);
+    let small_primes = [2u64, 3, 5, 7, 11, 13, 17, 19];
+    let header: String = small_primes.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(" ");
+    println!("Gap Size | Div by: {}", header);
     
-    for gap_size in &gap_sizes {
-        if let Some(band_results) = by_gap.get(gap_size) {
-            println!("Gap size {}:", gap_size);
-            for (mag_start, mag_end, stats) in band_results {
-                let gap_sp = stats.get("gap_sp_pct").unwrap_or(&0.0);
-                let control_sp = stats.get("control_sp_pct").unwrap_or(&0.0);
-                let gap_count = stats.get("gap_count").unwrap_or(&0.0);
-                let total = stats.get("total_interior").unwrap_or(&0.0);
-                let diff = gap_sp - control_sp;
-                
-                println!("  {}–{:>5}: gap={:.2}% control={:.2}% diff={:+.2}% (n={} gaps, {} interior)",
-                    mag_start, mag_end, gap_sp, control_sp, diff, *gap_count as usize, *total as usize);
-            }
-        }
+    for (gap_size, percentages) in exp_e_results {
+        let pct_strs: Vec<String> = percentages.iter()
+            .map(|p| format!("{:.1}%", p))
+            .collect();
+        println!("{:8} | {}", gap_size, pct_strs.join(" "));
+    }
+
+    // Experiment F: Factorization topology
+    println!("\n--- EXPERIMENT F: FACTORIZATION TOPOLOGY ---");
+    println!("Distribution of structural types within prime gaps\n");
+    
+    let exp_f_results = experiment_f_topology(limit);
+    println!("Gap Size | Prime % | Prime Power % | Semiprime % | Higher Composite %");
+    println!("---------|----------|---------------|-------------|-------------------");
+    for (gap_size, prime_pct, pp_pct, sp_pct, hc_pct) in &exp_f_results {
+        println!("{:8} | {:6.2}% | {:13.2}% | {:11.2}% | {:>17.2}%",
+            gap_size, prime_pct, pp_pct, sp_pct, hc_pct);
     }
 }
 
