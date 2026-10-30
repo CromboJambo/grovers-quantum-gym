@@ -168,6 +168,69 @@ pub fn analyze_by_gap_size(limit: usize) -> std::collections::HashMap<u64, std::
     results
 }
 
+/// Experiment C: Granular gap-size bins stratified by magnitude with control intervals
+pub fn experiment_c_stratified(limit: usize) -> Vec<(u64, u64, u64, std::collections::HashMap<String, f64>)> {
+    use crate::riemann::integer_structure::{is_semiprime, is_prime_power};
+    
+    let gaps = prime_gaps_up_to(limit);
+    
+    // Define gap size bins and magnitude bands
+    let gap_bins = [2u64, 4, 6, 8, 10, 12, 14, 16];
+    let mag_bands = [(10u64, 100), (100, 1000), (1000, 5000)];
+    
+    let mut results = Vec::new();
+    
+    for &gap_size in &gap_bins {
+        for &(mag_start, mag_end) in &mag_bands {
+            // Find prime gaps of this size in this magnitude band
+            let relevant_pairs: Vec<(u64, u64)> = gaps.iter()
+                .filter(|&&(p1, p2, g)| g == gap_size && p1 >= mag_start && p1 < mag_end)
+                .map(|&(p1, p2, _)| (p1, p2))
+                .collect();
+            
+            if relevant_pairs.is_empty() { continue; }
+            
+            // Analyze actual prime gaps
+            let mut sp_count = 0;
+            let mut pp_count = 0;
+            let mut total = 0;
+            for &(p1, p2) in &relevant_pairs {
+                for n in (p1 + 1)..p2 {
+                    total += 1;
+                    if is_semiprime(n) { sp_count += 1; }
+                    if is_prime_power(n) { pp_count += 1; }
+                }
+            }
+            
+            // Control: randomly selected intervals of same length and magnitude
+            let mut control_sp = 0;
+            let mut control_total = 0;
+            for _ in 0..relevant_pairs.len() {
+                let start = mag_start + (rand::random::<u64>() % (mag_end - mag_start - gap_size));
+                for n in (start + 1)..(start + gap_size) {
+                    control_total += 1;
+                    if is_semiprime(n) { control_sp += 1; }
+                }
+            }
+            
+            let mut stats: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+            if total > 0 {
+                stats.insert("gap_sp_pct".to_string(), sp_count as f64 / total as f64 * 100.0);
+                stats.insert("gap_pp_pct".to_string(), pp_count as f64 / total as f64 * 100.0);
+            }
+            if control_total > 0 {
+                stats.insert("control_sp_pct".to_string(), control_sp as f64 / control_total as f64 * 100.0);
+            }
+            stats.insert("gap_count".to_string(), relevant_pairs.len() as f64);
+            stats.insert("total_interior".to_string(), total as f64);
+            
+            results.push((gap_size, mag_start, mag_end, stats));
+        }
+    }
+    
+    results
+}
+
 /// Analyze structural composition by magnitude range
 pub fn analyze_by_magnitude(ranges: &[(u64, u64)]) -> Vec<(u64, u64, std::collections::HashMap<String, f64>)> {
     use crate::riemann::integer_structure::{is_semiprime, is_prime_power};

@@ -14,7 +14,7 @@ mod prime_gaps;
 mod zeta_analysis;
 
 use integer_structure::{classify, classify_range, factorize, mobius, is_prime, omega, big_omega, is_semiprime, is_prime_power, is_squarefree};
-use prime_gaps::{prime_gaps_up_to, gap_distribution, maximal_gaps, twin_primes, analyze_gap_structure, analyze_by_gap_size, analyze_by_magnitude};
+use prime_gaps::{prime_gaps_up_to, gap_distribution, maximal_gaps, twin_primes, analyze_gap_structure, analyze_by_gap_size, analyze_by_magnitude, experiment_c_stratified};
 use zeta_analysis::{verify_euler_product, verify_mobius_identity, pnt_comparison, rh_gap_bound};
 
 /// Experiment: Structural classification using independent properties
@@ -40,38 +40,35 @@ fn structural_experiment(limit: usize) {
         }
     }
 
-    // Aggregate analysis using new functions
-    println!("\\n--- AGGREGATE ANALYSIS BY GAP SIZE ---");
-    let by_size = analyze_by_gap_size(limit);
-    let mut sorted_sizes: Vec<u64> = by_size.keys().cloned().collect();
-    sorted_sizes.sort();
+    // Experiment C: Stratified analysis by gap size and magnitude with control intervals
+    println!("\\n--- EXPERIMENT C: STRATIFIED ANALYSIS WITH CONTROL INTERVALS ---");
+    println!("Testing whether prime-bounded intervals differ from random intervals of same length/magnitude\\n");
     
-    println!("Gap Size | Gaps Analyzed | Semiprime % | Prime Power % | Interior Count");
-    println!("---------|---------------|-------------|---------------|--------------");
-    for gap_size in &sorted_sizes {
-        if let Some(stats) = by_size.get(gap_size) {
-            let sp_pct = stats.get("semiprime_pct").unwrap_or(&0.0);
-            let pp_pct = stats.get("prime_power_pct").unwrap_or(&0.0);
-            let gap_count = stats.get("gap_count").unwrap_or(&0.0);
-            let interior = stats.get("total_interior").unwrap_or(&0.0);
-            println!("{:8} | {:13} | {:9.2}% | {:13.2}% | {:?}",
-                gap_size, *gap_count as usize, sp_pct, pp_pct, *interior as usize);
-        }
+    let exp_c_results = experiment_c_stratified(limit);
+    
+    // Group results by gap size for presentation
+    let mut by_gap: std::collections::HashMap<u64, Vec<(u64, u64, std::collections::HashMap<String, f64>)>> = std::collections::HashMap::new();
+    for (gap_size, mag_start, mag_end, stats) in exp_c_results {
+        by_gap.entry(gap_size).or_insert(Vec::new()).push((mag_start, mag_end, stats));
     }
-
-    println!("\\n--- AGGREGATE ANALYSIS BY MAGNITUDE ---");
-    let ranges = [(10u64, 100u64), (100u64, 1000u64), (1000u64, 5000u64)];
-    let by_magnitude = analyze_by_magnitude(&ranges);
     
-    println!("Range      | Gaps Analyzed | Semiprime % | Prime Power % | Interior Count");
-    println!("-----------|---------------|-------------|---------------|--------------");
-    for (start, end, stats) in &by_magnitude {
-        let sp_pct = stats.get("semiprime_pct").unwrap_or(&0.0);
-        let pp_pct = stats.get("prime_power_pct").unwrap_or(&0.0);
-        let gap_count = stats.get("gap_count").unwrap_or(&0.0);
-        let interior = stats.get("total_interior").unwrap_or(&0.0);
-        println!("{:6}–{:5} | {:13} | {:9.2}% | {:13.2}% | {:?}",
-            start, end, *gap_count as usize, sp_pct, pp_pct, *interior as usize);
+    let mut gap_sizes: Vec<u64> = by_gap.keys().cloned().collect();
+    gap_sizes.sort();
+    
+    for gap_size in &gap_sizes {
+        if let Some(band_results) = by_gap.get(gap_size) {
+            println!("Gap size {}:", gap_size);
+            for (mag_start, mag_end, stats) in band_results {
+                let gap_sp = stats.get("gap_sp_pct").unwrap_or(&0.0);
+                let control_sp = stats.get("control_sp_pct").unwrap_or(&0.0);
+                let gap_count = stats.get("gap_count").unwrap_or(&0.0);
+                let total = stats.get("total_interior").unwrap_or(&0.0);
+                let diff = gap_sp - control_sp;
+                
+                println!("  {}–{:>5}: gap={:.2}% control={:.2}% diff={:+.2}% (n={} gaps, {} interior)",
+                    mag_start, mag_end, gap_sp, control_sp, diff, *gap_count as usize, *total as usize);
+            }
+        }
     }
 }
 
