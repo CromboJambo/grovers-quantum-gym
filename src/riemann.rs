@@ -14,7 +14,7 @@ mod prime_gaps;
 mod zeta_analysis;
 
 use integer_structure::{factorize, mobius, omega, big_omega, is_semiprime, is_prime_power, is_squarefree};
-use prime_gaps::{prime_gaps_up_to, gap_distribution, maximal_gaps, twin_primes, experiment_d_parity_control, experiment_e_residues, experiment_f_topology, experiment_g_endpoint_conditioned, experiment_h_largest_prime_factor};
+use prime_gaps::{prime_gaps_up_to, gap_distribution, maximal_gaps, twin_primes, experiment_d_parity_control, experiment_e_residues, experiment_f_topology, experiment_g_endpoint_conditioned, experiment_h_largest_prime_factor, experiment_i_lpf_ratio};
 use zeta_analysis::{verify_euler_product, verify_mobius_identity, pnt_comparison, rh_gap_bound};
 
 /// Experiment: Structural classification using independent properties
@@ -136,6 +136,29 @@ fn structural_experiment(limit: usize) {
     println!("\nIf the distributions are similar, the 'shield' effect is limited to small primes.");
     println!("This would confirm that consecutive primes impose modular constraints");
     println!("on their gap's factorization structure, but not a deeper property.");
+
+    // Experiment I: Pattern propagation — LPF/n ratios
+    // Do integers between consecutive primes have unusually large prime factors?
+    // If the "pattern" of primality propagates into the gap, we might see many
+    // integers with LPF close to n itself (i.e., nearly-prime numbers).
+    println!("\n--- EXPERIMENT I: LARGEST PRIME FACTOR / N RATIOS ---");
+    println!("Do integers between consecutive primes have unusually large prime factors?");
+    println!("If the 'pattern' of primality propagates into the gap, we might see many");
+    println!("integers with LPF close to n itself (i.e., nearly-prime numbers).");
+    println!("\nThis tests the hypothesis that consecutive primes shield their gap not just");
+    println!("from small factors but also that large prime factors are overrepresented.");
+
+    let exp_i_results = experiment_i_lpf_ratio(limit);
+    for (gap_size, stats) in &exp_i_results {
+        println!("\nGap size {}:", gap_size);
+        for bucket in ["≥0.9", "0.7-0.9", "0.5-0.7", "<0.5"] {
+            let pct = *stats.get(bucket).unwrap();
+            println!("  LPF/n {}: {:.1}%", bucket, pct);
+        }
+    }
+    println!("\nIf the ≥0.9 bucket is significantly populated, it suggests that consecutive");
+    println!("primes leave a 'residue' of near-primality in their gap — integers that are");
+    println!("close to being prime themselves (having one very large prime factor).");
 }
 
 pub fn show_riemann_station() {

@@ -631,6 +631,59 @@ pub fn experiment_h_largest_prime_factor(limit: usize) -> Vec<(u64, std::collect
     results
 }
 
+/// Experiment I: Pattern propagation for largest prime factor detection
+/// For each integer n between consecutive primes, compute LPF(n)/n ratio.
+/// If this ratio is close to 1, n has a very large prime factor (it's "almost prime").
+/// Test if there's a systematic relationship between position in gap and LPF size.
+pub fn experiment_i_lpf_ratio(limit: usize) -> Vec<(u64, std::collections::HashMap<String, f64>)> {
+    use crate::riemann::integer_structure::largest_prime_factor;
+
+    let gaps = prime_gaps_up_to(limit);
+    let gap_sizes = [2u64, 4, 6, 8];
+
+    fn ratio_bucket(ratio: f64) -> &'static str {
+        if ratio >= 0.9 { "≥0.9" } else if ratio >= 0.7 { "0.7-0.9" } else if ratio >= 0.5 { "0.5-0.7" } else { "<0.5" }
+    }
+
+    let mut results = Vec::new();
+
+    for &gap_size in &gap_sizes {
+        let relevant_pairs: Vec<(u64, u64)> = gaps.iter()
+            .filter(|&&(p1, p2, g)| g == gap_size)
+            .map(|&(p1, p2, _)| (p1, p2))
+            .collect();
+
+        if relevant_pairs.is_empty() { continue; }
+
+        // Distribution of LPF/n ratios
+        let mut ratio_buckets: std::collections::HashMap<&'static str, u64> = std::collections::HashMap::new();
+        let mut total = 0;
+        for &(p1, p2) in &relevant_pairs {
+            for n in (p1 + 1)..p2 {
+                if n > 1 {
+                    total += 1;
+                    let lpf = largest_prime_factor(n);
+                    let ratio = lpf as f64 / n as f64;
+                    *ratio_buckets.entry(ratio_bucket(ratio)).or_insert(0) += 1;
+                }
+            }
+        }
+
+        // Convert to percentages
+        let mut stats: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        for bucket in ["≥0.9", "0.7-0.9", "0.5-0.7", "<0.5"] {
+            let pct = if total > 0 {
+                *ratio_buckets.get(bucket).unwrap_or(&0) as f64 / total as f64 * 100.0
+            } else { 0.0 };
+            stats.insert(bucket.to_string(), pct);
+        }
+
+        results.push((gap_size, stats));
+    }
+
+    results
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
