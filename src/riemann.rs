@@ -14,7 +14,7 @@ mod prime_gaps;
 mod zeta_analysis;
 
 use integer_structure::{factorize, mobius, omega, big_omega, is_semiprime, is_prime_power, is_squarefree};
-use prime_gaps::{prime_gaps_up_to, gap_distribution, maximal_gaps, twin_primes, experiment_d_parity_control, experiment_e_residues, experiment_f_topology};
+use prime_gaps::{prime_gaps_up_to, gap_distribution, maximal_gaps, twin_primes, experiment_d_parity_control, experiment_e_residues, experiment_f_topology, experiment_g_endpoint_conditioned};
 use zeta_analysis::{verify_euler_product, verify_mobius_identity, pnt_comparison, rh_gap_bound};
 
 /// Experiment: Structural classification using independent properties
@@ -97,6 +97,25 @@ fn structural_experiment(limit: usize) {
         println!("{:8} | {:6.2}% | {:13.2}% | {:11.2}% | {:>17.2}%",
             gap_size, prime_pct, pp_pct, sp_pct, hc_pct);
     }
+
+    // Experiment G: Endpoint-conditioned controls
+    println!("\n--- EXPERIMENT G: ENDPOINT-CONDITIONED CONTROLS ---");
+    println!("Comparing prime-bounded intervals vs intervals with coprime endpoints\n");
+    
+    let exp_g_results = experiment_g_endpoint_conditioned(limit);
+    println!("Gap Size | Prime-Bounded % | Endpoint-Cond. % | Difference");
+    println!("---------|-----------------|------------------|-----------");
+    for (gap_size, stats) in &exp_g_results {
+        let prime_pct = *stats.get("prime_bounded_pct").unwrap();
+        let control_pct = *stats.get("endpoint_conditioned_pct").unwrap();
+        let diff = *stats.get("difference").unwrap();
+        println!("{:8} | {:13.2}% | {:14.2}% | {:>+9.2}%",
+            gap_size, prime_pct, control_pct, diff);
+    }
+
+    println!("\nIf endpoint-conditioned controls reproduce the observed distributions,");
+    println!("the mechanism is identified as modular constraints on endpoints.");
+    println!("If not, something additional about consecutive primes remains unexplained.");
 }
 
 pub fn show_riemann_station() {
@@ -272,6 +291,7 @@ mod tests {
     #[test]
     fn test_structural_classification() {
         // Verify that integers between primes can be classified
+        use crate::riemann::integer_structure::classify_range;
         let counts = classify_range(10, 20);
         assert!(counts.contains_key("prime"));
         assert!(*counts.get("prime").unwrap() > 0);

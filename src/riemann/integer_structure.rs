@@ -121,6 +121,7 @@ pub fn is_square(n: u64) -> bool {
 
 /// Classify integer by structural type (mutually exclusive for legacy use)
 #[derive(Debug, Clone, Copy)]
+#[derive(PartialEq)]
 pub enum IntegerClass {
     One,
     Prime,
