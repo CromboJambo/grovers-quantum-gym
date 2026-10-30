@@ -536,6 +536,101 @@ pub fn experiment_g_endpoint_conditioned(limit: usize) -> Vec<(u64, std::collect
     results
 }
 
+/// Experiment H: Largest Prime Factor Distribution
+/// Compare the distribution of largest prime factors in interior integers vs controls.
+/// If consecutive primes "shield" their gap from large prime factors, we should see
+/// a different LPF distribution than in control intervals.
+pub fn experiment_h_largest_prime_factor(limit: usize) -> Vec<(u64, std::collections::HashMap<String, f64>)> {
+    use crate::riemann::integer_structure::{largest_prime_factor};
+
+    let gaps = prime_gaps_up_to(limit);
+    let gap_sizes = [2u64, 4, 6, 8];
+    let primorial: u64 = 2 * 3 * 5 * 7 * 11; // 2310
+
+    fn is_coprime(n: u64, m: u64) -> bool {
+        let mut a = n;
+        let mut b = m;
+        while b != 0 {
+            let t = b;
+            b = a % b;
+            a = t;
+        }
+        a == 1
+    }
+
+    fn generate_control_intervals(gap_size: u64, primorial: u64, count: usize) -> Vec<(u64, u64)> {
+        let mut intervals = Vec::new();
+        let mut n = 100;
+        while intervals.len() < count && n < 50000 {
+            if is_coprime(n, primorial) && is_coprime(n + gap_size, primorial) {
+                intervals.push((n, n + gap_size));
+            }
+            n += 1;
+        }
+        intervals
+    }
+
+    fn lpf_bucket(lpf: u64) -> &'static str {
+        if lpf <= 11 { "≤11" } else if lpf <= 31 { "12-31" } else if lpf <= 100 { "32-100" } else { ">100" }
+    }
+
+    let mut results = Vec::new();
+
+    for &gap_size in &gap_sizes {
+        // Analyze actual prime gaps of this size
+        let relevant_pairs: Vec<(u64, u64)> = gaps.iter()
+            .filter(|&&(p1, p2, g)| g == gap_size)
+            .map(|&(p1, p2, _)| (p1, p2))
+            .collect();
+
+        if relevant_pairs.is_empty() { continue; }
+
+        // Distribution of LPF buckets for prime-bounded intervals
+        let mut prime_buckets: std::collections::HashMap<&'static str, u64> = std::collections::HashMap::new();
+        let mut prime_total = 0;
+        for &(p1, p2) in &relevant_pairs {
+            for n in (p1 + 1)..p2 {
+                prime_total += 1;
+                let lpf = largest_prime_factor(n);
+                *prime_buckets.entry(lpf_bucket(lpf)).or_insert(0) += 1;
+            }
+        }
+
+        // Distribution for endpoint-conditioned controls
+        let control_intervals = generate_control_intervals(gap_size, primorial, 50);
+        let mut control_buckets: std::collections::HashMap<&'static str, u64> = std::collections::HashMap::new();
+        let mut control_total = 0;
+        for &(a, b) in &control_intervals {
+            for n in (a + 1)..b {
+                control_total += 1;
+                let lpf = largest_prime_factor(n);
+                *control_buckets.entry(lpf_bucket(lpf)).or_insert(0) += 1;
+            }
+        }
+
+        // Compute percentages and differences
+        let mut stats: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        for bucket in ["≤11", "12-31", "32-100", ">100"] {
+            let prime_pct = if prime_total > 0 {
+                *prime_buckets.get(bucket).unwrap_or(&0) as f64 / prime_total as f64 * 100.0
+            } else { 0.0 };
+            let control_pct = if control_total > 0 {
+                *control_buckets.get(bucket).unwrap_or(&0) as f64 / control_total as f64 * 100.0
+            } else { 0.0 };
+
+            stats.insert(format!("prime_{}", bucket), prime_pct);
+            stats.insert(format!("control_{}", bucket), control_pct);
+            stats.insert(format!("diff_{}", bucket), prime_pct - control_pct);
+        }
+        stats.insert("prime_total".to_string(), prime_total as f64);
+        stats.insert("control_total".to_string(), control_total as f64);
+
+        results.push((gap_size, stats));
+    }
+
+    results
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

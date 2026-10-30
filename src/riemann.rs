@@ -14,7 +14,7 @@ mod prime_gaps;
 mod zeta_analysis;
 
 use integer_structure::{factorize, mobius, omega, big_omega, is_semiprime, is_prime_power, is_squarefree};
-use prime_gaps::{prime_gaps_up_to, gap_distribution, maximal_gaps, twin_primes, experiment_d_parity_control, experiment_e_residues, experiment_f_topology, experiment_g_endpoint_conditioned};
+use prime_gaps::{prime_gaps_up_to, gap_distribution, maximal_gaps, twin_primes, experiment_d_parity_control, experiment_e_residues, experiment_f_topology, experiment_g_endpoint_conditioned, experiment_h_largest_prime_factor};
 use zeta_analysis::{verify_euler_product, verify_mobius_identity, pnt_comparison, rh_gap_bound};
 
 /// Experiment: Structural classification using independent properties
@@ -116,6 +116,26 @@ fn structural_experiment(limit: usize) {
     println!("\nIf endpoint-conditioned controls reproduce the observed distributions,");
     println!("the mechanism is identified as modular constraints on endpoints.");
     println!("If not, something additional about consecutive primes remains unexplained.");
+
+    // Experiment H: Largest prime factor distribution
+    println!("\n--- EXPERIMENT H: LARGEST PRIME FACTOR DISTRIBUTION ---");
+    println!("Does the 'shield' effect extend to large prime factors?");
+    println!("If p and q are consecutive primes, can their gap contain integers with");
+    println!("very large prime factors? If not, this would be a deeper structural property.\n");
+
+    let exp_h_results = experiment_h_largest_prime_factor(limit);
+    for (gap_size, stats) in &exp_h_results {
+        println!("Gap size {}:", gap_size);
+        for bucket in ["≤11", "12-31", "32-100", ">100"] {
+            let prime_pct = *stats.get(&format!("prime_{}", bucket)).unwrap();
+            let control_pct = *stats.get(&format!("control_{}", bucket)).unwrap();
+            println!("  LPF {}: prime-bounded={:.1}%, endpoint-conditioned={:.1}%",
+                bucket, prime_pct, control_pct);
+        }
+    }
+    println!("\nIf the distributions are similar, the 'shield' effect is limited to small primes.");
+    println!("This would confirm that consecutive primes impose modular constraints");
+    println!("on their gap's factorization structure, but not a deeper property.");
 }
 
 pub fn show_riemann_station() {

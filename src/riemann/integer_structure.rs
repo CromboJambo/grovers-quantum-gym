@@ -119,6 +119,18 @@ pub fn is_square(n: u64) -> bool {
     sqrt * sqrt == n
 }
 
+/// Largest prime factor of n
+pub fn largest_prime_factor(n: u64) -> u64 {
+    let factors = factorize(n);
+    factors.last().map(|(p, _)| *p).unwrap_or(1)
+}
+
+/// Smallest prime factor of n
+pub fn smallest_prime_factor(n: u64) -> u64 {
+    let factors = factorize(n);
+    factors.first().map(|(p, _)| *p).unwrap_or(1)
+}
+
 /// Classify integer by structural type (mutually exclusive for legacy use)
 #[derive(Debug, Clone, Copy)]
 #[derive(PartialEq)]
