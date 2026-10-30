@@ -1,0 +1,2289 @@
+arXiv:2609.17642v1 [physics.flu-dyn] 15 Sep 2026
+
+Self-similar swirl between contracting porous walls:
+the GD1998 exact Navier–Stokes solution revisited in the similarity
+variables of the OpenAI 2026 forced blow-up construction
+Ramani Duraiswami*
+Preprint, 15 September 2026
+
+In memory of Nail A. Gumerov (d. 2022), co-author of GD1998, the 1998 work that this paper builds on.
+Abstract
+When the details of the OpenAI claim of finite-time blow-up for the forced Navier–Stokes equations
+(OpenAI 2026 below) reached us on 12 September 2026, we wanted to check two things: whether the
+OpenAI construction is computable, and whether it can be related to a fluids experiment one could propose to verify it. Its object is an axisymmetric swirl core in cylindrical coordinates, written in anisotropic
+similarity variables. The author was immediately struck by its similarity to work he had done with Nail
+Gumerov in 1998 (GD1998 below), where they had obtained an exact steady solution for swirl between
+porous coaxial cylinders in the same coordinates. This was computed by Chebyshev collocation with
+continuation in the radial Reynolds number. We show that the GD1998 boundary value problem does not
+recast into the similarity variables, because the polynomial-in-z closure fails, and that its generalization
+is a two-dimensional profile problem between porous walls held at fixed similarity radii, second order
+in the radial variable X and first order in the time-like axial variable η. We solve it by tensor-product
+Chebyshev collocation with an explicitly pinned pressure gauge, a complex-step Newton method and
+pseudo-arclength continuation, verify the discretization against symbolic derivations, an exact exterior
+solution and a manufactured solution, and sweep the radial Reynolds number V0 ∈ [−50.9, 50.1], the
+wall swirl Fhi ∈ [1, 120] and a symmetry-breaking datum. On the full range of η the solution is a single
+smooth branch for inflow below about 9; above it the symmetric branch is an S-curve in swirl whose
+upper fold, at (Fhi , V0 ) = (40.47, −10), is converged on three grids, and whose returning sheet is not
+converged in η on any grid tried. Two results of method govern these statements: cutting the η range
+turns an outflow boundary into an inflow boundary once |U | exceeds Dηc /(1 − ηc2 ) at the cut and manufactures a spurious bifurcation structure; and an inner-wall layer at strong inflow that 64 plain radial
+modes do not resolve and 32 mapped ones do. Deflated Newton shows that the Dirichlet axis problem
+has no resolution-stable solution, which fixes the formulation of the blow-up core as a Cauchy problem
+in X, for which we give the recursion, the series and the march. Imposing the moment identities of the
+OpenAI 2026 construction on that core shows that they cannot be met by a core symmetric about the
+dividing plane: the blow-up core is an axial through-flow, as its authors chose, and a non-symmetric
+core with free annulus content meets the identities to 0.2% at the smallest exterior amplitude tried, with
+an axis pressure deficit of 0.34–0.61 times the peak swirl velocity squared. For the second question we
+work out what a real fluid does with the singularity: the blow-up is energetically free, the anomalous
+factor τ −h is 1.4 at τ = 10−15 , and the first continuum assumption to fail is cavitation in a liquid and
+compressibility in a gas, both while τ −h is within 12% of unity. Dynamic rescaling shows the profile to
+be an attractor of the collapse at weak inflow and along the approach to the fold, which is a saddle-node;
+* Department of Computer Science, University of Maryland, College Park; also a member of the Applied Mathematics and
+Scientific Computing Program. Email: ramanid@umd.edu. ORCID: 0000-0002-5596-8460.
+
+1
+
+at moderate inflow and strong swirl the spectrum does not converge with the axial resolution, the wandering modes living on a sonic line of the axial transport next to the outflow boundary, and the stability
+question there is left open. A porous-wall swirl chamber of the GD1998 type driven toward collapse is
+proposed as the experiment, with axis cavitation inception and the loss of the steady state at the fold as
+its two observables. Nothing found suggests that the mechanism is reachable in a flow one computes or
+builds, and the forced theorem says nothing about the unforced equations of engineering practice, which
+this study leaves as it found them. The solver, its tests, the reports and the research log accompany the
+paper; the open items are listed with the step that would settle each.
+Status. This is the record of a four-day study, 12 to 15 September 2026, and it is complete as it stands: the
+author is not continuing it. Everything stated as a result has been computed and checked as described in
+Section 5 and in the tests that accompany the code. The open items are stated where they arise and collected
+in Section 9, each with the step that would settle it. The solver, its tests, the reports and the research log are at
+https://gitlab.umiacs.umd.edu/ramanid/swirl-collapse and accompany the paper as
+ancillary files.
+Use of generative AI. This work was carried out between 12 and 15 September 2026 by the author working
+with Claude Fable 5.1 (Anthropic), a generative AI system used through Claude Code. Claude wrote and
+tested the solver and analysis code under the author’s direction, ran the computations on a laptop and on the
+Zaratan and Nexus clusters, kept the research log, and drafted and revised the text of this paper; the author
+set the questions, supplied the 1998 work and its method, checked the derivations against the source paper,
+made the scientific judgments and edited the text. The author takes full responsibility for all contents. Claude
+is named here, rather than as an author, in accordance with arXiv’s policy on generative AI.
+
+1
+
+Introduction
+
+On 8 September 2026 a construction of finite-time blow-up for the three-dimensional Navier–Stokes equations with a smooth, compactly supported force was released by OpenAI [5]; we refer to it as OpenAI 2026
+throughout. When the claim came up we wanted to check two things: (a) whether the OpenAI 2026 construction is computable, that is, whether its leading-order profile can be produced as a number on a grid and
+its force evaluated; and (b) whether it can be related to an actual fluids experiment one could propose to
+verify it. Everything in this paper serves one of the two; Figure 1 shows the profile computed here.
+The claim was announced on 8 September 2026 and drew wide attention that week, but the author
+did not see its details then. On the morning of Saturday 12 September the author read the OpenAI 2026
+construction, saw that its object is a vortical flow, a swirl core in cylindrical coordinates, and recognized the
+geometry of the porous-cylinder problem he had solved with Gumerov in 1998 [1], referred to as GD1998
+throughout. The work reported here began that day; the recast, the solver, its verification, the sweep, the
+axis core, the estimates and the stability analysis were done between 12 and 15 September 2026, by the
+author working with Claude as described in the statement on generative AI on page 2. Navier–Stokes is not
+the author’s research area today; this paper reports what someone returning to a problem left in 1998, with
+a validated solver and an AI collaborator, could establish in four days, and it ends with the questions that
+remain, stated so that others can take them up. The short answer to both questions is in Section 9: the profile
+can be computed and its core is what the authors of OpenAI 2026 chose; the annulus that sustains it lives
+at radii no computation reaches; a real fluid leaves the equations’ description long before the singularity;
+and nothing here bears on the unforced equations that engineering practice solves, which the forced theorem
+also leaves untouched.
+The object of the OpenAI 2026 construction is an axisymmetric swirl core, spun up by inward radial flow
+and evacuated axially, written in anisotropic similarity variables. Its geometry is that of a flow we know: in
+1998 the author and Gumerov found an exact steady solution for swirl between two rotating porous coaxial
+cylinders with prescribed filtration through the walls, motivated by a patented microfiltration device [1, 2];
+the flow reduces to a nonlinear boundary value problem for one fourth-order ordinary differential equation,
+2
+
+which they solved by Chebyshev collocation with relaxation in the radial Reynolds number R. Gol’dshtik
+and Ersh [3, 4] had treated the case without the inner cylinder by shooting and used it for stability studies
+of pipe flow with suction. Inward spiral, angular-momentum transport by the inflow, axial outflow, and a
+symmetry-breaking parameter that controls the axial velocity on the dividing plane are common to both.
+For question (a) the GD1998 problem is a testbed, not the object. The OpenAI 2026 theorem concerns
+an axis core joined to a heat-equation exterior through an annulus in which an oscillatory force supplies
+the momentum the leading-order profile lacks; nothing in it concerns wall-bounded flow with prescribed
+transpiration. What the porous annulus offers is a well-posed problem in the same variables, with the same
+leading-order operators, on which a solver for the core can be validated and on which the pitfalls of those
+operators can be found before they are met on the axis. We found two, a domain rule and a wall layer, and
+one negative result that fixes the formulation of the core. Along the way the steady GD1998 boundary value
+problem turns out not to “recast” into the similarity variables: the closure that made it one-dimensional
+fails, and what replaces it is a two-dimensional profile problem in the radial similarity variable X and the
+axial one η, second order in X and first order in η, with η playing the role of time. For question (b) the
+similarity scalings alone say what a real fluid would do with the singularity and which continuum assumption
+breaks first; the porous-wall chamber of GD1998 is the natural apparatus, and the sweep supplies its second
+1.00
+
+axial through-flow
+0.75
+
+inflow
+
+1.0
+
+0.50
+0.8
+
+0.25
+
+0.00
+
+heat
+exterior
+
+heat
+exterior
+
+0.4
+
+0.25
+
+0.2
+
+0.50
+
+return flow
+
+return flow
+
+0.75
+
+core
+1.00
+
+0.6
+
+swirl velocity u = 2X F at q = 1
+
+z (units of qD); ±1 are the singular ends
+
+inflow
+
+2
+
+1
+
+0
+
+r (units of q)
+
+0.0
+
+annulus
+1
+
+2
+
+Figure 1: The blow-up flow as computed: the leading-order profile of this work that meets the moment
+identities of OpenAI 2026 at c∞ √
+= 0.2 (Section 7), in the meridional plane at the reference instant q = 1.
+Color is the swirl velocity uθ = 2XF , the lines are streamlines of the meridional velocity (ur , uz ), the
+axis is at r = 0, the dividing plane at z = 0, the singular ends at z = ±1; dashed lines mark the core, the
+forced annulus and the heat exterior, which carries swirl only. The three motions of the construction appear,
+inflow, axial through-flow along the axis and return flow at larger radius, but at this amplitude the circulation
+Reynolds number is of order one, so a fluid particle turns through a fraction of a revolution per decade of
+time to the singularity: the collapse is of the profile, not a winding of material lines.
+3
+
+observable.
+The remainder of the paper is organized as follows. Section 2 states the OpenAI 2026 result, introduces
+its similarity variables and profile variables with the physical names we use for them, writes down the
+leading-order core system, and says which of its branches we pursue and which we do not. Section 3
+reproduces the GD1998 formulation and solution and connects each of its elements to those branches, ending
+with the dictionary between the two problems and the reason the GD1998 problem does not recast. Section 4
+describes the collocation, the pressure gauge, the Newton method and the continuation. Section 5 reports the
+verification against symbolic derivations, an exact exterior solution, a manufactured solution and a resolution
+study. Section 6 reports the parameter sweep in the order in which its lessons were learned: the domain rule,
+the results on the full range, the wall layer at strong inflow, the fold locus and the stability of the profile
+under the collapse. Section 7 reports the negative result for the Dirichlet axis problem, the Cauchy-in-X
+formulation that replaces it and the results of its series, march, join and matching stages. Section 8 works out
+what a fluid would do with the singularity and proposes the experiment. Section 9 concludes with what is
+established, what is open, and where the material is; Appendix A introduces each numerical method briefly
+and points to the code. Figure 2 sets the three flow scenarios side by side; Tables 2 and 4 summarize the
+methods and the parameter ranges.
+
+2
+
+The OpenAI 2026 construction, recast
+
+The result. Theorem 1.1 of OpenAI 2026 [5] states that for every ν > 0 there exist a force f ∈ Cc∞ (R3 ×
+(0, ∞)) and a smooth solution (u, p) on R3 × [0, 1) with u(·, 0) = 0, compact spatial support, supt ∥u∥L2 <
+∞ and lim supt↑1 ∥u∥L∞ = ∞. This addresses alternatives (C) and (D) of the Clay problem statement,
+breakdown with a smooth compactly supported force; the unforced alternatives are untouched. The proof
+was produced by an automated system and is accompanied by a Lean 4 formalization; as of 12 September
+2026 there was no refereed independent verification. Nothing in the theorem concerns wall-bounded flow.
+Similarity variables and the leading-order core. With ν = 1, cylindrical coordinates (r, θ, z) and axisymmetric fields, the OpenAI 2026 construction uses
+τ = 1 − t,
+
+A = 12 + h,
+X=
+
+r2
+,
+2q
+
+D = 21 − h,
+
+z = q D η,
+
+d = 1 − η2,
+
+L = 1 − 2hη 2 ,
+
+τ = q(1 − η 2 ),
+(1)
+
+with 0 < h < 1/100. We give these quantities physical names and use the names alongside the symbols.
+τ = 1 − t is the time to the singularity; q is the collapse scale, the shrinking length-squared scale of the core,
+equal to τ on the plane z = 0; X = r2 /2q is the viscous similarity radius, the squared radius measured
+in units of the collapse scale; η = z/q D is the axial similarity coordinate, and it is time-like, since at fixed
+collapse scale η → ±1 means τ → 0: η = 0 is the dividing plane and η = ±1 are the singular ends. h is the
+anisotropy exponent and A, D the collapse exponents of velocity and height; d = 1 − η 2 and L = 1 − 2hη 2
+are the end factors, both equal to one on the dividing plane and d vanishing at the singular ends. The smooth
+profile variables are
+√
+uz = q −A U,
+r ur = Xv0 ,
+p = q −2A Π.
+(2)
+uθ = q −A 2X F,
+√
+F is the reduced swirl, smooth on the axis; E = 2X F is the swirl profile and H = 2XF the angular√
+momentum profile (ruθ = q −A q H); U is the axial profile; V0 = Xv0 = rur is the wall inflow, which
+with ν = 1 is the radial Reynolds number, and v0 its reduced form; Π is the similarity pressure and its
+
+4
+
+(b) this work: collapsing
+annulus in (X, η)
+
+(a) 1998: steady swirl
+between porous cylinders
+
+(c) the 2026 construction
+along X
+
+step 2: join + pulse stress
+
+η = +1
+Vri
+
+Vro
+
+V0
+
+step 1: Cauchy in X
+forced annulus
+
+outflow
+
+η=0
+
+uz = uz1 + uz2ζ
+
+Ro
+
+Ri
+
+Xhi
+
+η = −1
+
+Xlo
+
+axis
+core
+
+0
+
+heat
+exterior
+
+pulse
+stress
+
+Xa
+
+Xb
+
+X
+
+η = r/Ro, ζ = z/Ro,  = Ro|Vro|/ν
+
+r = √ 2qX , z = q Dη, τ = q(1 − η 2) → 0
+
+uθ = q −A√ 2X F, uz = q −AU, p = q −2AΠ
+
+walls rotate: Vto, Vti; unbounded in z
+
+F, V0 given, U = 0 at both walls
+
+axis data F0, U0, Π0; exterior E = c∞X −AH
+
+(a) 1998
+
+(b) this work
+
+(c) 2026 construction
+
+time
+
+steady
+
+self-similar collapse, τ → 0
+
+self-similar collapse
+
+axial flow
+
+uz = uz1 + uz2ζ, linear in ζ
+
+2D profile U(X, η)
+
+2D profile, η time-like
+
+walls
+
+fixed radii Ri, Ro
+
+contracting; fixed Xlo, Xhi
+
+none: core, annulus, exterior
+
+radial flow
+
+filtration Vri, Vro
+
+V0 = rur given at both walls
+
+self-induced, v0 = V0/X
+
+Figure 2: The three flow scenarios. (a) The GD1998 configuration: steady swirl between two rotating
+porous cylinders with radial filtration through both walls and an axial flow linear in ζ, unbounded in z. (b)
+The √
+setting of this work: a porous annulus held at fixed similarity radii Xlo , Xhi whose physical radii shrink
+like 2qX as τ → 0; η is time-like, with the dividing plane η = 0 in the middle and outflow at η = ±1,
+so no boundary data are imposed in η; the lighter copy is the same annulus at a later time. (c) The object
+of the OpenAI 2026 theorem: an axis core determined by analytic axis data, a forced annulus in which the
+pulses supply the stress that the leading-order residual demands, and the heat exterior. The strip below lists
+the differences that matter for the numerics.
+value on the inner boundary, Π0 (η), the pressure datum. For any b the time and axial derivatives act on q b f
+through the operators
+∂t (q b f ) = q b−1 Tb f,
+
+Tb f = L−1 (−bf + Dηfη + XfX ),
+
+∂z (q b f ) = q b−D Zb f,
+
+Zb f = L−1 (2bηf + dfη − 2ηXfX ),
+
+(3)
+
+which we verified symbolically (Section 5). Substituting (2) into the axisymmetric Navier–Stokes equations
+and collecting powers of q, the leading balance retains radial viscosity and drops axial viscosity and radial
+
+5
+
+inertia, which are O(q 2h ) smaller:
+T−(A+ 1 ) F + v0 (XFX + F ) + U Z−(A+ 1 ) F − 2 (XF )XX = 0,
+
+[θ]
+
+(4a)
+
+T−A U + Xv0 UX + U Z−A U + Z−2A Π − 2 (XUX )X = 0,
+
+(Xv0 )X = L−1 2AηU − dUη + 2ηXUX ,
+
+[z]
+
+(4b)
+
+[cont.]
+
+(4c)
+
+[rad.]
+
+(4d)
+
+2
+
+2
+
+2
+
+ΠX = F .
+
+Equations (4c)–(4d) are eqs. (4.7) of OpenAI 2026; vanishing of the residuals of (4a)–(4b) is its inner-region
+system (4.13), and in the pulse annulus those residuals are instead the divergence of the stress the oscillatory
+force supplies. The pressure datum Π0 (η) := Π(Xlo , η) is a free function, the analogue of the constants
+(α, β) in (5).
+The system is second order in the viscous similarity radius X and first order in the axial similarity
+coordinate η. The coefficient of Fη in (4a) is L−1 (Dη + dU ); at the singular ends η = ±1 it equals ±D/L,
+so both ends are outflow and no boundary condition may be imposed there, while characteristics emanate
+from the curve Dη + dU = 0 near the dividing plane η = 0. The sign of the axial profile U (X, 0) on the
+dividing plane decides which way information leaves it; it is the OpenAI 2026 counterpart of the GD1998
+parameter β − G of Section 3.
+The heat exterior. Outside the core, where U and v0 are negligible, (4a) reduces to a linear equation for
+the swirl alone, T−(A+1/2) F − 2(XF )XX = 0, which is the azimuthal heat equation ∂t uθ = ν(∆ − r−2 )uθ
+√
+of a decaying line vortex written in the similarity
+variables.
+OpenAI
+2026
+solves
+it
+exactly:
+E
+=
+2XF =
+R ∞ −v h
+−h
+−A
+−1
+dv, and this heat exterior is the far field
+c∞ X H(2d/X) with H(Z) = Γ(1 + h)
+0 e v (1 + Zv)
+into which the forced annulus feeds the core. It has no counterpart in GD1998, where the outer porous wall
+closed the domain, and its addition to our problem plays five roles below. It is the exact solution against
+which the discretization is verified (Section 5). Its swirl tail uθ ∼ r−1−2h is what the GD1998 tail is matched
+to, giving R = 2 + 2h (Section 3). It is smooth but not analytic at the singular ends η = ±1, and this alone
+makes the convergence in η algebraic on the full range (Sections 5 and 6). In the axis problem it is the
+target of the
+identities do not fix, its pressure
+R ∞join:2 its amplitude c∞ is the one normalization the 2moment
+−2h
+Πext = − X Fext dx fixes the axis pressure datum, and its tail c∞ Xb /(4h) in the identity S(∞, η) = 0
+is the term that forces the axial through-flow (Section 7). And because H(Z) ∼ Z −h at large Z, toward the
+axis it behaves as the potential vortex F ∼ 0.706/X, so core and exterior are not analytic continuations of
+each other and must meet in the annulus, where the pulses act.
+Which branches we pursue. The OpenAI 2026 construction has several parts, and we take up four of
+them. (i) The leading-order inner system in profile variables, eq. (4.13) of OpenAI 2026, solved as a
+boundary-value problem between porous walls held at fixed viscous similarity radii: this is the sweep of Section 6. (ii) The axis core as the Cauchy problem in X of Proposition B.2 of OpenAI 2026, series and march
+(Section 7). (iii) The join of that core to the heat exterior with the stress of Section 3.2 of OpenAI 2026, the
+moment identities of its Theorem 4.6(v) and the cone condition of its Section 4.3, implemented and tested:
+the identities force an axial through-flow on the dividing plane and are met to 0.2% by a non-symmetric
+core with free annulus content at the smallest exterior amplitude tried, while the cone fails on every smooth
+profile (Section 7). (iv) The estimates of where a real fluid arrests the collapse (Section 8). We do not
+pursue the pulse construction itself, the radial oscillation with phase N log X of Propositions 7.5 and C.2
+of OpenAI 2026by which the annulus stress is realized as a smooth force; nor the higher-order corrections
+in q 2h to the leading-order system; nor the full forced Navier–Stokes evolution at finite viscosity, which is a
+computation of a different scale.
+
+6
+
+3
+
+The GD1998 solution
+
+Two vertical porous coaxial cylinders of radii Ri < Ro rotate with tangential velocities Vti , Vto ; liquid
+filters through them with radial velocities Vri , Vro and enters and leaves through the annuli at the bottom
+and top. This porous-wall geometry is the annulus of branch (i) of Section 2, with the walls held at fixed
+radii rather than at fixed viscous similarity radii, and the chamber built on it at Dynaflow is the apparatus of
+branch (iv). With η = r/Ro , ζ = z/Ro , ηi = Ri /Ro , velocities scaled by a reference V∗ , R = Ro V∗ /νl ,
+P = (p − p∗ )/(ρl V∗2 ) and G = Ro g/V∗2 , GD1998 sought steady axisymmetric solutions of the form
+ur = ur (η),
+
+uz = uz1 (η) + uz2 (η) ζ,
+
+uθ = uθ (η),
+
+P = Π(η) − 12 αζ 2 − βζ.
+
+(5)
+
+Separation of the variables η and ζ in the Navier–Stokes equations gives
+1
+(ηur )′ + uz2 = 0,
+η
+1
+′
+u2
+ur u′r − θ + Π′ = R−1 (ηur )′ ,
+η
+η
+1
+′
+u
+u
+r
+θ
+ur u′θ +
+= R−1 (ηuθ )′ ,
+η
+η
+R−1
+ur u′z1 + uz1 uz2 = (β − G) +
+(ηu′z1 )′ ,
+η
+R−1
+(ηu′z2 )′ ,
+ur u′z2 + u2z2 = α +
+η
+
+(6)
+(7)
+(8)
+(9)
+(10)
+
+with ur = uri , uθ = uti , uz1 = uz2 = 0 at η = ηi and ur = uro , uθ = uto , uz1 = uz2 = 0 at η = 1.
+Equations (6) and (10) close on (ur , uz2 ); eliminating uz2 and the constant α by one differentiation gives a
+fourth-order equation for the radial velocity alone,
+h
+2 ′′′
+3 ′′
+3 ′
+3
+1
+1 ′ 2
+3
+4 2i
+′′′
+′ ′′
+′′
+′
+uIV
++
+u
+−
+u
++
+u
+−
+u
+=
+R
+u
+u
+−
+u
+u
+−
+u
+u
+−
+(u
+)
+−
+u
+u
++
+u , (11)
+r
+r
+r
+r
+r
+r
+r r
+r
+r
+η r
+η2 r η3 r η4
+η
+η r
+η2
+η3 r
+subject to ur = uri , u′r + ur /ηi = 0 at ηi and ur = uro , u′r + ur = 0 at 1. Given ur , equations (9) and (8)
+are linear in uz1 and uθ , and Π follows from (7) up to a constant. The parameter R controls the strength of
+the nonlinearity; the combination β − G is the axial pressure gradient in excess of hydrostatic, and
+β=G
+
+=⇒
+
+uz1 ≡ 0,
+
+uz z=0 = 0,
+
+(12)
+
+which is the reflection-symmetric case used by Gol’dshtik and Ersh; β = G is the GD1998 form of the
+reflection symmetry U (X, 0) = 0 about the dividing plane that organizes branch (i). The OpenAI 2026 core
+is not of this kind: its Theorem 4.6(v) forces U (X, 0) ̸= 0 (Section 7), so the case β ̸= G that GD1998
+treated as a perturbation is the one the OpenAI 2026 construction lives in.
+Closed form. When uz2 ≡ 0 and α = 0, (6) integrates to ur = cη −1 , which is admissible only if
+uro = uri ηi = c; with V∗ = |Vro | one has R = Ro |Vro |/νl = Ri |Vri |/νl and c = sgn Vro = ±1, and
+
+
+R(G − β)(ηi2 − 1) η 2 − 1 η cR − 1
+uz1 =
+−
+,
+(13)
+2(2 − cR)
+ηi2 − 1 ηicR − 1
+"
+#
+1
+η 2+cR − 1
+uθ =
+uto + (uti − uto ) 2+cR
+.
+(14)
+η
+ηi
+−1
+7
+
+As Vro → 0 this recovers the flow between rotating coaxial cylinders; at cR = 2 the expressions degenerate
+and their limit contains logarithms. The swirl tail uθ ∼ η 1+cR and its degeneracy at |cR| = 2 are the
+GD1998 counterpart of the exterior tail match of the OpenAI 2026 construction, which fixes R = 2 + 2h
+(see the dictionary below). Everything in this section is from [1].
+Method. GD1998 discretized (11) by Chebyshev collocation on Gauss–Lobatto points [11, 12], collocating the equation at the interior points and the boundary conditions at the end points, and solved the nonlinearity by successive substitution: the linear R = 0 problem first, then the nonlinear right-hand side treated
+as known with the linear operator LU-factored once, with R increased gradually to its target; this relaxation
+in R is the ancestor of the pseudo-arclength continuation of Section 4, which replaces it because it cannot
+pass a fold. Collocation was preferred to the shooting of Gol’dshtik and Ersh because their minimization
+over several shooting parameters was ill-posed. The solver was validated against (13)–(14) over R ∈ [0, 20]
+and tangential Reynolds numbers to 1000; the worked example was ηi = 0.2, R = 1, β − G = 0, uto = 50,
+uro = uri = −1, uti = 0, and particle paths in that flow were integrated with a fourth-order Runge–Kutta
+method.
+√
+Dictionary. With both formulations in hand: the GD1998 radius η98 = r/Ro corresponds to 2X, the
+√
+square root of twice the viscous similarity radius, up to the shrinking scale q; ζ to the axial similarity
+coordinate η, the linear ansatz uz = uz1 + uz2 ζ being the two-term Taylor expansion of U (X, η) about
+η = 0 with uz1 ↔ U (X, 0) and uz2 ↔ Uη (X, 0); rur = c of (13) to the wall inflow V0 = Xv0 , so that the
+GD1998 radial Reynolds number is O(|V0 |) and the Rer = O(1) of OpenAI 2026 is the GD1998 regime
+R = O(1); uto to the reduced swirl F at the outer wall. Matching the GD1998 swirl tail η 1+cR to the
+exterior uθ ∼ r−1−2h of the OpenAI 2026 construction requires R = 2 + 2h with inflow, which as h → 0
+lands on the logarithmic degeneracy |cR| = 2 of (13)–(14). The match is suggestive only: the GD1998
+tail is a steady advection–diffusion balance for the circulation, the OpenAI 2026 one unsteady self-similar
+diffusion.
+Why the GD1998 problem does not recast. One cannot substitute the ansatz (5) into (4): the operators
+(3) carry the η-dependent coefficients d and L, so a profile polynomial in η does not close. The correct
+generalization is the two-dimensional problem (4) on an annulus
+Xlo ≤ X ≤ Xhi between porous walls
+√
+held at fixed similarity radii (physical radii shrinking like 2qX), with prescribed swirl F and flux V0
+at both walls and U = 0 there, as in the GD1998 boundary conditions. The question then is whether a
+self-similar collapsing swirl exists between such walls; Section 6 answers it.
+
+4
+
+Numerical method
+
+We use tensor-product Chebyshev–Gauss–Lobatto collocation on NX × Nη nodes (Figure 3) with differentiation matrices in each direction and spectral integration in X for V0 and Π [10]. The unknowns are the
+reduced swirl F and the axial profile U at all nodes and the pressure datum Π0 at the η nodes when the wall
+inflow is prescribed at both walls. Equations (4a)–(4b) are collocated at the interior X nodes and at all η
+nodes including the ends, the polynomial ansatz selecting the smooth branch as it does for a regular-singular
+ordinary differential equation collocated at its singular point; Dirichlet data for F, U are imposed at the walls
+and the flux v0 = V0 /X at the outer wall.
+Pressure gauge. The discrete Jacobian has one exact null direction, Π0 7→ Π0 +κ(1−η 2 )−2A , the physical
+gauge p 7→ p + κτ −2A . We fix it by replacing the outer-flux collocation row at η = 0 with Π0 (0) = 0 and
+report the dropped row as a compatibility residual. This requires an even Nη : the discrete gauge is an exact
+8
+
+outflow at the singular ends
+η = +1
+
+η=0
+
+η = −1
+Xlo , inner porous wall
+
+Xhi , outer
+
+Figure 3: The tensor grid of the annulus problem in the viscous similarity radius X (horizontal, 12 Chebyshev nodes shown) and the axial similarity coordinate η (vertical, 8 nodes), clustered at the walls and at the
+singular ends. The dividing plane η = 0 (blue) carries the gauge pin; the singular ends η = ±1 (red) are
+outflow and receive no boundary data.
+null vector only for symmetric node sets containing η = 0, where the collocated first-order gauge equation
+has an exact even-polynomial solution; for odd Nη the null vector is approximate (σ ≈ 3 · 10−11 ) and
+pinning a flux row makes the reduced system singular.
+Newton and continuation. The Jacobian is formed by complex-step differentiation (exact to roundoff,
+one residual evaluation per unknown) and the Newton system is solved by LU. Table 1 gives the measured
+cost per Newton step on an 8-core laptop and the alternatives we tried; the rank-revealing QR least-squares
+solve reproduces the SVD pseudo-inverse step to 10−12 at a quarter to a ninth of the cost and served as the
+interim solver before the gauge was pinned. Continuation is Keller’s pseudo-arclength method [8] with a
+bordered LU system, the arclength measured in the relative root-mean-square norm of the solution so that
+the step is in parameter units where the solution changes slowly, folds detected by the sign change of the
+parameter component of the tangent and refined by bisection, and simple branch points flagged by a sign
+change of the bordered determinant without a fold. Symmetry-breaking points are confirmed by the parity
+of the Jacobian’s null vector (odd F , even U ) and by the imperfect-bifurcation test, a continuation in the
+asymmetry datum on either side of the suspected point.
+grid
+16 × 8
+24 × 12
+32 × 16
+40 × 20
+
+unknowns
+
+complex-step Jacobian
+
+SVD
+
+RRQR (gelsy)
+
+LU
+
+315
+663
+1139
+1743
+
+0.16 s
+0.16 s
+0.38 s
+∼1 s
+
+0.03 s
+0.15 s
+1.20 s
+1.81 s
+
+0.01 s
+0.04 s
+0.14 s
+0.45 s
+
+0.001 s
+0.005 s
+0.016 s
+0.041 s
+
+Table 1: Cost of one Newton step (best of three, 8-core laptop). With the gauge pinned the Jacobian is the
+remaining cost; a warm-started continuation point takes two Newton iterations.
+
+5
+
+Verification
+
+Every operator, the derivation, and the discretization were checked independently of the sweep (Figure 4
+shows the two solution-test domains):
+
+9
+
+component
+
+GD1998
+
+discretization
+
+Chebyshev colloca- tensor Chebyshev–Gauss–Lobatto in
+tion in η (1D)
+(X, η), even Nη (the discrete gauge is
+an exact null vector only for node sets
+containing η = 0); sinh-mapped X grid
+clustered at the inner wall for strong inflow
+successive substitu- Newton, complex-step Jacobian (exact
+tion, relaxation in R to roundoff, 0.2–1 s)
+LU
+SVD pseudo-inverse → rank-revealing
+QR (4–9× faster, same step to 10−12 )
+→ gauge-pinned LU (10–30× faster
+again)
+natural, in R
+pseudo-arclength with solution-relative
+norm, fold bisection, det-sign branch
+flag
+none
+null-vector parity, projection test (calibrated at three folds: 2–5 · 10−3 ; 10−12
+at a symmetry-breaking point), deltaline imperfect-bifurcation test, deflated
+Newton
+not present
+full range required once |U | >
+Dηc /(1 − ηc2 ); a cut admits inflow and
+produces spurious bifurcations
+R ≤ 20
+inner-wall layer, unresolved on plain
+grids to NX = 64; resolved by the
+mapped grid at 32 × 16
+not present
+Dirichlet form has no resolution-stable
+solution (deflation); Cauchy-in-X core
+by series and filtered march, join to the
+heat exterior, pulse stresses, cone test
+and moment identities of OpenAI 2026
+implemented; identities closed to 0.2%
+at c∞ = 0.2
+
+nonlinear
+solve
+linear solve
+
+continuation
+
+bifurcation
+tests
+
+η domain
+
+strong inflow
+
+axis problem
+
+this work
+
+status
+works; η convergence on the
+full range is algebraic (open)
+
+works
+works
+
+works; needs dsmax ≤ 0.3 at
+sharp folds (slow there)
+works for symmetry breaking;
+projection test blunt at folds
+
+rule established; convergence
+in η then algebraic (open)
+works
+
+works to c∞ = 0.2; larger amplitude bounded by the fold of
+the pressure datum; cone open
+
+Table 2: The numerical methods of GD1998 and of this work, component by component, with the status
+found in the sweep. Timings are for an 8-core laptop.
+axis X = 0, regular singular point
+
+Xhi = 3
+
+manufactured solution, 0 ≤ X ≤ 3
+η = +1
++ηc
+
+heat-exterior test, |η| ≤ ηc
+
+η=0
+
+−ηc
+η = −1
+X=4
+
+X = 0.5
+
+Figure 4: Domains of the two solution tests: the axis grid 0 ≤ X ≤ 3 of the manufactured solution (top),
+with the regular singular point at X = 0 collocated, and the strip 0.5 ≤ X ≤ 4, |η| ≤ ηc of the heat-exterior
+test (bottom), cut short of the singular ends where the exterior is not analytic.
+
+10
+
+1. Lemma 4.1, i.e. the operators (3), verified by brute-force chain rule with sympy (qt = −1/L, qz =
+2ηq 1−D /L); residual zero.
+2. The system (4) derived from the axisymmetric Navier–Stokes equations symbolically and found identical
+to the coded residuals; the neglected terms carry q 2h or q 4h .
+R∞
+3. The exact heat exterior E = c∞ X −A H(2d/X), H(Z) = Γ(1 + h)−1 0 e−v v h (1 + Zv)−h dv, with
+U = v0 = 0 solves (4a) (checked to 10−32 with mpmath). H is C ∞ but not analytic at Z = 0, i.e.
+at η = ±1, so the collocation residual converges geometrically on |η| ≤ ηc < 1 and algebraically on
+[−1, 1]: ∥Rθ ∥∞ = 6.9 · 10−3 , 2.6 · 10−3 , 9.8 · 10−4 , 3.7 · 10−4 at 16 × 8 to 40 × 20 for ηc = 1, against
+1.2 · 10−4 , 4.9 · 10−7 , 1.2 · 10−8 for ηc = 0.6 (the 10−8 floor being the quadrature accuracy of H).
+4. A manufactured solution on the axis domain X ∈ [0, 3]: discrete and symbolic residuals agree to 10−7 ,
+8 · 10−13 and 4 · 10−12 at NX = 12, 20, 28.
+5. The gauge-pinned LU solve reproduces the SVD pseudo-inverse solve to 1.4 · 10−11 in F and U and to
+2 · 10−11 in Π0 modulo the discrete gauge; the arclength code locates the fold of y 2 + λ − 1 = 0 to 10−9
+and flags the branch point of λy − y 3 = 0; symmetric data give |U (X, 0)| = 2 · 10−15 .
+Resolution at the reference point. Six digits at 32 × 16 and seven at 40 × 20: Table 3 is the resolution
+study at the GD1998 example with unit outer swirl (V0 = −1 at both walls, F = 1 at the outer and 0 at the
+inner wall, ηi = 0.2, Xhi = 1, h = 0.01), comparing Chebyshev interpolants at fixed points. Convergence
+is geometric at about a factor 20 per eight added modes per direction; 32 × 16 carries six digits and 40 × 20
+seven. At this point the interpolated values agree across ηc = 0.6, 0.8, 0.9 to 10−11 in F and 10−10 in U , as
+the outflow structure requires (Section 6 shows when this stops being true). The smallest singular value of
+the gauge-fixed Jacobian decays spectrally with resolution (6 · 10−7 , 9 · 10−8 , 6 · 10−9 , 4 · 10−10 , 3 · 10−11
+at 16 × 8 to 48 × 24, ηc = 0.9), a property of the continuous problem rather than of the discretization: the
+η-direction has no boundary condition and the problem is unique only in the analytic class, so polynomials
+of increasing degree approximate the smooth non-analytic homogeneous solutions ever better. Newton
+converges through LU nonetheless at every grid tried; the practical ceiling in double precision is 48 × 24 on
+|η| ≤ 0.9. The pressure datum Π0 is weakly determined by the flux data and is not a converged observable
+(Π0 (0.4) − Π0 (0) still moves at the 10−2 level between 40 × 20 and 48 × 24 while F and U converge to
+10−7 ); the observables are F , U and the wall torques.
+grid
+
+F (0.5, 0.4)
+
+U (0.5, 0.4)
+
+torque at Xhi
+
+Newton time
+
+16 × 8
+24 × 12
+32 × 16
+40 × 20
+48 × 24
+
+1.142390995
+1.141145195
+1.141073855
+1.141070502
+1.141070364
+
+0.007421413
+0.007428200
+0.007428784
+0.007428807
+0.007428808
+
+0.83553529
+0.83595640
+0.83597306
+0.83597372
+0.83597374
+
+0.3 s
+1.0 s
+2.4 s
+3.7 s
+8.9 s
+
+Table 3: Reference point at ηc = 0.9. Values interpolated at (X, η) = (0.5, 0.4); the torque is ∂X (XF ) at
+the outer wall on the dividing plane; the time is a cold Newton solve from rest on an 8-core laptop.
+
+6
+
+Parameter sweep
+
+The sweep followed continuation lines from the reference point in the radial Reynolds number V0 , the
+outer-wall swirl Fhi , the radius ratio ηi , the anisotropy exponent h, the outer similarity radius Xhi and a
+11
+
+dimensionless group
+
+definition
+
+GD1998
+
+this work
+
+−50.9 (inflow) to +50.1 (outflow) at Fhi = 1; to 12
+along the inflow scan at Fhi =
+50; Line 2 traced at V0 =
+−1, −2, −5, −7, −8, −10, −20
+azimuthal Reynolds number Reθ = ruθ /ν = 0–1000
+2–240 at the reference instant
+2Xhi Fhi q −A
+q = 1 (Fhi = 1–120); grows like
+q −A as the collapse proceeds
+= 0–50 (example: 50 at R = up to 240 at V0 = −1, 8 at V0 =
+swirl-to-inflow ratio, outer uto
+Vto /|Vro |
+= 1)
+−10 (at q = 1)
+wall
+2Fhi q −h /|V0 |
+ηp
+0.02–0.51 (reference 0.2)
+radius ratio
+i = Ri /Ro = 0.2
+Xlo /Xhi
+anisotropy exponent
+h, A = 21 + h, – (theorem: 0 < h < 0.01–0.456
+D = 12 − h
+1/100)
+outer similarity radius
+Xhi = Ro2 /2q
+–
+0.48–2.04 (reference 1)
+δ in Fhi (η) = β − G (0 in the example) 0–1 on the 8 × 3 map (cut range)
+symmetry-breaking datum
+Fhi (1 + δη)
+and on four full-range lines; to 3
+on a few cut-range lines
+η domain
+|η| ≤ ηc
+–
+ηc = 0.6, 0.8, 0.9, 1.0; a cut
+is admissible only while |U | <
+Dηc /(1 − ηc2 )
+grids
+NX × N η
+NX + 1 Gauss–Lobatto 16 × 8 to 64 × 40, plain and
+points in X, Nη + 1 in η
+mapped
+radial Reynolds number
+
+Rer = |rur |/ν = 0–20 (inflow)
+|V0 |
+
+Table 4: Dimensionless parameters and the ranges covered. V0 = rur is the radial Reynolds number because
+ν = 1; the azimuthal Reynolds number and the swirl-to-inflow ratio are quoted at the reference instant and
+grow as the collapse proceeds.
+symmetry-breaking datum δ in Fhi (η) = Fhi (1 + δη); about 140 lines and 6600 converged points were
+computed on a laptop in one night. We report the results in the order in which their lessons were learned,
+because the first lesson governs the rest.
+
+6.1
+
+The domain rule
+
+A cut of the axial range is admissible only while the axial profile is small at the cut (Figure 6). The independence of the solution from the cut |η| ≤ ηc observed at the reference point holds only while the cut is an
+outflow boundary, i.e. while Dη + dU points outward at η = ±ηc for every X. This requires
+|U | <
+
+Dηc
+1 − ηc2
+
+at η = ±ηc ,
+
+(15)
+
+which is 2.32 for ηc = 0.9. At the reference point max |U | = 0.06. Along the swirl line at V0 = −1
+the condition fails from Fhi ≈ 8 on: at 7 of 33 radial nodes for Fhi = 10 (max |U | = 4.0), 13 of 33 at
+Fhi = 20, 15 of 33 at Fhi = 50 (max |U | = 22). Characteristics then enter through the cut, the truncated
+problem lacks boundary data, and the collocation supplies them implicitly. The effect is measurable and
+systematic: at (Fhi , V0 ) = (50, −1) the interpolated F (0.5, 0.4) converges to 10.614 on |η| ≤ 0.9 and to
+10.925 on the full range (32 × 16, 40 × 20, 48 × 24 each), 3% apart. On the truncated domain the sweep
+produced an elaborate bifurcation structure: an S-shaped symmetric branch in swirl with folds at Fhi = 22.7
+and 66.95 for V0 = −1 and 21.0 and 68.3 for V0 = −2, three coexisting symmetric solutions between the
+12
+
+azimuthal Reynolds number Reθ = 2 Fhi (at q = 1)
+
+1998 validated range
+
+103
+
+fold of the symmetric branch
+(Rer, Reθ) = (−10, 80.9), three grids
+
+continuation lines (this work)
+δ map base points
+resolution-stable fold
+1998 worked example
+
+V0 = −1
+
+Fhi = 50 scan
+
+102
+
+Fhi = 30 scan
+1998 worked example
+( = 1, uto = 50)
+
+101
+−5
+
+V0 :
+
+−20
+
+−7
+
+Line 1: Fhi = 1
+
+−2
+
+inflow ←
+
+−40
+
+→ outflow (no 1998 counterpart)
+
+−20
+0
+20
+radial Reynolds number Rer = rur/ν = V0
+
+40
+
+Figure 5: The parameter plane covered, in the radial and azimuthal Reynolds numbers at the reference
+instant. The hatched rectangle is the range validated in GD1998 (inflow only); the square is its worked
+example. Blue segments are the continuation lines of this work and open circles the base points of the δ
+map; the diamond is the fold of the symmetric branch at (Rer , Reθ ) = (−10, 80.9), the one bifurcation
+confirmed on three grids and the full η range. The outflow half-plane has no GD1998 counterpart.
+η, axial similarity coordinate
+
+−D
+
+−ηc
+
++D
+
++ηc
+
+cut is outflow only if |U | < Dηc /(1 − ηc2 )
+plain
+mapped, a = 4
+Xlo , inner wall
+
+Xhi
+
+Figure 6: Top: the axial similarity coordinate with the cut at ±ηc ; at the singular ends the transport coefficient
+is ±D and the flow is outward for any axial profile, at the cut it is outward only while |U | < Dηc /(1 − ηc2 ).
+Bottom: sixteen radial nodes on the plain Chebyshev grid and on the sinh-mapped grid clustered at the inner
+wall, where the strong-inflow layer sits.
+folds, symmetry-breaking pitchforks on the middle sheets and an asymmetric branch bridging two of them,
+and snaking in narrow parameter windows above Fhi = 50. None of it exists on the full range. At η = ±1
+the transport coefficient is ±D for any U , since d = 0, so no data are needed there, and the full range is the
+correct domain whenever |U | can exceed about 2; the price is algebraic rather than geometric convergence
+in η, about 1% at 32 × 16 for Fhi = 50. We record (15) as a result of method and now log the outflow
+margin with every solve.
+
+13
+
+6.2
+
+Results on the full range
+
+With ηc = 1, 32 × 16 as the working grid and 40 × 20 and 48 × 24 as checks, the symmetric self-similar
+swirl between contracting porous walls is a single smooth branch in every direction swept at inflow below
+about 9; the structure at stronger inflow is described in Section 6.3.
+• Radial Reynolds number: fold-free from V0 = −50.9 (inflow) to +50.1 (outflow) at Fhi = 1, on 32 × 16,
+40 × 20 and 48 × 24.
+• Outer swirl: fold-free from Fhi = 1 to 120 at V0 = −1, 235 continuation points with step ≤ 0.3, identical
+on 32 × 16 and 40 × 20; fold-free to Fhi = 50 at V0 = −2 and −5 (48 × 24 at −5).
+• Inflow at fixed swirl: fold-free from V0 = −1 to −6 at Fhi = 30 and to −9 at Fhi = 50 (48 × 24).
+• Radius ratio ηi from 0.51 to 0.02 (40 × 20), h from 0.01 to 0.456, Xhi from 0.48 to 2.04: fold-free.
+• The reflection symmetry U (X, 0) = 0 holds to 10−13 on every point of every symmetric line.
+One candidate bifurcation survived the change of domain: a determinant sign change at Fhi = 50 with the
+parity signature of a pitchfork (null vector with F odd and U even; projection of ∂V0 R on the left null vector
+6 · 10−16 ) and an asymmetric solution at δ = 0 on one side. It sits at V0 = −5.75 on 32 × 16, at −7.8 on
+40 × 20, and is absent down to V0 = −9 on 48 × 24. A bifurcation that recedes with every refinement is an
+artifact, here of the wall layer of Section 6.3, and we record it as such.
+Response to asymmetry. The response of the dividing-plane axial velocity to the symmetry-breaking
+datum is single-valued and finite over the whole map, and its linear part changes sign near a swirl of 10 to
+30. The datum δ breaks the reflection symmetry as β − G does in (12). On the full range all 24 continuation
+lines in δ from 0 to 1 (eight swirls, three inflows) are single-valued; a singular event seen at 32 × 16 near
+(Fhi , V0 , δ) = (40, −5, 0.75) is absent at 40 × 20. Table 5 gives the linear response of the dividing-plane
+axial velocity, ∂U (Xmid , 0)/∂δ at δ = 0. It grows roughly linearly with swirl to a peak near Fhi = 10,
+changes sign between Fhi = 10 and 20 for V0 = −2, −5 and between 20 and 30 for V0 = −1, and then
+grows in magnitude with the opposite sign, faster at stronger inflow. At V0 = −1 and −2 the truncateddomain sweep had given the same numbers to within a few percent, so the linear response is robust to the
+cut even where the interior is not; at V0 = −5 and Fhi ≥ 20 it was not.
+V0
+
+Fhi = 1
+
+2
+
+5
+
+10
+
+20
+
+30
+
+40
+
+50
+
+−1
+−2
+−5
+
+0.111
+0.161
+0.183
+
+0.424
+0.618
+0.729
+
+1.94
+2.77
+4.43
+
+2.94
+3.18
+13.8
+
+0.709
+−0.820
+−6.53
+
+−0.945
+−2.80
+−7.01
+
+−1.87
+−3.94
+−9.32
+
+−2.40
+−4.73
+−16.9
+
+Table 5: Linear response ∂U (Xmid , 0)/∂δ at δ = 0, full η range, 32 × 16 (first two points of each continuation line; Xmid = 0.52). The V0 = −5 row is in the regime of Section 6.3 and carries its uncertainty.
+
+6.3
+
+A wall layer at strong inflow
+
+At strong wall inflow the layer that limits resolution is radial and sits at the inner wall. At |V0 | ≳ 8 the
+outer-wall torque ∂X (XF ) does not converge on any unmapped grid we tried. At V0 = −20, Fhi = 1, with
+Nη = 24 it is −0.60, −0.081, −0.0093, −0.0005 and +0.0004 for NX = 32, 40, 48, 56, 64, while refining
+η from 16 to 40 modes at NX = 48 leaves F , U and the torque unchanged to 10−6 or better: the layer is
+radial. Its location follows from a sinh-mapped X grid, X(s) = Xlo + (Xhi − Xlo ) sinh(au)/ sinh(a) with
+14
+
+u = (1 + s)/2, which clusters nodes at the inner wall for a > 0 (and, mirrored, at the outer wall). Clustering
+at the outer wall makes the torque worse at every NX (−20, −6.6, −2.0 for NX = 24, 32, 40 at a = 2);
+clustering at the inner wall with a = 4 gives +3.95 · 10−4 , +5.23 · 10−4 , +5.24 · 10−4 at NX = 24, 32, 40,
+with the inner-wall torque and max |U | converged to seven and five digits. The layer sits at the inner porous
+wall, where the fluid leaves the annulus under inflow, and 32 mapped modes resolve at V0 = −20 what
+64 plain modes did not. The same map reproduces the reference-point torque of Table 3 to eight digits at
+32×16: the slow inner-wall convergence seen there is the same layer in mild form. This is why the candidate
+of Section 6.2 moved with resolution on plain grids. On the mapped grid and the full range the swirl line
+at V0 = −10 is no longer fold-free: the symmetric branch ends in a fold at Fhi = 40.466 (32 × 16) and
+40.467 (40 × 20), with the dividing-plane slope Uη (Xmid , 0) (9.79 and 9.70) and the outer torque (0.111 at
+both) matching at the fold. This is the one bifurcation of the study that survives both the domain rule and a
+resolution check. At 48 × 24 the fold is at Fhi = 40.468 with the same torque, so its location is converged
+to 5 · 10−5 . The branch that returns from the fold, where max |U | reaches 60, differs between all three grids
+(slope 17.5, 25.7, 10.9 at Fhi = 45); refining X alone from 48 to 64 modes leaves it unchanged to four
+digits, refining η alone from 24 to 40 modes moves the torques by 5–8%, and refining to 56 modes leaves
+the torques oscillating at the few-percent level, so on that sheet the solution is not converged in η at any
+resolution tried; with max |U | ∼ 50 the coefficient Dη + dU of Fη changes sign inside the domain, which
+moves the analytic-class non-uniqueness of the η direction from the ends into the interior and is the likely
+cause; at V0 = −5 the swirl line is fold-free to Fhi = 50 on the same grid, and at −20 to 50, where the fold
+law below puts the fold at 164 (it is found at 170.6 on the fine grid).
+∗ ≃ 0.41 V 2 , and its location is a converged object: on the mapped fullFold locus. The fold lies on Fhi
+0
+range grid the 48 × 24 and 56 × 28 folds coincide with the 32 × 16 ones to four digits at every inflow tried.
+∗ = 33.01, 40.47, 49.07, 58.71, 93.49
+Tracing the swirl line at fixed wall inflow gives the upper fold at Fhi
+and 170.59 for V0 = −9, −10, −11, −12, −15, −20 (Table 6); the first five are the same on the coarse and
+the fine grids, the last was reached only on 48 × 24, where the base point at that inflow needs a homotopy in
+∗ /V 2 drifts slowly upward, from 0.405 at |V | = 10 to 0.427 at 20, so
+swirl and flux together. The ratio Fhi
+0
+0
+the fold lies on
+∗
+(16)
+Fhi
+≃ 0.41 V02 ,
+i.e.
+Re∗θ ≃ 0.82 Re2r
+∗ = 0.488V 2 − 1.62|V | + 8.0 or, equivalently,
+to within 4% for 9 ≤ |V0 | ≤ 20, and to 0.35% on Fhi
+0
+0
+2
+∗
+Fhi /V0 = 0.386 + 0.0020|V0 |. At V0 = −7 and −8 the line is fold-free to Fhi = 80 (to 60 at 40 × 20);
+the S-curve is born near V0 ≈ −8.7, where at −9 it is only 0.7 wide (33.01 and 32.3). In words: once the
+radial Reynolds number exceeds about 9, the steady self-similar swirl between porous walls ceases to exist
+beyond a critical swirl that grows as the square of the inflow, and the wall torques on the symmetric sheet
+agree between grids to 0.1% up to the fold.
+
+Beyond the fold. What replaces the steady state beyond the fold is not resolved by this discretization.
+On every grid the continuation turns at the fold onto a returning sheet, and on the finer grids that sheet is
+a different object: between 32 × 16 and 48 × 24 the outer-wall torque on it differs by 27–55% and the
+inner-wall torque by 2–5% at |V0 | = 9 to 12, against 0.1% on the symmetric sheet; the lower fold that closes
+the hysteresis window moves (45.1 → 48.6 at |V0 | = 12); at |V0 | = 15 the 48 × 24 continuation meets
+a singular Jacobian at the fold (smallest bordered singular value 10−15 ) and retraces the symmetric branch
+downward, reproducing its torques to 10−6 ; and at |V0 | = 20 the returning sheet, with axial velocities 50%
+larger than on the symmetric one, stalls at Fhi = 97.8 on a singular Jacobian after 99 points. The axial
+velocity on these sheets reaches 50–330 in similarity units, so the transport coefficient Dη + dU changes
+sign well inside the domain and the collocation is no longer selecting the analytic branch (Section 6). The
+
+15
+
+|V0 |
+
+∗
+Fhi
+(32 × 16)
+
+∗
+Fhi
+(fine grid)
+
+∗
+Fhi
+/V02
+
+∗
+Re∗θ = 2Fhi
+
+9
+10
+11
+12
+15
+20
+
+33.01
+40.47
+49.06
+58.71
+93.48
+–
+
+33.01 (48 × 24)
+40.47 (56 × 28)
+49.07 (48 × 24)
+58.71 (48 × 24)
+93.49 (48 × 24)
+170.59 (48 × 24)
+
+0.4075
+0.4047
+0.4055
+0.4077
+0.4155
+0.4265
+
+66
+81
+98
+117
+187
+341
+
+lower fold
+32.36; 32.29 (fine)
+37.33; 37.42 (fine)
+42.75 (fine only)
+45.12; 48.64 (fine)
+not captured
+not captured
+
+Table 6: The fold of the symmetric branch on the mapped full-range grid (X map parameter −4, ηc = 1):
+critical swirl at fixed radial Reynolds number |V0 | on the working and the fine grids, the ratio to V02 , the
+azimuthal Reynolds number at the reference instant, and the lower fold that closes the hysteresis window
+where it was reached. The upper fold is grid-converged; the lower fold and the returning sheet are not.
+existence and location of the fold are therefore results; the state beyond it is not, and a formulation that
+imposes the analytic branch across interior sign changes is the prerequisite for computing it.
+
+6.4
+
+Stability of the self-similar swirl
+
+Whether the profile attracts is a question the steady problem cannot answer, and it decides whether a real
+collapse selects it. We add the collapse time to the leading-order system by dynamic rescaling: with s =
+− ln q, one unit of s being one e-fold of collapse, ∂t (q b F ) = q b−1 (Tb F + L−1 Fs ), so the equations become
+L−1 Fs + Rθ = 0 and L−1 Us + Rz = 0 with continuity, the radial balance, the wall data and the gauge
+as algebraic constraints, and the steady states are exactly the profiles of the sweep. We march this system
+with a second-order backward-difference method, one complex-step Jacobian per step, and we solve the
+generalized eigenproblem σM v = −Jv for the spectrum, M the mass matrix of the two evolution equations
+and J the Jacobian we already form; a fold is a zero eigenvalue of this problem, and the march’s decay
+rate along an eigenvector reproduces its eigenvalue to 0.2% (tests in tests stability.py). Figure 7
+collects the leading eigenvalues. The self-similar swirl between porous walls is an attractor of the collapse at
+weak inflow and along the approach to the fold: at the reference point the leading eigenvalue is σ1 = −6.987
+per e-fold, the same on 20 × 10, 32 × 16 and 40 × 20 to four digits, the whole leading spectrum is real and
+negative, and asymmetric wall data (δ up to 0.5) or strong inflow (σ1 = −84 at V0 = −20) do not change
+the verdict; a perturbation dies by a factor e in a seventh of an e-fold of collapse. The least-damped mode
+is almost always the symmetry-breaking one, odd in the swirl and even in the axial velocity. Along the
+swirl line at V0 = −10 the spectrum
+the fold independently of the continuation: the symmetric mode’s
+psees
+∗ = 40.47 (−11.8, −7.9, −4.4 at 39.5, 40.0, 40.3),
+∗
+eigenvalue follows σeven ≃ −11.6 Fhi − Fhi with Fhi
+the signature of a saddle-node, and the symmetry-breaking mode runs ahead of it (−8.5, −5.2, −2.3 at the
+same points), extrapolating to zero just past the fold; the same ordering holds at V0 = −9. So the sheet that
+returns from the fold should break the reflection symmetry almost at once, which is what the determinant
+sign changes within 0.1 of the fold recorded in Section 6.3 and the non-convergence of that sheet under a
+symmetric collocation both suggest. At moderate inflow and strong swirl the spectrum is harder to converge,
+and the reason is a second result of method. In the inner half of the annulus the axial velocity next to the
+outflow boundaries is directed toward the mid-plane (U ≈ −30 at η → 1 for V0 = −6, Fhi = 55), so the
+coefficient of Fη in the swirl equation, c = Dη + U (1 − η 2 ), is negative over most of the half-domain and
+turns positive only in a layer 1 − η 2 ≈ D/|U |, about 0.016 wide, against the boundary: the characteristics
+diverge from the sonic line c = 0, which is a regular singular point of the first-order η operator. The
+steady profile converges only algebraically there, and the linearized operator carries modes concentrated in
+the layer whose eigenvalues depend on how many collocation nodes the layer contains.
+p Chebyshev’s first
+interior node sits at 1 − cos(π/Nη ), so k nodes fall inside the layer only for Nη > πk |Ub |/D, about 25k
+16
+
+for |Ub | = 30; with 16 to 28 nodes the layer holds none, and at (V0 , Fhi ) = (−6, 60) the least-damped
+symmetry-breaking eigenvalue reads +2.28, +0.72, −2.7 ± 4.6i and +0.94 on 16, 20, 24 and 28 nodes,
+each grid’s nonlinear march agreeing with its own spectrum (the 20-node grid even settles on an asymmetric
+steady profile with a net axial flow through the dividing plane), while the number of nodes in X changes
+nothing. Refining further does not settle it: with 32, 40, 48, 56 and 64 nodes the least-damped eigenvalue
+at (−6, 60) is +3.1, −3.5, −1.8, +7.7 and +5.0 (the last two a symmetric mode), and a tanh map of the
+η nodes that places five or more nodes in the layer, and which reproduces the reference spectrum to four
+digits, gives +3.9 and +2.3 with 28 and 40 nodes at one map strength and −0.3 and +0.2 at another, against
+−3.1 on the plain grid with 80 nodes at (−6, 55), while the steady profile itself converges (its maximum
+axial velocity changes by 2% over the same sequence). Every one of these wandering modes peaks at the
+inner-wall side of the sonic line, X ≈ 0.08, |η| ≈ 0.99, and the ones on the finest plain grids oscillate from
+node to node there. The steady profile is affected too, though less: at (−6, 40) its maximum axial velocity
+varies by 5% between 16 and 32 nodes on plain and mapped grids, and its leading eigenvalue between −6.3
+and +1.9, whereas at (−2, 10), where the sonic line lies at |η| ≈ 0.92 and |U | ≈ 6, profile and spectrum
+agree to four digits from 8 nodes on; so the difficulty sets in between axial velocities of 6 and 34 at the sonic
+line and the sweep’s values at moderate inflow and strong swirl carry an uncertainty of a few percent. At
+(−6, 55) and (−6.5, 55) the same grids give damped spectra from 40 nodes on, but the scatter at 60 warns
+against reading that as convergence. Our reading is that the linearized operator at moderate inflow and
+strong swirl carries a continuous spectrum generated at the sonic line, where power-law modes |η − η∗ |γ(σ)
+are admissible for a half-plane of σ, and that each grid samples it at its own places; whether that half-plane
+reaches into Re σ > 0, which would make the sonic line the seat of a non-modal instability of the collapse
+at these parameters, is the open question; the sequences at lower swirl and at weak inflow reported above
+locate its onset. The statements that are grid-converged are therefore these: the profile is an attractor at weak
+inflow and along the whole approach to the fold, where profiles and eigenvalues agree on 16 to 32 nodes
+although a sonic line is present there too (at (−10, 40) the axial velocity at η → 1 reaches −67 near the inner
+wall), so the presence of the line is necessary but not sufficient for the scatter and the distinction between
+the two regimes is not yet understood; the fold is a saddle-node; and at moderate inflow with strong swirl
+the spectral question is open, the earlier reading of a symmetry-breaking instability there being one grid’s
+sample of the scatter.
+
+7
+
+The axis problem
+
+The Dirichlet form of the axis problem has no resolution-stable solution; posed as a Cauchy problem in X
+from analytic axis data, as the OpenAI 2026 construction itself does, it has one, and its series, march and join
+stages are implemented and verified (Figure 8). The core of the OpenAI 2026 construction lives on the axis
+domain X ∈ [0, Xhi ]. Posed as a Dirichlet problem (F and U given at Xhi , Π0 given, regularity at X = 0
+imposed by collocating the degenerate equations there), Newton converges quadratically at fixed resolution
+but to different solutions on different grids. Deflated Newton [9], which divides the residual by the distance
+to every solution already found and so cannot return to one, makes the situation precise: with Fhi = 1,
+Xhi = 2 and six initial guesses per grid it finds, on |η| ≤ 0.8, one solution at 12 × 6 (F (0, 0) = 0.963),
+none at 16 × 8, four at 20 × 10 (F (0, 0) = 0.871, 0.670 and two with swirl overshooting to 2.5), and one at
+24 × 12 (0.519); on the full range none, none, two (0.537 and −792) and none. No solution persists across
+grids at either cutoff. The pre-2026 solver reproduces the three numbers first reported for this problem
+exactly, so the defect is in the formulation. The OpenAI 2026 construction itself (its Proposition B.2) does
+not pose
+P the axis problem this
+P way: it prescribes analytic data on the axis and continues outward. Expanding
+F = k Fk (η)X k , U = k Uk (η)X k , with vk and Pk following algebraically from continuity and radial
+balance, the viscous terms are the only ones that raise the power of X, and (4) becomes an explicit recursion
+
+17
+
+approach to the fold
+
+(per e-fold of collapse)
+
+0
+
+weak and moderate inflow (symmetry-breaking mode; open dashed: symmetric)
+
+V0 = 10 (fold at 40.47), odd mode
+same, symmetric mode
+V0 = 9 (fold at 33.01), odd mode
+same, symmetric mode
+V0 = 12 (fold at 58.7), odd mode
+same, symmetric mode
+11.6 40.47 Fhi
+
+5
+10
+
+2.5
+
+V0 = 6 odd, 32x16
+V0 = 6 odd, 40x20
+V0 = 6 odd, 48x24
+V0 = 6 odd, 56x28
+V0 = 6 odd, 32x40 (layer resolved)
+V0 = 5 odd, 32x16
+V0 = 5 odd, 40x20
+V0 = 5 odd, 48x24
+V0 = 3 odd, 32x16
+V0 = 4 odd, 32x16
+V0 = 4 odd, 40x20
+V0 = 7 odd, 40x20
+V0 = 1 odd, 32x16
+V0 = 1 odd, 40x20
+V0 = 1 odd, 32x40 (layer resolved)
+
+0.0
+2.5
+
+15
+
+5.0
+
+20
+
+7.5
+
+25
+
+10.0
+
+30
+
+12.5
+
+35
+
+15.0
+20
+
+25
+
+30
+
+35 40 45
+wall swirl Fhi
+
+50
+
+55
+
+0
+
+20
+
+40
+
+60
+80
+wall swirl Fhi
+
+100
+
+120
+
+Figure 7: Leading eigenvalues σ of the self-similar swirl between porous walls, in e-folds of collapse (negative: the perturbation decays). Left: the approach
+pto ∗the fold along lines of fixed inflow; the symmetric
+− Fhi at V0 = −10, the symmetry-breaking mode
+mode (dashed) follows the saddle-node law −11.6 Fhi
+(solid) runs ahead of it. Right: weak and moderate inflow; along V0 = −6 the least-damped eigenvalue at
+Fhi ≥ 55 scatters with the number of η nodes (32 × 16 solid, 40 × 20 dotted, 48 × 24 dash-dotted, 56 × 28
+dashed, 32 × 40 and 32 × 56 large markers) and does not converge (text: the sonic layer at |η| ≈ 0.99); at
+V0 ≤ −5 and Fhi ≤ 50 the grids agree.
+
+join
+
+series
+
+0
+
+net torque and force to Xb
+RX
+τz = (2X)−1/2 X
+Rz
+a
+RX
+−1
+τθ = X
+xR
+θ
+Xa
+R
+V0 = 0X L−1 (. . . )
+RX 2
+Π = Π0 + 0 F
+heat exterior beyond Xb
+
+Xa
+
+Xb
+
+X∗
+
+X
+
+Figure 8: The axis problem as a Cauchy problem in the viscous similarity radius: the series converges on
+0 ≤ X < X∗ (blue), the join to the heat exterior (red) is made across the annulus Xa < X < Xb (hatched),
+and the five cumulative integrals that close the system, the similarity pressure and the wall inflow from
+X = 0 and the two pulse stresses and their net torque and force from Xa , run outward.
+in k,
+
+(k)
+2(k + 1)(k + 2) Fk+1 = L−1 − (A + 12 )Fk + DηFk′ + kFk + NF [F, U, v],
+ 
+
+(k)
+2(k + 1)2 Uk+1 = L−1 − AUk + DηUk′ + kUk + Z−2A Π k + NU [F, U, v],
+
+(17)
+(18)
+
+where N (k) collects the products of lower-order coefficients at order X k and [ · ]k the order-X k part. The
+free data are F0 (η), U0 (η) and Π0 (η). The coefficient growth gives the radius of convergence in X, beyond
+which the series is continued by an ordinary-differential-equation
+√march in X with η collocated; the sideways problem amplifies the η-mode of wavenumber k like exp(c kX), a few e-folds for the resolutions in
+use, and the low-dimensional parametrization of the axis data keeps the high modes unexcited. The series
+stage is implemented and verified (axis series.py): with the forcing of a manufactured solution the
+recursion reproduces its Taylor coefficients to 10−14 –10−12 for k ≤ 10 on 16 to 32 η modes; even F0 , odd
+U0 and even Π0 give Fk even and Uk odd to 10−12 for k ≤ 20; for the axis data F0 = 1, U0 = 12 η, Π0 = 0
+the coefficients decay geometrically with a radius of convergence X∗ = 3.9–4.0 (ratio and root tests, inde18
+
+pendent of the η resolution), and the partial sum to k = 40 satisfies the full leading-order residuals to 10−10
+on X ∈ [0, 1.17], so for such data the series alone reaches the join radius and the march is needed only
+when X∗ is smaller. One fact about the exterior came out of the same test: E = c∞ X −A H(2d/X) is not
+smooth at X = 0 in the profile variables, since H(Z) ∼ Z −h /Γ(1 + h) as Z → ∞ gives F ∼ 0.706/X, the
+potential vortex; core and exterior therefore meet in the annulus and are not analytic continuations of each
+other. The join is implemented as well (axis join.py): the series core is blended into the heat exterior
+across 1 < X < 2 with a C ∞ partition of unity,R the exterior amplitude c∞ is fitted to the core swirl at the
+∞ 2
+outer edge, and the exterior pressure Πext = − X Fext
+fixes the axis pressure datum, so the free axis data
+are (F0 , U0 , c∞ ). The residuals of the blended profile vanish to 10−10 in the core and 10−6 in the exterior
+RX
+and are O(1)–O(10) in the annulus; integrated radially they give the pulse stresses τθ = X −1 Xa xRθ dx
+RX
+and τz = (2X)−1/2 Xa Rz dx, with peaks 0.53 and 1.18 for F0 = 0.1, U0 = 0.05 η. The stress coefficients of OpenAI 2026, its cone condition and its matching functional are implemented and verified as well
+(axis cone.py, 27 checks). OpenAI 2026 writes the stress the pulses must supply as T0 = F (ps − s)
+with s = (a, −bs ), a = −2XFX /F the logarithmic swirl gradient and bs = 2XUX /E the shear ratio, and
+ps built from five cumulative radial integrals of the profile (its eqs. (4.11), (4.15)–(4.16)); on the annulus
+this reproduces the residual-integrated stresses above to 3 · 10−7 relative to their peaks, on the series core
+it vanishes to 10−8 , and on the pure heat exterior it reduces to the boundary terms at Xb to 10−6 . One
+physical
+R Xfact came out of that check: the exterior with U = 0 is stress-free only when the axial moment
+M = 0 U dx vanishes at Xb , since otherwise the carried flux transports swirl; after matching, M (∞) = 0
+removes the term.
+The march, and two rules of resolution. The Cauchy problem in X is ill posed in the sense of Hadamard,
+with a measured growth law, and the loss of the stress identity at large amplitude was an end layer, not a
+resolution limit. The march is implemented (axis march.py): from Xs = 0.4X∗ the state, consisting of
+F , FX , U , UX , Π and Xv0 on the η nodes, is integrated in X by an eighth-order Dormand–Prince method
+with tolerance 10−11 ; it agrees with the series at 0.7X∗ to the series’ own truncation (10−10 to 10−8 ),
+preserves parity to 10−11 and satisfies the leading-order residuals
+to 6 · 10−8 on a 64-node Chebyshev grid.
+√
+A perturbation in Chebyshev mode m of η grows like exp 8cmX with c = 0.36 measured, so roundoff
+in mode 24 is amplified 2 · 106 by X = 3, the unfiltered recursion diverges for Nη ≥ 32, and every stage
+projects onto the first 28 modes at most; the pressure fixed point that appeared to break at Nη = 32 was this
+divergence, and Anderson mixing converges it in 7 to 18 iterations otherwise. The domain rule of Section 6
+reappears at the singular ends: axis data with axial inflow toward the dividing plane beyond about 0.3, with
+swirl reversing sign in η, or with U0 vanishing at η = ±1 steepen at the ends without limit (Uη (1, ±1) = 74
+for the step-3 optimum, no two filters agreeing there), while axial outflow U0 = aη is regular to a ≥ 1 with
+the identity satisfied to 10−8 ; the OpenAI 2026 core, spun up by the inflow and evacuated along the axis, is
+of the regular kind.
+Cone and matching. The cone condition fails on the whole annulus for every smooth blend we computed,
+and the smooth blend admits no nontrivial matched axis data; both are expected, and both bound what this
+core representation can reach. With ts = −bs /a, vs = a(1 + t2s ), Pc = ps,1 + ts ps,2 and Jc = ps,2 − ts ps,1 ,
+the admissible cone of eqs. (4.20)–(4.22) of OpenAI 2026 is Pc > vs together with (vs −2)Jc2 < 2(Pc −vs )2 ,
+and its eq. (4.26) asks for a uniform margin κ ∈ (0, 2) on the closed annulus,
+nθ + ts nz ≥ κ,
+
+(vs − 2)(nz − ts nθ )2 ≤ (2 − κ)(nθ + ts nz )2 ,
+
+(19)
+
+for the unit stress direction n = T0 /|T0 |, with n ∥ (a, −bs ) at Xa and n = (1, 0), bs = 0 at Xb . For the
+sample data a > 0 only on the outer 40% of the annulus (X ≥ 1.66, where the swirl turns over toward
+the exterior), Pc < 0 throughout, no point is admissible, κ = −74, and n = (−1, 0) at Xb : the net torque
+19
+
+of the smooth blend has the wrong sign. The matching functional of Theorem 4.6(v)
+R ∞ of OpenAI 2026, six
+functions of η (net torque and net force at Xb , M (∞) = J(∞) = S(∞) = 0 and 0 (H − Hpow ) dX = 0),
+was minimized by least squares over F0 ∈ span(T0 , T2 , T4 ) and U0 ∈ span(T1 , T3 ). With c∞ free the fit
+collapses onto the trivial profile (c∞ → 10−7 , all residuals below 5 · 10−7 ): the identities do not select an
+amplitude, and c∞ is a normalization that mustR be pinned. With c∞ = 0.2 the fit stalls at a root-mean∞
+square residual of 0.44, dominated by S(∞) = 0 (U 2 − E 2 /2) dX, whose exterior tail c2∞ Xb−2h /(4h) is
+0.99, and the marched core at Nη up to 40 stalls at the same optimum to three digits, widened to seven axis
+parameters or given free annulus content alike. The obstruction is exact, and it is a statement about the flow.
+Theorem 4.6 of OpenAI 2026 holds “for every η ∈ [−1,
+item (v) requires S(∞, η) = 0; a profile
+R ∞ 1]”, and its
+2
+with U odd in η has U (X, 0) = 0, so S(∞, 0) = − 0 E(X, 0) /2 dX < 0 whatever the amplitude, −1.1
+at c∞ = 0.2 and −4.1 at 0.4, which are the residuals observed. The leading profile of the OpenAI 2026
+construction therefore carries axial velocity on the dividing plane: the core is an axial through-flow, spun
+up by the radial inflow
+R ∞ and evacuated along the axis in one direction, with the return flow at larger radius
+so that M (∞) = 0 U dX = 0. It is not the z-symmetric core of the GD1998 problem, which all of our
+earlier steps had assumed, and it is what OpenAI 2026 says of itself in its Section 2.1: with exact reflection
+symmetry the axial transport of angular momentum would vanish at z = 0 and so would uz (r, 0, t), leaving
+no radial shear of the axial velocity to amplify the pulses near the middle plane, so the authors “choose a
+slightly asymmetric axial profile, with a small upward bias and nonzero velocity at z = 0”. Our matching
+functional recovers that choice from the identities alone. Dropping the symmetry opens the matching,
+and freeing the annulus content closes it at c∞ = 0.2. Over F0 , U0 ∈ span(T0 , T1 , T2 ) and an annulus
+return flow (b0 + b1 η)ψ(X), eight parameters, the residual falls from 0.36 to 0.077 (0.039 with thirteen
+parameters) against natural scales of order one, with the matched data F0 = 0.244 + 0.034η − 0.058T2 ,
+U0 = 0.450 + 0.004η − 0.034T2 and b0 = −2.01; the optimum moves by less than 5 · 10−3 between
+Nη = 32 with 24 modes and Nη = 24 with 20, and the core identity holds to 10−6 on it. The annulus
+content is the freedom OpenAI 2026 itself uses: it does not continue the core through the annulus but
+chooses the profile there piecewise (its Prop. A.4 and Lemma A.5) and lets the pulse stress make up the
+difference. Writing that content as radial and axial Chebyshev modes under a C ∞ bump, with the axial
+part compact in (Xa , Xv ), Xv ≤ Xb , as Theorem 4.6(v) asks of the axial pulse, and taking F0 , U0 to T4 ,
+32 parameters in all, the residual falls to 1.2 · 10−3 root-mean-square and 3.7 · 10−3 at worst, 0.1% of the
+natural scale, with no identity dominant and a flat residual spectrum in η. Re-evaluated at Nη = 40 with 28
+modes the same data give 2.0 · 10−3 and 1.2 · 10−2 , the excess in the net-force identity at the singular ends,
+while the profile, its pressure deficit and the core identity are unchanged to five digits: the match holds to
+0.2% across resolutions, the last factor of two being the η truncation, and what remains is the truncation of
+the family and of the filter, not an obstruction; re-optimized at Nη = 40 the residual settles at 1.6 · 10−3 .
+The matched core has F0 = 0.336 and U0 = 0.452 on the dividing plane and F0 = 0.214 at η = 1, an
+annulus return flow led by −2.06 ψ(X) and an annulus swirl deficit growing outward, |U | reaching 0.60 in
+the core and 1.9 in the annulus, the core identity at 10−6 and the pressure datum consistent to 5 · 10−13 .
+At c∞ = 0.3 and 0.4 the same family gains nothing (0.17 and 0.37), and the reason is now located. The
+pressure datum solves a fixed-point equation whose fixed point is repelling; Anderson mixing reaches it, and
+so does a Newton iteration on its Chebyshev modes, to the same datum within 10−9 , and both stall at the
+same place, which is therefore a property of the equation: along a family of axis data with growing throughflow, U0 → sU0 , the residual of the fixed-point equation jumps from 10−13 to 10−6 and grows beyond a
+critical s, a fold at which I − G′ is singular along the Newton direction and beyond which no consistent
+datum exists for the smooth-blend core. At c∞ = 0.2 it sits at U0 (0) = 0.835 and at 0.4 at 0.925 (at 0.3
+the jump is only to 10−8 and the fold is marginal), and its location depends on the whole datum, since the
+c∞ = 0.2 axis data keep a consistent datum at c∞ = 0.6 over the whole range tried. The least squares at
+c∞ ≥ 0.3 sits against this fold with U0 (0) = 0.75 and 0.93, and the amplitude the S identity asks for is
+carried by the annulus return flow (−2.9 and −3.4 ψ, |U | up to 3.9 there) rather than by the core. The cone
+20
+
+fails on every matched profile (κ ≤ −103 , admissible on at most 7% of the annulus): OpenAI 2026 enforces
+the cone by the radial oscillation with phase N log X of its Prop. C.2, which changes the shear at O(1)
+while moving the profile and its moments by O(1/N ), and a smooth profile has no such freedom. The cone
+requirement has a physical reading that the next step rests on. With circulation Γ = ruθ , the profile variables
+give d log Γ/d log X = 1 − a/2, so a > 2 is Rayleigh’s criterion for centrifugal instability, circulation
+decreasing outward, and vs = a(1 + t2s ) > 2 in Theorem 4.6(iii) of OpenAI 2026 is its form with the axial
+shear included, Ludwieg’s criterion for a swirling flow with axial shear: the annulus must be centrifugally
+unstable, and the pulses are that instability fed by the shear. Our matched profiles have a < 0 over part of the
+annulus, where the swirl still grows outward: centrifugally stable, with no free energy for the pulses, which
+is why the cone fails. The swirl Ralone cannot do it everywhere. On the dividing plane the leading term of
+X
+ps,1 is G = I/H − X with I = 0 H dx, the exterior fixes G at Xb , and dG/dX = (I/H)(a/2 − 1)/X,
+so positive stress inside the annulus requires G to fall toward Xb , that is a < 2 near the outer edge; there
+vs > 2 must come from ts , the radial shear of the axial velocity, which is what Section 2.1 of OpenAI 2026
+says supplies the amplification near the middle plane. The heat exterior itself sits exactly on the boundary
+of the cone, Pc = vs = 2 + 2h with vanishing stress, so any margin must vanish at the outer edge. We then
+built the annulus the way OpenAI 2026 does (its Section A.2 and Proposition A.4), at finite size: a smooth
+join of the marched core onto a prescribed swirl decaying as a power law H ∝ X −λ , an axial pulse of three
+lobes whose amplitudes set M (∞) = J(∞) = S(∞) = 0 pointwise in η, an interpolation of the swirl onto
+the heat exterior, two swirl bumps for the angular-momentum identity with the pressure integral preserved,
+and c∞ from the mid-plane identity. With the join at Xa = 2, λ = 0.5 and odd axis data U0 = 0.3η this
+meets all four identities to 10−13 with pulse amplitude 5.6 and |U | ≤ 2.1 in the annulus: the matching
+problem is solved in the construction’s own manner, without any least squares. The cone then holds in the
+quiet stages, where a = vs = 2 + 2λ = 3, and fails in the pulse, for a reason that scales: the pulse’s radial
+shear is bs = 2XUX /E ∼ 2 Amp/∆y for a pulse of logarithmic width ∆y, so vs = a(1 + t2s ) reaches 102
+to 104 while Pc ∼ XQs is of order 10. Admissibility Pc > vs needs XQs ≳ 4 Amp2 /(a ∆y 2 ): with the
+amplitude fixed by the S deficit, either X of order 102 –103 for a pulse of unit width or ∆y of order 10 at X
+of order 10. Neither can be reached with a core computed as a Cauchy problem from the axis, which cannot
+be continued past X ≈ 4; both are exactly what Proposition A.4 prescribes, a reference inner power law out
+to a large radius XR and a pulse of length 13/λ. We therefore built that version too: the computed core kept
+to X = 2.5 and blended onto the construction’s reference inner profile (its (A.7): E ∝ (1 + η 2 )−1 X 1/10 ,
+U ∝ η) out to XR = 50, then the stages of its Section A.2 with the terminal dip of (A.12) closing the
+angular-momentum identity. It reproduces the construction stage by stage. The four identities hold to 10−10 ;
+the swirl slopes are exactly the prescribed 0.8, 2, 2 + 2λ and 2 + 2h; the stress is positive from X ≈ 14
+outward; on the reference interval the axial through-flow drives the radial-velocity term W negative and lifts
+Pc = XQs /L to 20–35 with a margin of 6–20 in the relaxed cone, which is the mechanism Proposition A.4
+relies on and the reason the construction wants an axial flow there; and on the power-law stage the admissible
+cone holds outright. The pulse and terminal stages do not close, for two reasons that are now quantitative.
+Inside the pulse Pc = X(Qs + ts Ns /E)/L changes sign with the pulse’s slope, since ts Ns /E ≈ − 32 Rb Rb′
+for U = ERb , so admissibility
+needs Rb Rb′ < Qs ≈ λ/(1 − λ); and the pulse must supply the swirl’s own
+R 2
+kinetic-energy deficit E /2 over the whole annulus, so Rb2 ≈ Y /(2∆y) for a pulse of log-width ∆y in
+an annulus of log-length Y . Together these give ∆y ≳ 13/λ: the construction’s pulse length, derived here
+from its energy budget. At the radii that length requires, X ∼ 1020 , the axial stress T0,z = F (ps,2 + bs )
+with ps,2 = XNs /(LE) amplifies any residual of the pressure and S integrals by X; the construction
+cancels those residuals identically, stage by stage, and a computation at Nη = 24 with quadrature leaves
+one part in 106 , which is astronomical after that amplification. The cone condition is therefore a statement
+about the proof’s asymptotic regime: consistent, computable stage by stage, and not a property that any
+profile of order-unity logarithmic extent in the similarity radius can have. What these steps establish is the
+machinery, verified against the residual route, the through-flow character of the core, the amplitude scale
+21
+
+pulse growth rate where the shear can feed the pulses (white: none)
+
+0.5
+0.0
+0.5
+1.0
+0.0
+
+3.5
+3.0
+2.5
+2.0
+1.5
+1.0
+0.5
+0.0
+
+0/F (e-folds per radian of swirl)
+
+1.0
+
+2.5
+
+5.0
+
+7.5
+
+10.0 12.5
+y = log(X/Xm)
+
+15.0
+
+17.5
+
+20.0
+
+p
+Figure 9: Growth rate of the pulses of OpenAI 2026, λ0 /F = 2a(1 − 2/vs ) in e-folds per radian of
+swirl, on the large-radius construction of Section 7 (λ = 0.1), against y = log(X/Xm ) and η; dashed lines
+mark the stage boundaries (reference interval, axial shut-off, power law, pulse, interpolation and terminal
+dip). White: the shear cannot feed the pulses (vs ≤ 2); on the reference interval this is the case, as in
+Proposition A.4 of OpenAI 2026, and the modulation of its Proposition C.2 is what supplies the missing
+shear there.
+√
+c∞ / h that the S identity sets, a matched profile at the smallest amplitude, and the fold of the pressure
+datum that bounds the smooth-blend core. Closing at larger amplitude needs a core representation whose
+datum exists there, the piecewise core of OpenAI 2026 rather than a smooth blend. With the 32-parameter
+annulus the closure degrades smoothly with amplitude, root-mean-square 0.0016, 0.0022, 0.0037 and 0.059
+at c∞ = 0.20, 0.22, 0.25 and 0.30, and c∞ = 0.4 stays at 0.37; the fold of the pressure datum sits at a swirl
+amplitude only 23% above the closed match’s, at an axis through-flow 1.85 times it, and is not reached by
+scaling the odd part of the axial data or the annulus content alone.
+Pulse growth. The pulses of OpenAI 2026 are transverse waves fed by the radial shear of the tangential
+velocity, and their amplitude equation (its (7.5) and Lemma 7.1) gives their growthprate in closed form
+in the profile variables: with g0 = F (−a, bs ) the shear vector, the rate is λ0 = F 2a(1 − 2/vs ), real
+exactly where a > 0 and vs > 2, so the Ludwieg condition of the cone
+p is the condition that the pulses can
+grow at all, and the ratio of tangential to radial amplitude is c0 = − (vs − 2)/2. Since F is the angular
+velocity in similarity units, λ0 /F is the number of e-folds per radian of the core’s
+rotation. Along a pulse the
+√
+wavevector tilts with the shear, s(v) = u∗ ( 21 + v/Ls ), the rate falls to λ0 / 1 + s2 while viscous damping
+2 3/2
+rises as λ0 (1 + s2 )/(1
+the tilt u∗ is fixed by the cone
+p + u∗ ) , and the envelope peaks where the two cross;
+−λ with no axial shear the formula
+margin through u∗ / √
+1 + u2∗ > |Jc |/(Pc − vs ). On a power
+law
+H
+∝
+X
+√
+reduces to λ0 /F = 2 λ, and on the heat exterior to 2 h = 0.2: the anomalous exponent sets the pulses’
+growth in the far field. We evaluated λ0 /F on the computed profiles (Figure 9). On the smooth matched
+profile at c∞ = 0.2 the shear can feed pulses on 47% of the annulus, with a median rate of 2.4 e-folds per
+radian where it can, and none where vs ≤ 2. On the large-radius construction the reference interval feeds
+none (vs √
+= a = 0.8), which is why its Proposition C.2 loop is needed there; the power-law stage gives
+0.63 = 2 0.1; and inside the pulse the axial shear raises the rate to 0.6–2.1 e-folds per radian. For the
+experiment this is the instability to seed: an azimuthal wave at the edge of the core, growing by a factor e
+every 0.5 to 5 radians of swirl, fastest where the axial through-flow shears the swirl.
+
+22
+
+Axis pressure deficit. ROne number carries into Section 8. Integrated to infinity by the eq. (4.25) of Ope∞
+nAI 2026, Π(X, η) = − X E 2 /(2x) dx, the deficit Π(0, 0)−Π(∞, 0) is 0.77 u2max for the sample data (the
+value 0.48 first obtained was truncated√
+at X = 3), 0.56 for the pinned fit and 0.58 in the small-amplitude
+limit, umax being the peak swirl proxy 2XF on the dividing plane; for the matched through-flow profiles
+the coefficient is 0.34–0.61 (0.34 for the closed match at c∞ = 0.2, 0.50 for the eight- and eighteenparameter fits at the same amplitude, 0.54 and 0.61 at c∞ = 0.3 and 0.4; symmetric and unmatched profiles
+gave 0.56–1.3), so the cavitation threshold in water, deficit equal to one atmosphere, is reached at umax between 12.8 and 17.1 m/s. The low end carries a caveat: in the closed match the annulus swirl content moves
+the swirl peak into the annulus, at X = 1.3, where the moment identities constrain the profile only through
+its integrals, so the coefficient is a property of the matched family, and the piecewise core of OpenAI 2026
+may give another. The axial velocity on the axis is 0.5 to 1.2 times the peak swirl on every matched profile:
+the axial jet is of the same order as the swirl. For axis data of order one the consistent pressure datum drives
+the axial velocity so hard that the series radius collapses below the join; those cases need the march.
+
+8
+
+What a fluid would do with this singularity
+
+This section serves question (b) raised in our abstract. Everything in it follows from the similarity scalings
+of Section 2 and is an order-of-magnitude estimate; the computed profiles that would turn the estimates into
+inception times and radii require the axis core of Section 7 and are marked as such.
+Scalings. The blow-up is energetically free, and its anomalous factor τ −h is 1.4 at τ = 10−15 . On the
+√
+dividing plane the collapse scale is the time to the singularity, q ∼ τ ; the core radius scales as r ∼ q, its
+height as z ∼ q D , and the velocities as q −A by (2). Table 7 lists the consequences. Two of them matter. The
+kinetic energy in the core vanishes as τ 1/2−3h while the dissipation rate diverges as τ −1/2−3h with a finite
+time integral: the blow-up is energetically free, which is the physical content of the bounded L2 norm in the
+theorem. And the anomalous factor τ −h that distinguishes the OpenAI 2026 construction from an ordinary
+viscous swirl collapse (h = 0, for which uθ r is conserved and sup |ω| has an integrable time singularity) is
+100.15 = 1.4 at τ = 10−15 for h = 1/100; any physical cutoff arrives while the flow is, to a few percent,
+indistinguishable from the ordinary collapse.
+quantity
+peak swirl velocity
+core radius; core height
+kinetic energy in the core
+peak vorticity
+dissipation rate in the core
+R1
+sup |ω| dτ ′ (Beale–Kato–Majda)
+τ
+axis pressure deficit ∼ ρu2θ
+
+scaling in τ
+−1/2−h
+
+τ
+τ 1/2 ; τ 1/2−h
+τ 1/2−3h
+τ −1−h
+τ −1/2−3h
+(τ −h − 1)/h
+τ −1−2h
+
+behavior as τ → 0
+diverges
+vanish
+vanishes
+diverges
+diverges; time integral finite
+diverges, only just
+diverges
+
+√
+Table 7: Similarity scalings of the core on the dividing plane, from r ∼ q, z ∼ q D , u ∼ q −A and q ∼ τ ,
+with A = 12 + h, D = 12 − h. For h = 1/100 the anomalous factor τ −h is 1.05 at τ = 10−2 , 1.12 at 10−5
+and 1.41 at 10−15 .
+
+Which continuum assumption fails first. In a liquid it is cavitation, at a core radius near a millimeter
+for laboratory scales; in a gas it is compressibility, near thirty micrometers; molecular scales are never
+reached. Take water, an initial swirl of 1 m/s at a radius of 1 cm, and follow the collapse with uθ r ≈ const
+
+23
+
+(the τ −h factor is within 5% of unity over the range that matters). The axis pressure deficit ρu2θ reaches
+one atmosphere, 105 Pa, when u2θ = 105 /103 m2 /s2 , i.e. uθ ≈ 10 m/s (12.8–17.1 m/s with the computed
+deficit coefficients of Section 7), and 15 m/s if the local pressure must fall a further atmosphere below vapor
+pressure before nuclei grow. That is a core radius of 0.6–1 mm (0.59–0.78 mm on the matched profiles) and
+τ /τ0 = (r/r0 )2 ≈ 3·10−3 to 10−2 : vortex-core cavitation inception, the mechanism of tip-vortex cavitation
+reviewed by Arndt [7] and studied at Dynaflow [6]. Viscous heating is negligible there: the dissipation per
+unit mass is ν(uθ /r)2 ≈ 10−6 × (104 )2 = 102 W/kg, the remaining collapse time on the viscous scale
+r2 /(2νX) is of order 0.5 s, so the temperature rise is of order 50 J/kg / 4 · 103 J/(kg K) ≈ 0.01 K. Molecular
+scales (0.3 nm) lie eight decades below the initial radius and seven below the inception radius, thirteen
+decades further in τ . In air the first failure is incompressibility: uθ reaches the speed of sound, 340 m/s,
+at a velocity factor of 340, a core radius of about 30 µm and τ /τ0 ≈ 10−5 ; the Knudsen number λ/r with
+λ = 68 nm reaches 10−2 at r ≈ 7 µm and 10−1 at 0.7 µm, one and three decades later in τ . Physically
+realized, the forced blow-up is a cavitating vortex in a liquid and a shocking one in a gas, arrested while τ −h
+is 1.05 (water) and 1.12 (air). None of this can be supplied by the annulus problem, which has no axis. The
+matched cores of Section 7 turn the estimate into a number with a stated spread, umax = 12.8–17.1 m/s and
+a core radius of 0.6–0.8 mm for the initial swirl above, with the caveat that the coefficient depends on the
+annulus content; the cone condition of the OpenAI 2026 construction decides whether the forced annulus
+can be built around the core at all, and on the smooth profiles of Section 7 it fails everywhere, so the annulus
+needs the radial oscillation of OpenAI 2026, and the inception numbers are those of the leading-order profile,
+not of the forced flow.
+The experiment one could propose. The apparatus is the GD1998 chamber and the observables are axis
+cavitation inception and the loss of the steady state at the fold. A swirl chamber with porous walls and
+controlled filtration, the GD1998 Dynaflow geometry [1, 2], driven toward collapse by increasing the inflow
+at fixed swirl or the swirl at fixed inflow, with cavitation inception on the axis as the primary observable, an
+acoustic event with a well-developed detection art. The sweep supplies a second observable that does not
+require the axis: at an inflow Reynolds number of 10 the steady symmetric swirl between the porous walls
+ceases to exist beyond a wall swirl of Fhi = 40.47, azimuthal Reynolds number 81 at the reference instant
+(Section 6.3), a fold converged on three grids, with a hysteresis window [37.3, 40.5] below it. Loss of the
+steady state at a critical swirl at fixed inflow, and its return at a lower swirl, is a measurement a torque meter
+or a swirl probe can make. The critical swirl at other inflows follows the fold law (16) and Table 6: in the
+experiment’s terms the steady swirl is lost at an azimuthal Reynolds number of 0.8 to 0.85 times the square
+of the radial one, from 66 at radial Reynolds number 9 to 341 at 20. The state that replaces the steady one
+beyond the fold is not computed (Section 6.3), and the inception radii on the axis are those of the matched
+core at the smallest exterior amplitude (0.6–0.8 mm from 1 cm at 1 m/s, Section 7); the first is open, the
+second awaits the match at larger amplitude.
+
+9
+
+Discussion
+
+What is established. On question (a), computability, the answer is yes for the leading-order operators of
+the OpenAI 2026 construction: they can be discretized and solved to spectral accuracy, and a self-similar collapsing swirl exists between porous walls held at fixed similarity radii over the whole range of the GD1998
+parameters and well beyond it. Below inflow 9 it is unique in that class as far as it was traced, reflectionsymmetric, and responds to a symmetry-breaking datum smoothly, with a linear response that peaks near
+unit-order swirl and reverses sign at larger swirl; above inflow 9 the symmetric branch folds, at a swirl
+∗ ≃ 0.41V 2 converged on three grids, and the fold is a saddle-node of the collapse dynamics, with the
+Fhi
+0
+symmetry-breaking mode running ahead of it. The profile is an attractor of the collapse at weak inflow and
+24
+
+along the whole approach to the fold. On the axis, the Dirichlet problem has no resolution-stable solution,
+so the core must be computed as a Cauchy problem in X from analytic axis data, for which (17)–(18) is the
+recursion, and that problem returns one fact about the flow: the moment identities of OpenAI 2026 cannot
+be met by a core symmetric about the dividing plane, so the blow-up core is an axial through-flow with a
+return flow at larger radius, as its authors chose it; a non-symmetric core with free annulus content meets the
+identities to 0.2% at the smallest exterior amplitude tried. The cone condition of OpenAI 2026 is Rayleigh’s
+centrifugal criterion with axial shear, and built the construction’s own piecewise way it requires similarity
+radii of order 1020 : it is a statement about the asymptotic regime of the proof, not about a flow one could
+compute or build. On question (b), the scalings say that the blow-up is energetically free and that any real
+fluid leaves the continuum description, by cavitation or by compressibility, while the anomalous factor τ −h
+is within 12% of unity; a laboratory realization is a viscous swirl collapse arrested by inception or by a
+shock, and the GD1998 chamber driven toward collapse is its apparatus, with inception on the axis, the loss
+of the steady state at the fold and a one-directional axial jet as observables. Put together: the leading-order
+flow of the OpenAI 2026 construction can be computed, and its core is the axial through-flow its authors
+chose; the forced annulus that sustains it cannot be built at any radius a computation reaches, the cone
+condition placing it at similarity radii of order 1020 ; in the porous-wall model that served as the testbed, the
+state beyond the fold and the spectrum at moderate inflow with strong swirl are not converged, and resolving
+them is a formulation problem rather than a clue about blow-up; and long before the singular time a real fluid
+leaves the incompressible description, water by cavitation and air by compressibility, while the anomalous
+factor is still within 12% of one. Nothing found here suggests that the mechanism is reachable in a flow one
+computes or builds, and the forced theorem says nothing about the unforced equations. Those who solve the
+Navier–Stokes equations in engineering practice can continue to rely on them; on the unforced question this
+study is silent, as the theorem is.
+What was learned about method. The GD1998 solver’s skeleton, Chebyshev collocation and continuation, carried over with three changes: Newton in place of successive substitution, an explicit pressure gauge,
+and pseudo-arclength in place of relaxation. Four rules were found on the way, each by being caught out
+by it. The truncated η range is admissible only under (15); violating it turns an outflow boundary into an
+inflow one and manufactures bifurcations that pass every local test. The inner-wall layer at strong inflow
+wants a clustered radial grid; 32 mapped modes then do what 64 plain ones cannot. The Cauchy problem
+in X is ill posed with a measured growth law and is made usable by a mode filter, not by resolution. And
+where the axial transport has an interior sonic line with |U | ≳ 30 on it, at moderate inflow and strong swirl,
+the collocation in η converges erratically, the leading eigenvalues wander between grids that all resolve the
+layer, and no amount of resolution settles the spectrum; the same line is present at strong inflow, where
+everything converges, so the presence of the line is necessary but not sufficient and the mechanism is not
+understood. The heat exterior of OpenAI 2026, absent from GD1998, entered at every stage: as the verification solution, as the far field of the join and the normalization of the matching, as the source of the algebraic
+η convergence, and as the tail term that forces the through-flow.
+What is open.
+
+Six items, each with the step that would settle it.
+
+1. The profile problem at moderate inflow and strong swirl (Section 6.4). A formulation that imposes the
+analytic branch across the interior sonic line, or restores the O(q 2h ) axial viscosity in a layer about
+it, and a re-run of the sweep and the spectrum there. This is a question in the numerical analysis of
+degenerate first-order problems before it is one in fluid mechanics.
+2. The sheet beyond the fold (Section 6.3), which no symmetric collocation converged. The same formulation, or a time-dependent computation in the rescaled variables, would show what replaces the
+25
+
+steady state.
+3. The core at larger exterior amplitude (Section 7). The closure degrades from 0.2% at c∞ = 0.2 to 6%
+at 0.3 and the pressure datum of the smooth-blend core ceases to exist at a fold; the piecewise core of
+OpenAI 2026 in place of the smooth blend is the next step, and it is the authors of OpenAI 2026 who
+know that object best.
+4. The cone at finite radius. The large-radius construction reproduces the mechanisms of OpenAI 2026
+stage by stage but needs X ∼ 1020 and cancellations beyond double precision; the modulation of
+Proposition C.2 of OpenAI 2026, or an asymptotic matching in place of a computation, is what would
+close it.
+5. The stability of the axis core. The dynamic-rescaling machinery of Section 6.4 exists for the annulus;
+applying it to the Cauchy-in-X core requires a treatment of the ill-posed radial direction that was not
+attempted.
+6. The experiment (Section 8), and before it a forced Navier–Stokes computation at finite viscosity. Both
+are for a fluids laboratory and a computing group that work in this area.
+Handoff. This is where the author leaves the problem. The two questions that started it are answered
+above; what remains is listed with a first step for each, and the material to take those steps is released with
+the paper, at https://gitlab.umiacs.umd.edu/ramanid/swirl-collapse and as ancillary
+files: the solver, some six thousand lines of Python (tensor Chebyshev collocation, complex-step Newton,
+arclength continuation, the axis series and march, the join, the matching functional, the dynamic-rescaling
+march and eigenproblem), its test suites, the reports on each stage, and the research log that records every
+result and every failure with its reason. Appendix A is a short tutorial map from the methods to the code,
+written for whoever takes an item up. The run outputs themselves are available from the author on request.
+Anyone who takes up an item, or finds an error, is asked to write.
+
+Acknowledgments
+In memory of Nail A. Gumerov (d. 2022), co-author of GD1998, the 1998 work that this paper builds
+on. Computations were performed on a laptop and on the Zaratan cluster of the University of Maryland
+(Division of Information Technology) and the Nexus cluster of UMIACS; every result was verified by the
+tests of Section 5. We thank the staff of both facilities. The role of Claude Fable 5.1 in this work is described
+in the statement on generative AI on page 2.
+
+A
+
+The numerical methods, briefly, with pointers to the code
+
+This appendix is for whoever takes up an item of Section 9. Each paragraph says what a method is in a few
+sentences, why it was used here, what it caught us out on, where it lives in the code at https://gitlab.
+umiacs.umd.edu/ramanid/swirl-collapse, and where to read more. File and function names
+are in typewriter; every script has a docstring at the top that says what it does and which report in results/
+discusses its output. Table 8 maps the sections of the paper to the scripts and the reports.
+Chebyshev collocation in two variables. A smooth function on [−1, 1] is represented by its values at
+the Gauss–Lobatto points xj = cos(πj/N ), and derivatives are taken by multiplying the vector of values
+by the differentiation matrix D; for analytic functions the error decays geometrically in N , for functions
+26
+
+section of the paper
+2, 3 operators and dictionary
+4 method
+5 verification
+6 sweep, rules, fold
+
+6.4 stability
+7 axis core
+
+8 fluid and experiment
+figures
+
+clusters
+
+scripts
+core solver.py
+(docstring
+and
+Grid.T, Grid.Z), tests.py
+core solver.py,
+continuation.py, deflation.py
+tests.py,
+tests phase0.py,
+line0.py
+sweep.py,
+run annulus.py,
+fold locus.py,
+pitchfork locus.py,
+asym.py,
+branch*.py,
+* program.py,
+deflation.py
+annulus stability.py,
+tests stability.py
+axis series.py,
+axis join.py,
+axis march.py,
+axis march match.py,
+axis pi0 fold.py, axis cone.py,
+axis cone loop.py,
+axis piecewise.py,
+axis pulse growth.py;
+tests
+tests axis.py, tests march.py,
+tests join.py, tests cone.py
+axis inception.py
+paper/make figures.py,
+make hero.py,
+make stability fig.py,
+make boundary fig.py
+cluster/*.sbatch,
+run
+lists
+cluster/*.txt,
+cluster/status dash.py
+
+report
+notes.tex,
+results/PAPER UPDATES.md
+–
+results/line0 summary.md,
+results/replicas.md
+results/sweep summary.md,
+folds.md,
+deflation*.md,
+line5 slopes*.md,
+FINDINGS live.md
+results/stability report.md
+results/axis series report.md,
+axis march report.md,
+axis join report.md,
+axis cone report.md,
+axis step5 report.md,
+axis piecewise report.md
+
+results/axis step5 report.md
+–
+
+HANDOFF.md
+
+Table 8: Where each part of the paper is computed and discussed.
+with a singularity on the interval only algebraically. Here the unknowns F , U live on a tensor grid in
+(X, η), X-derivatives act on the first index and η-derivatives on the second, and the operators Tb and Zb of
+Lemma 4.1 of OpenAI 2026 are formed exactly this way (core solver.py: cheb, cheb interval,
+class Grid with dX, dE, T, Z). Two things to know: the number of η nodes must be even so that a node
+sits at η = 0, where the gauge is pinned; and the first-order η direction takes no boundary condition at the
+outflow ends, so the θ and z equations are collocated at every η node, including ±1. Trefethen [10] is the
+shortest introduction, Boyd [11] the most complete on pitfalls, Canuto et al. [12] the reference.
+RX
+Integration matrices and the pressure gauge. The pressure is eliminated through Π = Π0 (η)+ Xlo F 2 dx
+and the radial velocity through continuity, both by a spectral integration matrix Q with QD = I on functions vanishing at the lower end (cheb integration matrix, Grid.intX). The datum Π0 (η) is an
+unknown determined by the flux condition at the outer wall, and the discrete Jacobian then has one exact
+null direction, a constant shift of Π0 ; it is removed by replacing the flux equation at the mid-plane node
+by Π0 (0) = 0 (Problem.residual, gauge fix, j pin). Forgetting the gauge does not stop Newton
+from converging on a symmetric grid, it makes the Jacobian singular by one and every continuation step illconditioned; the compatibility residual of the replaced equation is kept and checked (compat residual).
+
+27
+
+Mapped grids. When the solution has a thin layer, more nodes near it are worth more than more nodes
+overall. The radial grid can be clustered at either wall by a sinh map, X(s) with X ′ (s) > 0 everywhere so
+that d/dX = (1/X ′ ) d/ds (mapped x grid; parameter xmap, negative for the inner wall); the axial grid
+can be clustered at both ends by η = tanh(as)/ tanh a (Grid with emap). The inner-wall layer at strong
+inflow is resolved by 32 mapped modes and not by 64 plain ones (Section 6.3); the sonic layer of Section 6.4
+is resolved by the tanh map in the sense of node count, and the eigenvalues still do not converge, which
+is the open item. Bayliss and Turkel [16] on mappings for layers; the maps here are the simplest that keep
+X ′ (s) bounded away from zero.
+Complex-step Jacobian and Newton. The residual is evaluated in complex arithmetic at y+iεek with ε =
+10−30 and the imaginary part divided by ε is the k-th Jacobian column to machine precision, with no cancellation error, provided the code contains no operation that is not analytic in its arguments (Problem.jacobian;
+continuation.complex step jacobian). It costs one residual evaluation per unknown, which
+is why the runs of Section 6.4 at 3000 unknowns take minutes per Newton step; it was chosen over
+hand-coded derivatives because the residual changed a dozen times in four days and never had to be
+re-differentiated. Newton is damped by backtracking (Problem.newton) and, in the continuation of
+Section 6.4, restricted to the reflection-symmetric subspace when it fails near a symmetry-breaking point
+(annulus stability.newton sym). The round-off floor of the residual grows like Nη2 and exceeds
+10−10 beyond about 30 nodes, so convergence there is declared at stagnation below 10−7 rather than at a
+fixed tolerance. Squire and Trapp [13], Martins et al. [14].
+Pseudo-arclength continuation and fold detection. A solution branch y(λ) that folds cannot be followed
+in λ; one parametrizes it by arclength instead, adds the equation that the step be of prescribed length along
+the tangent, and solves the bordered system, which is regular at folds (continuation.ArclengthContinuation,
+options in ArclengthOptions). The sign of the determinant of the bordered Jacobian, from the LU
+factorization, changes at folds and at pitchforks (lu det sign), and this is how the fold locus and the
+determinant sign changes of Section 6 were recorded. The lesson of Section 6.4 is that a determinant sign
+change on one grid is a claim about that grid: the ones at inflow 7 and 8 did not survive refinement. Keller
+[8], Allgower and Georg [15].
+Deflated Newton. To find out whether a problem has more than one solution, divide the residual by a
+factor that blows up at each solution already found; Newton then cannot return to them and either finds a
+new one or fails (deflation.deflated newton, initial guesses). Used in Section 7 to show
+that the Dirichlet axis problem has no resolution-stable solution: deflation finds a different solution on every
+grid and none of them persists. Farrell, Birkisson and Funke [9].
+Verification. Three independent checks, all in tests.py: the operators are derived symbolically and
+compared with the code (test lemma41, test derivation); the exact heat exterior E = c∞ X −A H(2d/X)
+is imposed as data and reproduced (test heat exterior); and a manufactured solution, a chosen
+smooth (F, U ) substituted into the equations to produce a forcing which the solver then inverts, checks
+the full residual and the gauge (test manufactured). The rule we followed: no number enters the
+paper without one of these behind it or a resolution sequence, and every failed attempt is written up in
+results/FINDINGS live.md with its reason. Roache [17] on manufactured solutions.
+
+The axis Cauchy problem: series, filter, march. From analytic axis data the profiles are expanded in
+powers of X; the recursion (17)–(18) gives the coefficients, each a Chebyshev expansion in η (axis series.series coe
+cheb projector, cheb spectrum, radius estimates for the radius of convergence). Beyond
+28
+
+that radius the state is marched in X by an explicit high-order integrator, DOP853 with tight tolerances
+(axis
+√ march.march, MarchCore). The problem is ill posed in X: Chebyshev mode m grows like
+exp 8cmX (growth monitor measures it), so the state is projected on the first mfilter ≤ 28 modes at
+every evaluation; this is a spectral filter in the sense of Vandeven [25], used as Hou and Li [26] use it for
+nearly singular solutions, and the choice of mfilter is a resolution rule, not a tolerance. Hairer, Nørsett and
+Wanner [18] for DOP853.
+Fixed points for the pressure datum. The datum is determined by matching the marched core to the
+exterior, a fixed-point problem Π0 = G(Π0 ) whose every evaluation of G is a march. It is solved by
+Anderson acceleration, a least-squares mixing of the last few iterates (axis join.anderson), and,
+when that stalls, by Newton with a finite-difference Jacobian kept up to date by Broyden rank-one updates (newton fixed point). The datum has a fold (Section 7, axis pi0 fold.py), beyond which
+no fixed point exists; the fixed point iteration signals this by stalling, Newton by failing, and the fold is
+located by bracketing. Anderson [20], Walker and Ni [21], Broyden [22].
+Matching and cone as least squares. The moment identities of Theorem 4.6(v) of OpenAI 2026 and the
+cone condition are imposed on a parametrized family of axis data and annulus content (axis cone.Family,
+axis data from params, annulus from params) by nonlinear least squares in the trust-region reflective form of SciPy (match axis data, cone penalty, relaxed cone U). Each residual evaluation is a full core: series, march, join. The pitfalls of Section 7 were all in the penalty: a capped penalty
+has no gradient on its plateau, cone quantities diverge where F → 0, and a ≥ 2 is impossible near the outer
+edge, so the penalty is based on vs ≥ 2 with tapered margins. Branch, Coleman and Li [23].
+Dynamic rescaling, BDF2 and the generalized eigenproblem. To ask whether a self-similar profile attracts, one rewrites the equations in the frame that collapses with it, so that the profile is a steady state and
+the collapse time becomes s = − ln q; the steady problem’s residual is unchanged and a mass matrix marks
+which equations gain a time derivative (annulus stability.mass matrix). The linear stability is
+the generalized eigenproblem σM v = −Jv with the Jacobian already in hand, solved by the QZ algorithm
+through SciPy (spectrum), and the nonlinear evolution by the second-order backward-difference formula
+with one Jacobian per step, step halving on failure and a restart by implicit Euler (march); a march along
+an eigenvector must reproduce its eigenvalue, which is the test (tests stability.py). States are saved
+with their grid and restarted on another grid by barycentric interpolation (save state, interp state),
+which turns an hour of continuation into a minute of Newton. McLaughlin et al. [24] introduced dynamic
+rescaling for blow-up; Hairer and Wanner [19] for BDF; Moler and Stewart [27] for QZ; Berrut and Trefethen [28] for barycentric interpolation.
+Running it. Python 3.10 with NumPy, SciPy, SymPy and Matplotlib; no compiled code. README.md in
+the repository gives the reference case and the tests; the run lists in cluster/ are the exact command lines
+of every cluster job in this paper, and HANDOFF.md tells the story in the order it happened, including what
+went wrong.
+
+References
+[1] N. A. Gumerov and R. Duraiswami, Modeling of particle motion in viscous swirl flow between two
+porous cylinders, Proc. FEDSM’98, ASME Fluids Engineering Division Summer Meeting, paper
+FEDSM98-5110 (1998).
+
+29
+
+[2] G. L. Chahine, Microfiltration system with swirling flow around filter medium, U.S. Patent 5,500,134
+(1996).
+[3] M. A. Gol’dshtik and N. M. Ersh, Stability of self-similar pipe flow with suction, Fluid Dynamics 26,
+651–657 (1991). doi:10.1007/BF01050983
+[4] M. A. Gol’dshtik and N. M. Ersh, Flow stability in a rotating porous pipe, Fluid Dynamics 27, 166–168
+(1992). doi:10.1007/BF01052079
+[5] OpenAI, Finite time blowup for Navier–Stokes, 8 September 2026, https://cdn.openai.com/
+pdf/32d9f210-8b73-45e0-91bc-82a30aef8a9a/navier-stokes.pdf; Lean 4 certificates at https://github.com/openai/NavierStokesAndEuler.
+[6] G. L. Chahine, Nuclei effects on cavitation inception and noise, in Proc. 25th Symposium on Naval
+Hydrodynamics, St. John’s (2004).
+[7] R. E. A. Arndt, Cavitation in vortical flows, Annu. Rev. Fluid Mech. 34, 143–175 (2002).
+doi:10.1146/annurev.fluid.34.082301.114957
+[8] H. B. Keller, Numerical solution of bifurcation and nonlinear eigenvalue problems, in P. H. Rabinowitz
+(ed.), Applications of Bifurcation Theory, Academic Press, 359–384 (1977).
+[9] P. E. Farrell, Á. Birkisson and S. W. Funke, Deflation techniques for finding distinct solutions of nonlinear partial differential equations, SIAM J. Sci. Comput. 37, A2026–A2045 (2015).
+doi:10.1137/140984798
+[10] L. N. Trefethen, Spectral Methods in MATLAB, SIAM (2000). doi:10.1137/1.9780898719598
+[11] J. P. Boyd, Chebyshev and Fourier Spectral Methods, Springer (1989). doi:10.1007/978-3-642-838767
+[12] C. Canuto, M. Y. Hussaini, A. Quarteroni and T. A. Zang, Spectral Methods in Fluid Dynamics,
+Springer (1988). doi:10.1007/978-3-642-84108-8
+[13] W. Squire and G. Trapp, Using complex variables to estimate derivatives of real functions, SIAM
+Review 40 (1998) 110–112. doi:10.1137/S003614459631241X
+[14] J. R. R. A. Martins, P. Sturdza and J. J. Alonso, The complex-step derivative approximation, ACM
+Trans. Math. Software 29 (2003) 245–262. doi:10.1145/838250.838251
+[15] E. L. Allgower and K. Georg, Numerical Continuation Methods: An Introduction, Springer, 1990.
+doi:10.1007/978-3-642-61257-2
+[16] A. Bayliss and E. Turkel, Mappings and accuracy for Chebyshev pseudo-spectral approximations, J.
+Comput. Phys. 101 (1992) 349–359. doi:10.1016/0021-9991(92)90012-N
+[17] P. J. Roache, Code verification by the method of manufactured solutions, J. Fluids Eng. 124 (2002)
+4–10. doi:10.1115/1.1436090
+[18] E. Hairer, S. P. Nørsett and G. Wanner, Solving Ordinary Differential Equations I: Nonstiff Problems,
+2nd ed., Springer, 1993. doi:10.1007/978-3-540-78862-1
+[19] E. Hairer and G. Wanner, Solving Ordinary Differential Equations II: Stiff and Differential-Algebraic
+Problems, 2nd ed., Springer, 1996. doi:10.1007/978-3-642-05221-7
+30
+
+[20] D. G. Anderson, Iterative procedures for nonlinear integral equations, J. ACM 12 (1965) 547–560.
+doi:10.1145/321296.321305
+[21] H. F. Walker and P. Ni, Anderson acceleration for fixed-point iterations, SIAM J. Numer. Anal. 49
+(2011) 1715–1735. doi:10.1137/10078356X
+[22] C. G. Broyden, A class of methods for solving nonlinear simultaneous equations, Math. Comp. 19
+(1965) 577–593. doi:10.1090/S0025-5718-1965-0198670-6
+[23] M. A. Branch, T. F. Coleman and Y. Li, A subspace, interior, and conjugate gradient method
+for large-scale bound-constrained minimization problems, SIAM J. Sci. Comput. 21 (1999) 1–23.
+doi:10.1137/S1064827595289108
+[24] D. W. McLaughlin, G. C. Papanicolaou, C. Sulem and P.-L. Sulem, Focusing singularity of the cubic
+Schrödinger equation, Phys. Rev. A 34 (1986) 1200–1210. doi:10.1103/PhysRevA.34.1200
+[25] H. Vandeven, Family of spectral filters for discontinuous problems, J. Sci. Comput. 6 (1991) 159–192.
+doi:10.1007/BF01062118
+[26] T. Y. Hou and R. Li, Computing nearly singular solutions using pseudo-spectral methods, J. Comput.
+Phys. 226 (2007) 379–397. doi:10.1016/j.jcp.2007.04.014
+[27] C. B. Moler and G. W. Stewart, An algorithm for generalized matrix eigenvalue problems, SIAM J.
+Numer. Anal. 10 (1973) 241–256. doi:10.1137/0710024
+[28] J.-P. Berrut and L. N. Trefethen, Barycentric Lagrange interpolation, SIAM Review 46 (2004) 501–
+517. doi:10.1137/S0036144502417715
+
+31
+
+

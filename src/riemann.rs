@@ -4,121 +4,212 @@
 //! Do all non-trivial zeros of the Riemann zeta function lie on the
 //! critical line Re(s) = 1/2?
 //!
-//! Demonstrates via computation of ζ(s) along the real axis and critical line.
+//! Architecture: Three separate representations sharing underlying data:
+//! - integer_structure: factorization, prime powers, Möbius function
+//! - prime_gaps: ordinal positions, distances, gap distributions
+//! - zeta_analysis: Euler product, zeta zeros, approximation errors
 
-/// Compute Riemann zeta function for real s > 1 using Dirichlet series
-fn zeta_real(s: f64) -> f64 {
-    let mut sum = 0.0;
-    let mut n = 1;
-    while n <= 1_000_000 {
-        sum += 1.0 / (n as f64).powf(s);
-        n += 1;
-    }
-    sum
-}
+mod integer_structure;
+mod prime_gaps;
+mod zeta_analysis;
 
-/// Compute ζ(s) for complex s using Euler-Maclaurin acceleration
-/// Returns (re, im)
-fn zeta_complex(s_re: f64, s_im: f64) -> (f64, f64) {
-    if s_re > 1.0 {
-        // Direct series converges for Re(s) > 1
-        let mut re_sum = 0.0;
-        let mut im_sum = 0.0;
-        for n in 1..=100_000 {
-            let log_n = (n as f64).ln();
-            let denom = (n as f64).powf(s_re);
-            re_sum += (-(s_im * log_n)).cos() / denom;
-            im_sum += (-(s_im * log_n)).sin() / denom;
+use integer_structure::{classify, classify_range, factorize, mobius, is_prime, omega, big_omega, is_semiprime, is_prime_power, is_squarefree};
+use prime_gaps::{prime_gaps_up_to, gap_distribution, maximal_gaps, twin_primes, analyze_gap_structure, analyze_by_gap_size, analyze_by_magnitude};
+use zeta_analysis::{verify_euler_product, verify_mobius_identity, pnt_comparison, rh_gap_bound};
+
+/// Experiment: Structural classification using independent properties
+fn structural_experiment(limit: usize) {
+    println!("--- STRUCTURAL CLASSIFICATION EXPERIMENT (Independent Properties) ---");
+    println!("Using ω(n), Ω(n), is_semiprime, is_prime_power, is_squarefree\\n");
+
+    // Example: analyze specific intervals with detailed properties
+    let test_intervals = [(7u64, 11u64), (23u64, 29u64), (89u64, 97u64)];
+    
+    for &(p1, p2) in &test_intervals {
+        println!("Interval ({}, {}):", p1, p2);
+        for n in (p1 + 1)..p2 {
+            let factors = factorize(n);
+            let w = omega(n);
+            let big_w = big_omega(n);
+            let sp = is_semiprime(n);
+            let pp = is_prime_power(n);
+            let sf = is_squarefree(n);
+            
+            println!("  {} = {:?} | ω={} Ω={} semiprime={} prime_power={} squarefree={}",
+                n, factors, w, big_w, sp, pp, sf);
         }
-        return (re_sum, -im_sum);
     }
 
-    // For critical line, use approximate computation via first N terms
-    // with convergence factor (not mathematically rigorous but illustrative)
-    let mut re_sum = 0.0;
-    let mut im_sum = 0.0;
-    for n in 1..=50_000 {
-        let log_n = (n as f64).ln();
-        let denom = (n as f64).powf(s_re);
-        re_sum += (-(s_im * log_n)).cos() / denom;
-        im_sum += (-(s_im * log_n)).sin() / denom;
+    // Aggregate analysis using new functions
+    println!("\\n--- AGGREGATE ANALYSIS BY GAP SIZE ---");
+    let by_size = analyze_by_gap_size(limit);
+    let mut sorted_sizes: Vec<u64> = by_size.keys().cloned().collect();
+    sorted_sizes.sort();
+    
+    println!("Gap Size | Gaps Analyzed | Semiprime % | Prime Power % | Interior Count");
+    println!("---------|---------------|-------------|---------------|--------------");
+    for gap_size in &sorted_sizes {
+        if let Some(stats) = by_size.get(gap_size) {
+            let sp_pct = stats.get("semiprime_pct").unwrap_or(&0.0);
+            let pp_pct = stats.get("prime_power_pct").unwrap_or(&0.0);
+            let gap_count = stats.get("gap_count").unwrap_or(&0.0);
+            let interior = stats.get("total_interior").unwrap_or(&0.0);
+            println!("{:8} | {:13} | {:9.2}% | {:13.2}% | {:?}",
+                gap_size, *gap_count as usize, sp_pct, pp_pct, *interior as usize);
+        }
     }
-    (re_sum, -im_sum)
-}
 
-/// Check if |ζ(1/2 + it)| is small (potential zero nearby)
-fn zeta_magnitude_on_critical_line(t: f64) -> f64 {
-    let (re, im) = zeta_complex(0.5, t);
-    (re * re + im * im).sqrt()
+    println!("\\n--- AGGREGATE ANALYSIS BY MAGNITUDE ---");
+    let ranges = [(10u64, 100u64), (100u64, 1000u64), (1000u64, 5000u64)];
+    let by_magnitude = analyze_by_magnitude(&ranges);
+    
+    println!("Range      | Gaps Analyzed | Semiprime % | Prime Power % | Interior Count");
+    println!("-----------|---------------|-------------|---------------|--------------");
+    for (start, end, stats) in &by_magnitude {
+        let sp_pct = stats.get("semiprime_pct").unwrap_or(&0.0);
+        let pp_pct = stats.get("prime_power_pct").unwrap_or(&0.0);
+        let gap_count = stats.get("gap_count").unwrap_or(&0.0);
+        let interior = stats.get("total_interior").unwrap_or(&0.0);
+        println!("{:6}–{:5} | {:13} | {:9.2}% | {:13.2}% | {:?}",
+            start, end, *gap_count as usize, sp_pct, pp_pct, *interior as usize);
+    }
 }
 
 pub fn show_riemann_station() {
     println!("=== RIEMANN HYPOTHESIS MILLENNIUM PRIZE PROBLEM ===");
-    println!("Clay Mathematics Institute: $1,000,000 prize for proof\n");
+    println!("Clay Mathematics Institute: $1,000,000 prize for proof\\n");
 
     println!("THE QUESTION: Do all non-trivial zeros of the Riemann zeta function");
-    println!("ζ(s) = Σ(1/n^s) lie on the critical line Re(s) = 1/2?\n");
+    println!("ζ(s) = Σ(1/n^s) lie on the critical line Re(s) = 1/2?\\n");
 
-    println!("The zeta function connects primes to analysis via the Euler product:");
-    println!("zeta(s) = Product over all primes p of (1 - p^(-s))^(-1)\n");
+    // Part 1: Euler Product Identity
+    println!("=== PART 1: THE EULER PRODUCT IDENTITY ===");
+    println!("Two representations of the same structure:\\n");
+    println!("  Σ(1/n^s) over ALL natural numbers = Π(1 - p^(-s))^(-1) over PRIMES only\\n");
 
-    println!("--- ZETA FUNCTION ON REAL AXIS ---");
-    println!("Computing ζ(s) for real s > 1 (Dirichlet series converges):\n");
-
-    let test_values = [2.0, 3.0, 4.0, 5.0, 10.0];
-    println!("s      | ζ(s)            | Notes");
-    println!("-------|-----------------|------");
-    for &s in &test_values {
-        let z = zeta_real(s);
-        let note = match s {
-            2.0 => "π²/6 (Basel problem, solved by Euler)",
-            3.0 => "Apéry's constant (irrational, proved 1978)",
-            _ => "",
-        };
-        println!("{:5.1} | {:14.6} | {}", s, z, note);
+    let s_values = [2.0, 3.0, 4.0];
+    println!("Verifying identity for s > 1:\\n");
+    println!("s   | ζ(s) series | Euler product | Relative error");
+    println!("----|-------------|---------------|---------------");
+    for &s in &s_values {
+        let (zeta, product, error) = verify_euler_product(s, 500);
+        println!("{:3.1} | {:9.6} | {:11.6} | {:.2e}", s, zeta, product, error);
     }
 
-    println!("\nAs s → 1⁺, ζ(s) → ∞ (pole at s=1)");
-    println!("As s → ∞, ζ(s) → 1\n");
+    println!("\\nThis identity follows from unique prime factorization.");
+    println!("The left side enumerates all natural numbers additively.");
+    println!("The right side reconstructs them multiplicatively from primes.\\n");
 
-    println!("--- CRITICAL LINE EXPLORATION ---");
-    println!("Computing |ζ(1/2 + it)| for various t values:");
-    println!("Zeros occur where this magnitude is zero.\n");
+    // Part 2: Möbius Function and Inverted Zeta
+    println!("=== PART 2: THE MÖBIUS FUNCTION ===");
+    println!("μ(n) encodes inclusion-exclusion over prime factors:\\n");
+    println!("  μ(1) = 1");
+    println!("  μ(p) = -1 for prime p");
+    println!("  μ(pq) = +1 for distinct primes p,q");
+    println!("  μ(n) = 0 if n has a squared prime factor\\n");
 
-    println!("t       | |ζ(1/2+it)|   | Known zero nearby?");
-    println!("--------|-------------|------------------");
+    let test_values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    print!("μ(n) for n=1..10: ");
+    for &n in &test_values {
+        print!("{:>3}", mobius(n));
+    }
+    println!();
 
-    // Check around known zeros: 14.13, 21.02, 25.01, 30.42, 32.93
-    let test_t = [10.0, 14.13, 15.0, 20.0, 21.02, 22.0, 25.01, 30.0, 30.42];
-    for &t in &test_t {
-        let mag = zeta_magnitude_on_critical_line(t);
-        let note = if (t - 14.13).abs() < 0.01
-            || (t - 21.02).abs() < 0.01
-            || (t - 25.01).abs() < 0.01
-            || (t - 30.42).abs() < 0.01
-        {
-            "Yes"
-        } else {
-            "No"
-        };
-        println!("{:6.2} | {:11.6} | {}", t, mag, note);
+    println!("\\nIdentity: Σ(μ(n)/n^s) = 1/ζ(s)\\n");
+    let (mobius_sum, expected, error) = verify_mobius_identity(2.0, 1000);
+    println!("Σ(μ(n)/n²) computed: {:.6}", mobius_sum);
+    println!("1/ζ(2) expected:     {:.6}", expected);
+    println!("Relative error:      {:.2e}\\n", error);
+
+    // Part 3: Prime Gaps and Distribution
+    println!("=== PART 3: PRIME GAP DISTRIBUTION ===");
+    println!("The 'irregularity' of primes is not random — it's structured.\\n");
+
+    let limit = 500;
+    let gaps = prime_gaps_up_to(limit);
+    println!("Prime gaps up to {}:", limit);
+    println!("Gap size | Frequency | Primes involved (first few examples)");
+    println!("---------|-----------|-----------------------------------");
+
+    let dist = gap_distribution(limit);
+    let mut sorted_gaps: Vec<(&u64, &usize)> = dist.iter().collect();
+    sorted_gaps.sort_by_key(|&(gap, _)| *gap);
+
+    for (gap_size, freq) in sorted_gaps {
+        // Find example primes with this gap
+        let examples = gaps.iter()
+            .filter(|&(_, _, g)| *g == *gap_size)
+            .take(2)
+            .map(|&(p1, p2, _)| format!("{}→{}", p1, p2))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        println!("{:8} | {:9} | {}", gap_size, freq, examples);
     }
 
-    println!("\n--- WHAT WE KNOW ---");
-    println!("• The first 10^13 zeros have been computed numerically");
-    println!("• All lie on the critical line Re(s) = 1/2");
-    println!("• No counterexample has been found despite extensive search");
-    println!("• But no one has proven it for ALL zeros\n");
+    // Maximal gaps
+    let max_gaps = maximal_gaps(limit);
+    println!("\\nRecord-breaking gaps (maximal gaps):");
+    for &(p1, p2, gap) in &max_gaps {
+        println!("  {}→{}: gap of {} (first time a gap this large appears)", p1, p2, gap);
+    }
 
-    println!("--- WHY IT MATTERS ---");
-    println!("The distribution of prime numbers is encoded in the zeros.");
-    println!("If the Riemann Hypothesis is true, primes are as evenly distributed");
-    println!("as possible. Many results in number theory are conditional on RH.\n");
+    // Twin primes
+    let twins = twin_primes(limit);
+    println!("\\nTwin prime pairs (gap=2) up to {}: {}", limit, twins.len());
+    if !twins.is_empty() {
+        print!("  Examples: ");
+        for (i, &(p1, p2)) in twins.iter().enumerate() {
+            if i >= 5 { break; }
+            print!("({},{}), ", p1, p2);
+        }
+        println!();
+    }
 
-    println!("--- CONNECTION TO PHYSICS ---");
-    println!("The distribution of zeta zeros matches eigenvalue statistics of");
-    println!("random Hermitian matrices (Gaussian Unitary Ensemble). This suggests");
-    println!("a deep connection between prime numbers and quantum chaos.\n");
+    // Part 4: Prime Number Theorem and RH
+    println!("\\n=== PART 4: PRIME NUMBER THEOREM AND RH ===");
+    println!("PNT: π(x) ~ Li(x) as x→∞ (ratio approaches 1)\\n");
+
+    let sample_points = [100u64, 500, 1000, 5000];
+    println!("x     | π(x) actual | Li(x) approx | Ratio π/Li | Relative error");
+    println!("------|-------------|------------|-----------|---------------");
+    let results = pnt_comparison(5000, &sample_points);
+    for &(x, pi_x, ratio, error) in &results {
+        println!("{:5} | {:11} | {:10.2} | {:9.6} | {:.4e}", x, pi_x, 1.0/ratio * pi_x as f64, ratio, error);
+    }
+
+    println!("\\nUnder RH, the error term is bounded by O(√x · ln(x)):");
+    for &x in &[100f64, 1000.0, 10000.0] {
+        let bound = rh_gap_bound(x);
+        println!("  x={:7.0}: RH error bound ≈ {:.0}", x, bound);
+    }
+
+    // Part 5: Structural Experiment
+    structural_experiment(200);
+
+    // Summary
+    println!("\\n=== WHAT WE KNOW ===");
+    println!("• First 10^13 zeros computed numerically — all on critical line Re(s)=1/2");
+    println!("• No counterexample found despite extensive search");
+    println!("• But no one has proven it for ALL zeros\\n");
+
+    println!("=== WHY IT MATTERS ===");
+    println!("The distribution of prime numbers is encoded in the zeta zeros.");
+    println!("RH would give us the sharpest possible bound on how far primes");
+    println!("can deviate from their 'expected' distribution.\\n");
+
+    println!("=== CONNECTION TO PHYSICS ===");
+    println!("Zeta zero spacing matches eigenvalue statistics of random Hermitian");
+    println!("matrices (Gaussian Unitary Ensemble). Berry & Keating conjectured");
+    println!("an underlying Hamiltonian whose spectrum gives the zeros.\\n");
+
+    println!("=== ARCHITECTURAL INSIGHT ===");
+    println!("This station demonstrates preserving multiple mathematical");
+    println!("representations and studying their relationships:");
+    println!("  - Additive enumeration (natural numbers)");
+    println!("  - Multiplicative construction (prime factorization)");
+    println!("  - Structural cancellation (Möbius function)");
+    println!("Each representation reveals different aspects of the same structure.\\n");
 
     println!("=== RIEMANN HYPOTHESIS STATION COMPLETE ===");
 }
@@ -128,31 +219,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_zeta_at_2() {
-        // ζ(2) = π²/6 ≈ 1.644934
-        let z = zeta_real(2.0);
-        assert!((z - std::f64::consts::PI * std::f64::consts::PI / 6.0).abs() < 0.001);
+    fn test_euler_product_identity() {
+        let (zeta, product, error) = verify_euler_product(2.0, 1000);
+        assert!(error < 0.01);
     }
 
     #[test]
-    fn test_zeta_decreases() {
-        // ζ(s) decreases as s increases for real s > 1
-        assert!(zeta_real(2.0) > zeta_real(3.0));
-        assert!(zeta_real(3.0) > zeta_real(4.0));
+    fn test_mobius_identity() {
+        let (_, _, error) = verify_mobius_identity(2.0, 1000);
+        assert!(error < 0.01);
     }
 
     #[test]
-    fn test_zeta_approaches_1() {
-        // ζ(s) → 1 as s → ∞
-        let z = zeta_real(10.0);
-        assert!((z - 1.0).abs() < 0.002);
+    fn test_prime_gaps_exist() {
+        let gaps = prime_gaps_up_to(100);
+        assert!(!gaps.is_empty());
+        // First gap is always 1 (2→3)
+        assert_eq!(gaps[0].2, 1);
     }
 
     #[test]
-    fn test_zeta_complex_returns_finite() {
-        // Just verify computation doesn't crash or return NaN/Inf
-        let (re, im) = zeta_complex(0.5, 14.13);
-        assert!(re.is_finite());
-        assert!(im.is_finite());
+    fn test_twin_primes_found() {
+        let twins = twin_primes(50);
+        assert!(twins.len() > 0);
+        assert!(twins.contains(&(3, 5)));
+    }
+
+    #[test]
+    fn test_structural_classification() {
+        // Verify that integers between primes can be classified
+        let counts = classify_range(10, 20);
+        assert!(counts.contains_key("prime"));
+        assert!(*counts.get("prime").unwrap() > 0);
     }
 }

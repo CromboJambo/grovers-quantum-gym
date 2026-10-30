@@ -131,7 +131,34 @@ fn main() {
     println!("\n--- ATTENTION IS ALL YOU NEED (2017) ---");
     shor_grover_exploration::attention::show_attention_station();
 
-    println!("\n--- P VS NP MILLENNIUM PRIZE PROBLEM ---");
+    println!("\n--- EULER: THE STRUCTURAL UNIFIER (1707-1783) ---");
+    shor_grover_exploration::euler::show_euler_station();
+
+    println!("\n--- HUGH EVERETT III: MANY-WORLDS INTERPRETATION (1957) ---");
+    shor_grover_exploration::everett::show_everett_station();
+    println!();
+    println!("--- KURT GÖDEL: INCOMPLETENESS THEOREMS (1931) ---");
+    shor_grover_exploration::godel::show_godel_station();
+
+    println!("\n--- JOHN STEWART BELL'S THEOREM (1964) ---");
+    shor_grover_exploration::bell::show_bell_station();
+
+    println!("\n--- JOHN NASH: GAME THEORY AND COOPERATION (1950) ---");
+    shor_grover_exploration::game_theory::show_game_theory_station();
+
+    println!("\n--- DAVID DEUTSCH: THE FABRIC OF REALITY (1997) ---");
+    shor_grover_exploration::deutsch::show_deutsch_station();
+
+    println!("\n--- THE PHILOSOPHY OF PROBLEM-SOLVING: CELEBRATING COLLAPSE ---");
+    shor_grover_exploration::collapse::show_collapse_station();
+
+    println!("\n--- GREGORY CHAITIN: ALGORITHMIC INFORMATION THEORY & Ω (1963-2024) ---");
+    shor_grover_exploration::chaitin::show_chaitin_station();
+
+    println!("\n--- JOHN ARCHIBALD WHEELER: DELAYED CHOICE & IT FROM BIT (1967-2008) ---");
+    shor_grover_exploration::wheeler::show_wheeler_station();
+
+    println!("\n--- P VS NP PROBLEM ---");
     shor_grover_exploration::p_vs_np::show_p_vs_np_station();
 
     println!("\n--- NAVIER-STOKES MILLENNIUM PRIZE PROBLEM ---");
@@ -142,6 +169,9 @@ fn main() {
 
     println!("\n--- YANG-MILLS EXISTENCE AND MASS GAP PROBLEM ---");
     shor_grover_exploration::yang_mills::show_yang_mills_station();
+
+    println!("\n--- JOHN VON NEUMANN: QUANTUM MEASUREMENT & GAME THEORY (1932, 1944) ---");
+    shor_grover_exploration::von_neumann::show_von_neumann_station();
 
     println!("\n=== EXPLORATION COMPLETE ===");
 }

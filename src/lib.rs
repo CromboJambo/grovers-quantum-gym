@@ -7,6 +7,14 @@
 
 pub mod attention;
 pub mod benchmarks;
+pub mod bell;
+pub mod chaitin;
+pub mod game_theory;
+pub mod collapse;
+pub mod deutsch;
+pub mod everett;
+pub mod euler;
+pub mod godel;
 pub mod fft;
 pub mod grover;
 pub mod lovelace;
@@ -19,7 +27,9 @@ pub mod rsa;
 pub mod shor;
 pub mod sorting_bounds;
 pub mod turing;
+pub mod wheeler;
 pub mod yang_mills;
+pub mod von_neumann;
 
 // Re-export main types for convenience
 pub use grover::{GroverOracle, grover_search, linear_search};
