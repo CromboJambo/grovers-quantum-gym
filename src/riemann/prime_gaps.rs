@@ -226,7 +226,7 @@ pub fn experiment_d_parity_control(limit: usize) -> Vec<(u64, f64, f64, f64, u64
     results
 }
 
-/// Experiment E: Small-prime divisibility signatures
+/// Experiment E: Small-prime divisibility signatures and residue classes
 /// Record divisibility by small primes for each interior integer
 pub fn experiment_e_divisibility(limit: usize) -> std::collections::HashMap<u64, Vec<f64>> {
     use crate::riemann::integer_structure::{is_prime_power, is_semiprime};
@@ -266,6 +266,105 @@ pub fn experiment_e_divisibility(limit: usize) -> std::collections::HashMap<u64,
         }
 
         results.insert(gap_size, percentages);
+    }
+
+    results
+}
+
+/// Experiment E enhanced: Residue classes and smallest prime factor analysis
+pub fn experiment_e_residues(limit: usize) -> Vec<(u64, std::collections::HashMap<String, Vec<f64>>)> {
+    use crate::riemann::integer_structure::{is_prime_power, is_semiprime};
+
+    let gaps = prime_gaps_up_to(limit);
+    let small_primes = [2u64, 3, 5, 7, 11];
+    let gap_sizes = [2u64, 4, 6, 8, 10];
+    let mut results = Vec::new();
+
+    for &gap_size in &gap_sizes {
+        let relevant_pairs: Vec<(u64, u64)> = gaps.iter()
+            .filter(|&&(p1, p2, g)| g == gap_size)
+            .map(|&(p1, p2, _)| (p1, p2))
+            .collect();
+
+        if relevant_pairs.is_empty() { continue; }
+
+        let mut stats: std::collections::HashMap<String, Vec<f64>> = std::collections::HashMap::new();
+
+        // Residue class distributions for each small prime
+        for &r in &small_primes {
+            let mut residue_counts = vec![0u64; r as usize];
+            let mut total = 0;
+
+            for &(p1, p2) in &relevant_pairs {
+                for n in (p1 + 1)..p2 {
+                    total += 1;
+                    let residue = (n % r) as usize;
+                    residue_counts[residue] += 1;
+                }
+            }
+
+            let mut percentages = Vec::new();
+            for count in &residue_counts {
+                let pct = if total > 0 { *count as f64 / total as f64 * 100.0 } else { 0.0 };
+                percentages.push(pct);
+            }
+
+            stats.insert(format!("residues_mod_{}", r), percentages);
+        }
+
+        // Smallest prime factor distribution
+        let mut spf_counts = std::collections::HashMap::<u64, u64>::new();
+        let mut total_interior = 0;
+
+        for &(p1, p2) in &relevant_pairs {
+            for n in (p1 + 1)..p2 {
+                total_interior += 1;
+                // Find smallest prime factor
+                for sp in &small_primes {
+                    if n % sp == 0 {
+                        *spf_counts.entry(*sp).or_insert(0) += 1;
+                        break;
+                    }
+                }
+            }
+        }
+
+        let mut spf_percentages = Vec::new();
+        for &sp in &small_primes {
+            let count = spf_counts.get(&sp).copied().unwrap_or(0);
+            let pct = if total_interior > 0 { count as f64 / total_interior as f64 * 100.0 } else { 0.0 };
+            spf_percentages.push(pct);
+        }
+
+        stats.insert("smallest_prime_factor".to_string(), spf_percentages);
+
+        // Semiprime factor composition
+        let mut semiprime_small_factors = 0;
+        let mut semiprime_large_factors = 0;
+        let mut semiprime_total = 0;
+
+        for &(p1, p2) in &relevant_pairs {
+            for n in (p1 + 1)..p2 {
+                if is_semiprime(n) {
+                    semiprime_total += 1;
+                    // Check if both factors are small primes
+                    let has_small_factor = small_primes.iter().any(|&sp| n % sp == 0);
+                    if has_small_factor {
+                        semiprime_small_factors += 1;
+                    } else {
+                        semiprime_large_factors += 1;
+                    }
+                }
+            }
+        }
+
+        let small_pct = if semiprime_total > 0 { semiprime_small_factors as f64 / semiprime_total as f64 * 100.0 } else { 0.0 };
+        let large_pct = if semiprime_total > 0 { semiprime_large_factors as f64 / semiprime_total as f64 * 100.0 } else { 0.0 };
+
+        stats.insert("semiprime_small_factors".to_string(), vec![small_pct]);
+        stats.insert("semiprime_large_factors".to_string(), vec![large_pct]);
+
+        results.push((gap_size, stats));
     }
 
     results

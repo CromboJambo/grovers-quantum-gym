@@ -14,7 +14,7 @@ mod prime_gaps;
 mod zeta_analysis;
 
 use integer_structure::{factorize, mobius, omega, big_omega, is_semiprime, is_prime_power, is_squarefree};
-use prime_gaps::{prime_gaps_up_to, gap_distribution, maximal_gaps, twin_primes, experiment_d_parity_control, experiment_e_divisibility, experiment_f_topology};
+use prime_gaps::{prime_gaps_up_to, gap_distribution, maximal_gaps, twin_primes, experiment_d_parity_control, experiment_e_residues, experiment_f_topology};
 use zeta_analysis::{verify_euler_product, verify_mobius_identity, pnt_comparison, rh_gap_bound};
 
 /// Experiment: Structural classification using independent properties
@@ -52,20 +52,38 @@ fn structural_experiment(limit: usize) {
             gap_size, gap_pct, control_pct, diff, interior);
     }
 
-    // Experiment E: Small-prime divisibility signatures
-    println!("\n--- EXPERIMENT E: SMALL-PRIME DIVISIBILITY SIGNATURES ---");
-    println!("Percentage of interior integers divisible by each small prime\n");
+    // Experiment E enhanced: Residue classes and smallest prime factor analysis
+    println!("\n--- EXPERIMENT E ENHANCED: RESIDUE CLASSES AND SMALLEST PRIME FACTOR ---");
+    println!("Analyzing modular structure of interior integers\n");
     
-    let exp_e_results = experiment_e_divisibility(limit);
-    let small_primes = [2u64, 3, 5, 7, 11, 13, 17, 19];
-    let header: String = small_primes.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(" ");
-    println!("Gap Size | Div by: {}", header);
-    
-    for (gap_size, percentages) in exp_e_results {
-        let pct_strs: Vec<String> = percentages.iter()
-            .map(|p| format!("{:.1}%", p))
-            .collect();
-        println!("{:8} | {}", gap_size, pct_strs.join(" "));
+    let exp_e_res = experiment_e_residues(limit);
+    for (gap_size, stats) in &exp_e_res {
+        println!("Gap size {}:", gap_size);
+        
+        // Show residue distributions for key small primes
+        if let Some(residues_3) = stats.get("residues_mod_3") {
+            println!("  Residues mod 3: [0]={:.1}% [1]={:.1}% [2]={:.1}%",
+                residues_3[0], residues_3[1], residues_3[2]);
+        }
+        
+        if let Some(residues_5) = stats.get("residues_mod_5") {
+            println!("  Residues mod 5: [0]={:.1}% [1]={:.1}% [2]={:.1}% [3]={:.1}% [4]={:.1}%",
+                residues_5[0], residues_5[1], residues_5[2], residues_5[3], residues_5[4]);
+        }
+        
+        // Smallest prime factor distribution
+        if let Some(spf) = stats.get("smallest_prime_factor") {
+            println!("  Smallest prime factor: [2]={:.1}% [3]={:.1}% [5]={:.1}% [7]={:.1}% [11]={:.1}%",
+                spf[0], spf[1], spf[2], spf[3], spf[4]);
+        }
+        
+        // Semiprime factor composition
+        if let Some(small) = stats.get("semiprime_small_factors") {
+            if let Some(large) = stats.get("semiprime_large_factors") {
+                println!("  Semiprimes with small factors: {:.1}%", small[0]);
+                println!("  Semiprimes with large factors: {:.1}%", large[0]);
+            }
+        }
     }
 
     // Experiment F: Factorization topology
