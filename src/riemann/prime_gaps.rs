@@ -909,6 +909,146 @@ pub fn factor_pair_matrix(integers: &[u64]) -> std::collections::HashMap<(u64, u
     matrix
 }
 
+/// Experiment K: The shield stress test
+/// 
+/// Actively searches for counterexamples to the prime-shield hypothesis.
+/// Tests at multiple limits and tracks the first occurrence of LPF > 100 in actual prime gaps.
+/// Distinguishes between factor exclusion (impossible) vs factor redistribution (less frequent).
+pub fn experiment_k_shield_stress_test(limits: &[usize]) -> Vec<std::collections::HashMap<String, f64>> {
+    use crate::riemann::integer_structure::{factorize, is_prime, largest_prime_factor};
+    
+    let mut all_results = Vec::new();
+    
+    for &limit in limits {
+        let gaps = prime_gaps_up_to(limit);
+        
+        // Track LPF statistics across all prime-bounded intervals
+        let mut lpf_values: Vec<u64> = Vec::new();
+        let mut lpf_ratio_values: Vec<f64> = Vec::new();
+        let mut lpf_sqrt_ratio_values: Vec<f64> = Vec::new();
+        let mut first_counterexample: Option<(u64, u64, u64)> = None; // (n, p1, p2) where n has LPF > 100
+        
+        // Factor composition counters for small primes
+        let small_primes = [2u64, 3, 5, 7, 11, 13, 17, 19];
+        let mut factor_counts: std::collections::HashMap<u64, usize> = std::collections::HashMap::new();
+        for p in &small_primes {
+            factor_counts.insert(*p, 0);
+        }
+        
+        // Control population (magnitude-matched random)
+        let mut control_lpf_values: Vec<u64> = Vec::new();
+        let mut control_factor_counts: std::collections::HashMap<u64, usize> = std::collections::HashMap::new();
+        for p in &small_primes {
+            control_factor_counts.insert(*p, 0);
+        }
+        
+        // Collect prime-bounded interval data
+        for &(p1, p2, _gap) in &gaps {
+            for n in (p1 + 1)..p2 {
+                if n <= 1 { continue; }
+                
+                let lpf = largest_prime_factor(n);
+                lpf_values.push(lpf);
+                
+                let ratio = lpf as f64 / n as f64;
+                lpf_ratio_values.push(ratio);
+                
+                let sqrt_n = (n as f64).sqrt();
+                lpf_sqrt_ratio_values.push(lpf as f64 / sqrt_n);
+                
+                // Check for counterexample to LPF > 100 claim
+                if lpf > 100 && first_counterexample.is_none() {
+                    first_counterexample = Some((n, p1, p2));
+                }
+                
+                // Count small prime factors
+                let factors = factorize(n);
+                for (p, _) in &factors {
+                    if factor_counts.contains_key(p) {
+                        *factor_counts.get_mut(p).unwrap() += 1;
+                    }
+                }
+            }
+        }
+        
+        // Collect control data (same number of integers, random magnitude)
+        let total_integers = lpf_values.len();
+        if total_integers > 0 {
+            for _ in 0..total_integers {
+                let n = 10 + rand::random::<u64>() % (limit as u64 - 10);
+                if is_prime(n) { continue; }
+                
+                let lpf = largest_prime_factor(n);
+                control_lpf_values.push(lpf);
+                
+                let factors = factorize(n);
+                for (p, _) in &factors {
+                    if control_factor_counts.contains_key(p) {
+                        *control_factor_counts.get_mut(p).unwrap() += 1;
+                    }
+                }
+            }
+        }
+        
+        // Compute statistics
+        let mut stats: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        stats.insert("limit".to_string(), limit as f64);
+        stats.insert("total_prime_bounded_integers".to_string(), total_integers as f64);
+        
+        // LPF maximum
+        if !lpf_values.is_empty() {
+            let max_lpf = lpf_values.iter().max().unwrap();
+            stats.insert("lpf_maximum".to_string(), *max_lpf as f64);
+            
+            // LPF > 100 frequency
+            let lpf_over_100 = lpf_values.iter().filter(|&&x| x > 100).count();
+            stats.insert("lpf_over_100_count".to_string(), lpf_over_100 as f64);
+            stats.insert("lpf_over_100_pct".to_string(), (lpf_over_100 as f64 / total_integers as f64) * 100.0);
+            
+            // Mean LPF/n ratio
+            let mean_ratio = lpf_ratio_values.iter().sum::<f64>() / lpf_ratio_values.len() as f64;
+            stats.insert("mean_lpf_n_ratio".to_string(), mean_ratio);
+            
+            // Mean LPF/sqrt(n) ratio
+            let mean_sqrt_ratio = lpf_sqrt_ratio_values.iter().sum::<f64>() / lpf_sqrt_ratio_values.len() as f64;
+            stats.insert("mean_lpf_sqrt_n_ratio".to_string(), mean_sqrt_ratio);
+        }
+        
+        // Control LPF > 100 frequency
+        if !control_lpf_values.is_empty() {
+            let control_over_100 = control_lpf_values.iter().filter(|&&x| x > 100).count();
+            stats.insert("control_lpf_over_100_pct".to_string(), (control_over_100 as f64 / control_lpf_values.len() as f64) * 100.0);
+        }
+        
+        // First counterexample
+        if let Some((n, p1, p2)) = first_counterexample {
+            stats.insert("first_counterexample_n".to_string(), n as f64);
+            stats.insert("first_counterexample_p1".to_string(), p1 as f64);
+            stats.insert("first_counterexample_p2".to_string(), p2 as f64);
+        } else {
+            stats.insert("first_counterexample_n".to_string(), -1.0); // None found
+        }
+        
+        // Factor composition analysis (compare prime-bounded vs control)
+        for &p in &small_primes {
+            let pb_count = factor_counts.get(&p).unwrap();
+            let ctrl_count = control_factor_counts.get(&p).unwrap();
+            
+            if total_integers > 0 && !control_lpf_values.is_empty() {
+                let pb_pct = (*pb_count as f64 / total_integers as f64) * 100.0;
+                let ctrl_pct = (*ctrl_count as f64 / control_lpf_values.len() as f64) * 100.0;
+                
+                stats.insert(format!("factor_{}_prime_bounded_pct", p), pb_pct);
+                stats.insert(format!("factor_{}_control_pct", p), ctrl_pct);
+            }
+        }
+        
+        all_results.push(stats);
+    }
+    
+    all_results
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -967,5 +1107,20 @@ mod tests {
         let has_magnitude = results.keys().any(|k| k.contains("magnitude_matched"));
         
         assert!(has_prime && has_endpoint && has_parity && has_composite && has_magnitude);
+    }
+
+    #[test]
+    fn test_experiment_k_runs() {
+        let limits = [500, 1000];
+        let results = experiment_k_shield_stress_test(&limits);
+        assert_eq!(results.len(), 2);
+        
+        // Check that required fields are present
+        for stats in &results {
+            assert!(stats.contains_key("limit"));
+            assert!(stats.contains_key("total_prime_bounded_integers"));
+            assert!(stats.contains_key("lpf_maximum"));
+            assert!(stats.contains_key("first_counterexample_n"));
+        }
     }
 }

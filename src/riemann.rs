@@ -14,7 +14,7 @@ mod prime_gaps;
 mod zeta_analysis;
 
 use integer_structure::{factorize, mobius, omega, big_omega, is_semiprime, is_prime_power, is_squarefree};
-use prime_gaps::{prime_gaps_up_to, gap_distribution, maximal_gaps, twin_primes, experiment_d_parity_control, experiment_e_residues, experiment_f_topology, experiment_g_endpoint_conditioned, experiment_h_largest_prime_factor, experiment_i_lpf_ratio, experiment_j_factorization_conditioned};
+use prime_gaps::{prime_gaps_up_to, gap_distribution, maximal_gaps, twin_primes, experiment_d_parity_control, experiment_e_residues, experiment_f_topology, experiment_g_endpoint_conditioned, experiment_h_largest_prime_factor, experiment_i_lpf_ratio, experiment_j_factorization_conditioned, experiment_k_shield_stress_test};
 use zeta_analysis::{verify_euler_product, verify_mobius_identity, pnt_comparison, rh_gap_bound};
 
 /// Experiment: Structural classification using independent properties
@@ -237,6 +237,55 @@ fn structural_experiment(limit: usize) {
     println!("\nIf consecutive-prime intervals show a distinctive factorization distribution");
     println!("compared to all five controls, the prime-shield effect is real and not");
     println!("an artifact of modular constraints, parity, or magnitude.");
+
+    // Experiment K: The shield stress test
+    println!("\n--- EXPERIMENT K: THE SHIELD STRESS TEST ---");
+    println!("Actively searching for counterexamples to the prime-shield hypothesis");
+    println!("at multiple limits (1000, 5000, 10000):\n");
+
+    let k_limits = [1000usize, 5000, 10000];
+    let exp_k_results = experiment_k_shield_stress_test(&k_limits);
+
+    println!("Limit | Prime-Bounded Ints | Max LPF | LPF>100 Count | LPF>100 % | Control LPF>100 %");
+    println!("------|-------------------|---------|---------------|-----------|-----------------");
+    for stats in &exp_k_results {
+        let limit = *stats.get("limit").unwrap() as usize;
+        let total = *stats.get("total_prime_bounded_integers").unwrap() as usize;
+        let max_lpf = *stats.get("lpf_maximum").unwrap() as u64;
+        let lpf_over_100_count = *stats.get("lpf_over_100_count").unwrap() as usize;
+        let lpf_over_100_pct = *stats.get("lpf_over_100_pct").unwrap();
+        let control_lpf_over_100_pct = stats.get("control_lpf_over_100_pct").copied().unwrap_or(0.0);
+
+        println!("{:5} | {:>17} | {:>7} | {:>13} | {:>9.1}% | {:>15.1}%",
+            limit, total, max_lpf, lpf_over_100_count, lpf_over_100_pct, control_lpf_over_100_pct);
+
+        // Report first counterexample if found
+        let ce_n = *stats.get("first_counterexample_n").unwrap();
+        if ce_n > 0.0 {
+            let ce_p1 = *stats.get("first_counterexample_p1").unwrap() as u64;
+            let ce_p2 = *stats.get("first_counterexample_p2").unwrap() as u64;
+            println!("  First counterexample: {} between {} and {} (LPF > 100)", ce_n as u64, ce_p1, ce_p2);
+        } else {
+            println!("  No counterexamples found up to {}", limit);
+        }
+    }
+
+    // Factor composition comparison at largest limit
+    if let Some(last_stats) = exp_k_results.last() {
+        println!("\nFactor composition (prime-bounded vs control) at limit {}:", k_limits.last().unwrap());
+        println!("Factor | Prime-Bounded % | Control % | Difference");
+        println!("-------|-----------------|-----------|-----------");
+        let small_primes = [2u64, 3, 5, 7, 11, 13, 17, 19];
+        for &p in &small_primes {
+            let pb_pct = last_stats.get(&format!("factor_{}_prime_bounded_pct", p)).copied().unwrap_or(0.0);
+            let ctrl_pct = last_stats.get(&format!("factor_{}_control_pct", p)).copied().unwrap_or(0.0);
+            println!("{:6} | {:>15.1}% | {:>9.1}% | {:>+9.1}%", p, pb_pct, ctrl_pct, pb_pct - ctrl_pct);
+        }
+    }
+
+    println!("\nIf LPF > 100 eventually appears in prime-bounded intervals at larger limits,");
+    println!("the 'prime shield' is a redistribution effect (less frequent) rather than");
+    println!("a true exclusion (impossible).");
 }
 
 pub fn show_riemann_station() {
