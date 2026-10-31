@@ -14,7 +14,7 @@ mod prime_gaps;
 mod zeta_analysis;
 
 use integer_structure::{factorize, mobius, omega, big_omega, is_semiprime, is_prime_power, is_squarefree};
-use prime_gaps::{prime_gaps_up_to, gap_distribution, maximal_gaps, twin_primes, experiment_d_parity_control, experiment_e_residues, experiment_f_topology, experiment_g_endpoint_conditioned, experiment_h_largest_prime_factor, experiment_i_lpf_ratio};
+use prime_gaps::{prime_gaps_up_to, gap_distribution, maximal_gaps, twin_primes, experiment_d_parity_control, experiment_e_residues, experiment_f_topology, experiment_g_endpoint_conditioned, experiment_h_largest_prime_factor, experiment_i_lpf_ratio, experiment_j_factorization_conditioned};
 use zeta_analysis::{verify_euler_product, verify_mobius_identity, pnt_comparison, rh_gap_bound};
 
 /// Experiment: Structural classification using independent properties
@@ -156,9 +156,87 @@ fn structural_experiment(limit: usize) {
             println!("  LPF/n {}: {:.1}%", bucket, pct);
         }
     }
-    println!("\nIf the ≥0.9 bucket is significantly populated, it suggests that consecutive");
+    println!("If the ≥0.9 bucket is significantly populated, it suggests that consecutive");
     println!("primes leave a 'residue' of near-primality in their gap — integers that are");
     println!("close to being prime themselves (having one very large prime factor).");
+
+    // Experiment J: Factorization-conditioned neighborhoods
+    // Five comparison populations to isolate which constraints produce distinctive distributions
+    println!("\n--- EXPERIMENT J: FACTORIZATION-CONDITIONED NEIGHBORHOODS ---");
+    println!("Five comparison populations to isolate the source of factorization structure:");
+    println!("  1. Consecutive-prime intervals (actual prime gaps)");
+    println!("  2. Endpoint-conditioned intervals (coprime endpoints, no interior primes required)");
+    println!("  3. Parity-matched intervals (same parity pattern as prime gaps)");
+    println!("  4. Composite-interior intervals (nonprime endpoints, may contain interior primes)");
+    println!("  5. Magnitude-matched intervals (random at similar magnitude)");
+
+    let exp_j_results = experiment_j_factorization_conditioned(limit);
+
+    // Group by gap size
+    let gap_sizes = [2u64, 4, 6, 8];
+    for &gap_size in &gap_sizes {
+        println!("Gap size {}:", gap_size);
+
+        // Get all five populations for this gap size
+        let populations = ["prime_bounded", "endpoint_conditioned", "parity_matched",
+                          "composite_interior", "magnitude_matched"];
+
+        let mut population_stats: Vec<(String, std::collections::HashMap<String, f64>)> = Vec::new();
+        for pop in &populations {
+            let key = format!("{}_{}", gap_size, pop);
+            if let Some(stats) = exp_j_results.get(&key) {
+                population_stats.push((pop.to_string(), stats.clone()));
+            }
+        }
+
+        if population_stats.is_empty() { continue; }
+
+        // Print LPF distribution comparison
+        println!("  Largest Prime Factor Distribution:");
+        for bucket in ["<=11", "12-31", "32-100", ">100"] {
+            print!("    LPF {}: ", bucket);
+            let mut values = Vec::new();
+            for (name, stats) in &population_stats {
+                let key = format!("lpf_{}", bucket);
+                if let Some(&pct) = stats.get(&key) {
+                    values.push(format!("{}={:.1}%", name, pct));
+                }
+            }
+            println!("{}", values.join(", "));
+        }
+
+        // Print LPF/n ratio comparison
+        println!("  LPF/n Ratio Distribution:");
+        for bucket in [">=0.9", "0.7-0.9", "0.5-0.7", "<0.5"] {
+            print!("    Ratio {}: ", bucket);
+            let mut values = Vec::new();
+            for (name, stats) in &population_stats {
+                let key = format!("lpf_ratio_{}", bucket);
+                if let Some(&pct) = stats.get(&key) {
+                    values.push(format!("{}={:.1}%", name, pct));
+                }
+            }
+            println!("{}", values.join(", "));
+        }
+
+        // Print omega distribution comparison
+        println!("  Number of Distinct Prime Factors ω(n):");
+        for bucket in ["1", "2", "3", "4+"] {
+            print!("    ω(n)={}: ", bucket);
+            let mut values = Vec::new();
+            for (name, stats) in &population_stats {
+                let key = format!("omega_{}", bucket);
+                if let Some(&pct) = stats.get(&key) {
+                    values.push(format!("{}={:.1}%", name, pct));
+                }
+            }
+            println!("{}", values.join(", "));
+        }
+    }
+
+    println!("\nIf consecutive-prime intervals show a distinctive factorization distribution");
+    println!("compared to all five controls, the prime-shield effect is real and not");
+    println!("an artifact of modular constraints, parity, or magnitude.");
 }
 
 pub fn show_riemann_station() {

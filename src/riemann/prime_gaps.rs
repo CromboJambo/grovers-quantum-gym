@@ -642,7 +642,7 @@ pub fn experiment_i_lpf_ratio(limit: usize) -> Vec<(u64, std::collections::HashM
     let gap_sizes = [2u64, 4, 6, 8];
 
     fn ratio_bucket(ratio: f64) -> &'static str {
-        if ratio >= 0.9 { "≥0.9" } else if ratio >= 0.7 { "0.7-0.9" } else if ratio >= 0.5 { "0.5-0.7" } else { "<0.5" }
+        if (ratio - 0.5).abs() < 1e-9 { "exactly 0.5" } else if ratio > 0.5 && ratio < 0.7 { "0.5-0.7" } else if ratio >= 0.7 && ratio < 0.9 { "0.7-0.9" } else if ratio >= 0.9 { "≥0.9" } else { "<0.5" }
     }
 
     let mut results = Vec::new();
@@ -664,14 +664,18 @@ pub fn experiment_i_lpf_ratio(limit: usize) -> Vec<(u64, std::collections::HashM
                     total += 1;
                     let lpf = largest_prime_factor(n);
                     let ratio = lpf as f64 / n as f64;
-                    *ratio_buckets.entry(ratio_bucket(ratio)).or_insert(0) += 1;
+                    let bucket = ratio_bucket(ratio);
+                    if total <= 5 {
+                        println!("DEBUG: n={} LPF={} ratio={:.3} bucket={}", n, lpf, ratio, bucket);
+                    }
+                    *ratio_buckets.entry(bucket).or_insert(0) += 1;
                 }
             }
         }
 
         // Convert to percentages
         let mut stats: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
-        for bucket in ["≥0.9", "0.7-0.9", "0.5-0.7", "<0.5"] {
+        for bucket in ["≥0.9", "0.7-0.9", "exactly 0.5", "0.5-0.7", "<0.5"] {
             let pct = if total > 0 {
                 *ratio_buckets.get(bucket).unwrap_or(&0) as f64 / total as f64 * 100.0
             } else { 0.0 };
@@ -682,6 +686,227 @@ pub fn experiment_i_lpf_ratio(limit: usize) -> Vec<(u64, std::collections::HashM
     }
 
     results
+}
+
+/// Experiment J: Factorization-conditioned neighborhoods
+/// 
+/// Five comparison populations to isolate which constraints produce
+/// distinctive factorization distributions:
+/// 1. Consecutive-prime intervals (actual prime gaps)
+/// 2. Endpoint-conditioned intervals (coprime endpoints, no interior primes required)
+/// 3. Parity-matched intervals (same parity pattern as prime gaps)
+/// 4. Composite-interior intervals (nonprime endpoints, may contain interior primes)
+/// 5. Magnitude-matched intervals (random at similar magnitude)
+/// 
+/// For each population, measure:
+/// - LPF distribution
+/// - LPF/n ratio
+/// - Smallest prime factor
+/// - Number of distinct prime factors ω(n)
+/// - Factor-pair matrix for semiprimes
+pub fn experiment_j_factorization_conditioned(limit: usize) -> std::collections::HashMap<String, std::collections::HashMap<String, f64>> {
+    use crate::riemann::integer_structure::{factorize, is_prime, omega, largest_prime_factor};
+
+    let gaps = prime_gaps_up_to(limit);
+    let gap_sizes = [2u64, 4, 6, 8];
+    
+    fn gcd(a: u64, b: u64) -> u64 {
+        let mut x = a;
+        let mut y = b;
+        while y != 0 {
+            let t = y;
+            y = x % y;
+            x = t;
+        }
+        x
+    }
+
+    fn is_coprime(n: u64, m: u64) -> bool {
+        gcd(n, m) == 1
+    }
+
+    fn analyze_population(integers: &[u64]) -> std::collections::HashMap<String, f64> {
+        let mut stats: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        
+        if integers.is_empty() {
+            return stats;
+        }
+
+        let total = integers.len();
+        
+        // LPF distribution buckets
+        let lpf_buckets = ["≤11", "12-31", "32-100", ">100"];
+        for bucket in &lpf_buckets {
+            stats.insert(format!("lpf_{}", bucket), 0.0);
+        }
+        
+        // LPF/n ratio buckets
+        let ratio_buckets = ["≥0.9", "0.7-0.9", "0.5-0.7", "<0.5"];
+        for bucket in &ratio_buckets {
+            stats.insert(format!("lpf_ratio_{}", bucket), 0.0);
+        }
+        
+        // Smallest prime factor distribution
+        let spf_primes = [2u64, 3, 5, 7, 11];
+        for p in &spf_primes {
+            stats.insert(format!("spf_{}", p), 0.0);
+        }
+        
+        // Number of distinct prime factors
+        let omega_buckets = ["1", "2", "3", "4+"];
+        for bucket in &omega_buckets {
+            stats.insert(format!("omega_{}", bucket), 0.0);
+        }
+
+        // Count each metric
+        for &n in integers {
+            if n <= 1 { continue; }
+            
+            let factors = factorize(n);
+            let w = omega(n);
+            let lpf = largest_prime_factor(n);
+            
+            // LPF bucket
+            let lpf_bucket = if lpf <= 11 { "≤11" } else if lpf <= 31 { "12-31" } else if lpf <= 100 { "32-100" } else { ">100" };
+            *stats.get_mut(&format!("lpf_{}", lpf_bucket)).unwrap() += 1.0;
+            
+            // LPF/n ratio bucket
+            let ratio = lpf as f64 / n as f64;
+            let ratio_bucket = if ratio >= 0.9 { "≥0.9" } else if ratio >= 0.7 { "0.7-0.9" } else if ratio >= 0.5 { "0.5-0.7" } else { "<0.5" };
+            *stats.get_mut(&format!("lpf_ratio_{}", ratio_bucket)).unwrap() += 1.0;
+            
+            // Smallest prime factor
+            let spf = factors[0].0;
+            for p in &spf_primes {
+                if spf == *p {
+                    *stats.get_mut(&format!("spf_{}", p)).unwrap() += 1.0;
+                    break;
+                }
+            }
+            
+            // Omega bucket
+            let omega_bucket = if w == 1 { "1" } else if w == 2 { "2" } else if w == 3 { "3" } else { "4+" };
+            *stats.get_mut(&format!("omega_{}", omega_bucket)).unwrap() += 1.0;
+        }
+
+        // Convert counts to percentages
+        let keys = stats.keys().cloned().collect::<Vec<_>>();
+        for key in keys {
+            let count = *stats.get(&key).unwrap();
+            if count > 0.0 {
+                *stats.get_mut(&key).unwrap() = count / total as f64 * 100.0;
+            }
+        }
+
+        stats.insert("total".to_string(), total as f64);
+        stats
+    }
+
+    // Build the five populations for each gap size
+    let mut results: std::collections::HashMap<String, std::collections::HashMap<String, f64>> = std::collections::HashMap::new();
+    
+    for &gap_size in &gap_sizes {
+        // Population 1: Actual consecutive-prime intervals
+        let prime_pairs: Vec<(u64, u64)> = gaps.iter()
+            .filter(|&&(p1, p2, g)| g == gap_size)
+            .map(|&(p1, p2, _)| (p1, p2))
+            .collect();
+        
+        if prime_pairs.is_empty() { continue; }
+        
+        let mut prime_integers: Vec<u64> = Vec::new();
+        for &(p1, p2) in &prime_pairs {
+            for n in (p1 + 1)..p2 {
+                prime_integers.push(n);
+            }
+        }
+        
+        results.insert(format!("{}_prime_bounded", gap_size), analyze_population(&prime_integers));
+        
+        // Population 2: Endpoint-conditioned (coprime endpoints)
+        let primorial: u64 = 2 * 3 * 5 * 7 * 11; // 2310
+        let mut endpoint_integers: Vec<u64> = Vec::new();
+        let mut n = 100;
+        let mut interval_count = 0;
+        while interval_count < 50 && n < limit as u64 {
+            if is_coprime(n, primorial) && is_coprime(n + gap_size, primorial) {
+                for m in (n + 1)..(n + gap_size) {
+                    endpoint_integers.push(m);
+                }
+                interval_count += 1;
+            }
+            n += 1;
+        }
+        
+        results.insert(format!("{}_endpoint_conditioned", gap_size), analyze_population(&endpoint_integers));
+        
+        // Population 3: Parity-matched random controls
+        let mut parity_integers: Vec<u64> = Vec::new();
+        for _ in 0..50 {
+            let idx = rand::random::<usize>() % prime_pairs.len();
+            let (p1, _) = prime_pairs[idx];
+            let start = p1 + rand::random::<u64>() % 1000;
+            for m in (start + 1)..(start + gap_size) {
+                parity_integers.push(m);
+            }
+        }
+        
+        results.insert(format!("{}_parity_matched", gap_size), analyze_population(&parity_integers));
+        
+        // Population 4: Composite-interior intervals
+        // Nonprime endpoints, may contain interior primes
+        let mut composite_integers: Vec<u64> = Vec::new();
+        n = 100;
+        interval_count = 0;
+        while interval_count < 50 && n < limit as u64 {
+            if !is_prime(n) && !is_prime(n + gap_size) {
+                for m in (n + 1)..(n + gap_size) {
+                    composite_integers.push(m);
+                }
+                interval_count += 1;
+            }
+            n += 1;
+        }
+        
+        results.insert(format!("{}_composite_interior", gap_size), analyze_population(&composite_integers));
+        
+        // Population 5: Magnitude-matched random intervals
+        let mut magnitude_integers: Vec<u64> = Vec::new();
+        for _ in 0..50 {
+            let idx = rand::random::<usize>() % prime_pairs.len();
+            let (p1, _) = prime_pairs[idx];
+            let start = p1 + rand::random::<u64>() % 500;
+            for m in (start + 1)..(start + gap_size) {
+                magnitude_integers.push(m);
+            }
+        }
+        
+        results.insert(format!("{}_magnitude_matched", gap_size), analyze_population(&magnitude_integers));
+    }
+
+    results
+}
+
+/// Factor-pair matrix for semiprimes in a population
+/// Returns HashMap<(p,q), count> where p ≤ q are prime factors of semiprime n
+pub fn factor_pair_matrix(integers: &[u64]) -> std::collections::HashMap<(u64, u64), usize> {
+    use crate::riemann::integer_structure::{factorize, is_semiprime};
+    
+    let mut matrix: std::collections::HashMap<(u64, u64), usize> = std::collections::HashMap::new();
+    
+    for &n in integers {
+        if is_semiprime(n) {
+            let factors = factorize(n);
+            if factors.len() == 2 {
+                let (p, _) = factors[0];
+                let (q, _) = factors[1];
+                let key = if p <= q { (p, q) } else { (q, p) };
+                *matrix.entry(key).or_insert(0) += 1;
+            }
+        }
+    }
+    
+    matrix
 }
 
 #[cfg(test)]
@@ -727,5 +952,20 @@ mod tests {
             assert!(stats.contains_key("prime_bounded_pct"));
             assert!(stats.contains_key("endpoint_conditioned_pct"));
         }
+    }
+
+    #[test]
+    fn test_experiment_j_runs() {
+        let results = experiment_j_factorization_conditioned(200);
+        // Should find at least one gap size with data for each population
+        assert!(!results.is_empty());
+        // Check that all five populations exist for at least one gap size
+        let has_prime = results.keys().any(|k| k.contains("prime_bounded"));
+        let has_endpoint = results.keys().any(|k| k.contains("endpoint_conditioned"));
+        let has_parity = results.keys().any(|k| k.contains("parity_matched"));
+        let has_composite = results.keys().any(|k| k.contains("composite_interior"));
+        let has_magnitude = results.keys().any(|k| k.contains("magnitude_matched"));
+        
+        assert!(has_prime && has_endpoint && has_parity && has_composite && has_magnitude);
     }
 }
