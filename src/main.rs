@@ -161,6 +161,9 @@ fn main() {
     println!("\n--- P VS NP PROBLEM ---");
     shor_grover_exploration::p_vs_np::show_p_vs_np_station();
 
+    println!("\n--- EXPONENTIAL TIME HYPOTHESIS (ETH) STATION ---");
+    shor_grover_exploration::eth::show_eth_station();
+
     println!("\n--- NAVIER-STOKES MILLENNIUM PRIZE PROBLEM ---");
     shor_grover_exploration::navier_stokes::show_navier_stokes_station();
 
@@ -172,6 +175,9 @@ fn main() {
 
     println!("\n--- JOHN VON NEUMANN: QUANTUM MEASUREMENT & GAME THEORY (1932, 1944) ---");
     shor_grover_exploration::von_neumann::show_von_neumann_station();
+
+    println!("\n--- KRIPKE-PLATEK SET THEORY: TYPE-THEORETIC GROUNDING (1960s) ---");
+    shor_grover_exploration::kripke_platek::show_kripke_platek_station();
 
     println!("\n=== EXPLORATION COMPLETE ===");
 }

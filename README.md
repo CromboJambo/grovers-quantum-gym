@@ -37,6 +37,7 @@ This project has evolved into a "quantum gym" — a collection of themed station
 | David Deutsch: The Fabric of Reality | 1997 | Four Strands framework (Many-Worlds, Popperian epistemology, computation, evolution) |
 | Philosophy of Problem-Solving | — | Celebrating collapse, learning from wrong hypotheses, epistemic vs psychological closure |
 | John von Neumann: Measurement and Strategy | 1932/1944 | Quantum measurement theory, projection postulate, game theory foundations |
+| Kripke-Platek Set Theory | 1960s | Type-theoretic grounding of sets, hereditarily finite sets, PEG grammars as KP objects |
 | Gregory Chaitin: Algorithmic Information Theory | 1970s | Kolmogorov complexity, halting probability Ω, Gödel's theorems for programs |
 | John Archibald Wheeler: It from Bit | 1967-2008 | Delayed-choice experiments, participation theory, reality emerges from information |
 
