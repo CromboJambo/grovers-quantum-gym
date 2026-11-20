@@ -1262,5 +1262,70 @@ mod tests {
         assert!(compressed.compression_ratio() < 0.7, 
             "Prime gaps should compress below 70% raw");
     }
+    // --- Adversarial: negative offset sign extension ---
+
+    #[test]
+    fn test_stress_negative_offset_sign_extension() {
+        let values = vec![100usize, 50, 25, 10];
+        let compressed = positional_compress(&values, 4);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values, "Negative offsets should roundtrip");
+    }
+
+    #[test]
+    fn test_stress_mixed_positive_negative_offsets() {
+        let values = vec![100usize, 200, 50, 300, 75, 400];
+        let compressed = positional_compress(&values, 3);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values, "Mixed offsets should roundtrip");
+    }
+
+
+    #[test]
+    fn test_stress_fuzz_random() {
+        let mut seed: u64 = 12345;
+        let mut next = || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            seed as usize
+        };
+
+        for trial in 0..100 {
+            let n = (next() % 100) + 1;
+            let k = (next() % 20);
+            let values: Vec<usize> = (0..n).map(|_| next()).collect();
+            let compressed = positional_compress(&values, k);
+            let reconstructed = compressed.reconstruct();
+            assert_eq!(reconstructed, values, 
+                "Fuzz trial {} failed: n={}, k={}", trial, n, k);
+        }
+    }
+
+    #[test]
+    fn test_stress_fuzz_sorted_random() {
+        let mut seed: u64 = 54321;
+        let mut next = || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            seed as usize
+        };
+
+        for trial in 0..100 {
+            let n = (next() % 200) + 1;
+            let k = (next() % 30);
+            let mut values: Vec<usize> = (0..n).map(|_| next()).collect();
+            values.sort();
+            let compressed = positional_compress(&values, k);
+            let reconstructed = compressed.reconstruct();
+            assert_eq!(reconstructed, values, 
+                "Fuzz sorted trial {} failed: n={}, k={}", trial, n, k);
+        }
+    }
+
+    #[test]
+    fn test_stress_empty_sequence() {
+        let values: Vec<usize> = vec![];
+        let compressed = positional_compress(&values, 5);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values);
+    }
 
 }
