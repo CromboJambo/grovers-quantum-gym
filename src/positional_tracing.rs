@@ -1327,5 +1327,115 @@ mod tests {
         let reconstructed = compressed.reconstruct();
         assert_eq!(reconstructed, values);
     }
+    // --- Adversarial: 2^63 boundary stress ---
+
+    #[test]
+    fn test_stress_offset_at_2_pow_63() {
+        // Offset exactly at 2^63 — the signed 64-bit boundary
+        let anchor = 1usize;
+        let value = anchor + (1u64 << 63) as usize;
+        let values = vec![anchor, value];
+        let compressed = positional_compress(&values, 1);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values, "Offset at 2^63 should roundtrip");
+    }
+
+    #[test]
+    fn test_stress_offset_above_2_pow_63() {
+        // Offset above 2^63 — wraps in signed 64-bit interpretation
+        let anchor = 10usize;
+        let value = anchor + (1u64 << 63) as usize + 5;
+        let values = vec![anchor, 100, value];
+        let compressed = positional_compress(&values, 2);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values, "Offset above 2^63 should roundtrip");
+    }
+
+    #[test]
+    fn test_stress_negative_offset_at_2_pow_63() {
+        // Value below anchor by exactly 2^63
+        let high = (1u64 << 63) as usize + 100;
+        let low = 100usize;
+        let values = vec![low, high];
+        let compressed = positional_compress(&values, 2);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values, "Negative offset at 2^63 should roundtrip");
+    }
+
+    #[test]
+    fn test_stress_upper_half_fuzz() {
+        // Fuzz specifically in the upper half of usize range [2^63, 2^64)
+        let mut seed: u64 = 99999;
+        let mut next = || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (seed as usize) | (1usize << 63) // Force upper half
+        };
+
+        for trial in 0..50 {
+            let n = (next() % 50) as usize + 2;
+            let k = (next() % 10) as usize;
+            let mut values: Vec<usize> = (0..n).map(|_| next()).collect();
+            values.sort();
+            let compressed = positional_compress(&values, k);
+            let reconstructed = compressed.reconstruct();
+            assert_eq!(reconstructed, values, 
+                "Upper-half fuzz trial {} failed: n={}, k={}", trial, n, k);
+        }
+    }
+
+    #[test]
+    fn test_stress_mixed_halves_fuzz() {
+        // Fuzz with values spanning both halves of usize range
+        let mut seed: u64 = 77777;
+        let mut next = || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            seed as usize
+        };
+
+        for trial in 0..50 {
+            let n = (next() % 50) as usize + 2;
+            let k = (next() % 10) as usize;
+            let mut values: Vec<usize> = (0..n).map(|_| next()).collect();
+            // Force some values into upper half
+            for i in 0..values.len() / 2 {
+                values[i] |= (1usize << 63);
+            }
+            values.sort();
+            let compressed = positional_compress(&values, k);
+            let reconstructed = compressed.reconstruct();
+            assert_eq!(reconstructed, values, 
+                "Mixed-halves fuzz trial {} failed: n={}, k={}", trial, n, k);
+        }
+    }
+
+    // --- Adversarial: large k performance and correctness ---
+
+    #[test]
+    fn test_stress_large_k() {
+        let n = 10_000;
+        let values: Vec<usize> = (0..n).map(|i| i * 997).collect();
+        let compressed = positional_compress(&values, 1000);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values, "k=1000 with n=10000 should roundtrip");
+    }
+
+    // --- Adversarial: powers of 2 (exact log2 boundaries) ---
+
+    #[test]
+    fn test_stress_powers_of_two() {
+        let values: Vec<usize> = (0..63).map(|i| 1usize << i).collect();
+        let compressed = positional_compress(&values, 10);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values, "Powers of 2 should roundtrip");
+    }
+
+    #[test]
+    fn test_stress_just_above_powers_of_two() {
+        // Values just above powers of 2 — tests ceil(log2) boundary behavior
+        let values: Vec<usize> = (0..30).map(|i| (1usize << i) + 1).collect();
+        let compressed = positional_compress(&values, 5);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values, "Just above powers of 2 should roundtrip");
+    }
 
 }
