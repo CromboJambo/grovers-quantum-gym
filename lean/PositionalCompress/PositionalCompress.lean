@@ -230,14 +230,53 @@ theorem positional_compress_lossless
 /-- Anchors are always elements of the original sequence. -/
 theorem anchors_subset_sequence (S : List ℕ) (k : ℕ) :
     ∀ a ∈ make_anchors S k, a ∈ S := by
-  sorry
+  intro a ha
+  -- Case analysis on the definition of make_anchors
+  by_cases h_k_zero : k = 0
+  · -- k = 0: make_anchors returns []
+    have h_empty : make_anchors S k = [] := by simp [make_anchors, h_k_zero]
+    rw [h_empty] at ha
+    cases ha  -- a ∈ [] is impossible
+  · by_cases h_k_ge : k ≥ S.length
+    · -- k ≥ S.length: make_anchors returns S
+      have h_eq : make_anchors S k = S := by simp [make_anchors, h_k_zero, h_k_ge]
+      rw [h_eq] at ha
+      exact ha
+    · -- 0 < k < S.length: each anchor is S[idx]! for valid idx
+      have h_make : make_anchors S k = List.map (fun j => S[(j * S.length) / k]!) (List.range k) := by
+        simp [make_anchors, h_k_zero, not_le.mpr (lt_of_not_ge h_k_ge)]
+      rw [h_make] at ha
+      -- Membership in mapped list gives us a preimage
+      rcases List.mem_map.mp ha with ⟨j, hj_in_range, rfl⟩
+      have hj_lt_k : j < k := by simp [List.mem_range] at hj_in_range; exact hj_in_range
+      -- Show the computed index is valid
+      have h_idx_valid : (j * S.length) / k < S.length := by
+        apply Nat.div_lt_of_lt_mul
+        nlinarith [hj_lt_k]
+      -- Prove helper: indexed access returns a list member
+      have h_helper : ∀ (l : List ℕ) (i : ℕ), i < l.length → l[i]! ∈ l := by
+        intro l i hi
+        induction' l with x xs ih generalizing i
+        · cases hi  -- i < 0 is impossible for naturals
+        · cases i with
+          | zero => simp [List.getElem_cons_zero]
+          | succ i' =>
+            have h_i'_valid : i' < xs.length := by
+              simp [List.length_cons] at hi
+              omega
+            have h_sub : xs[i']! ∈ xs := ih i' h_i'_valid
+            simp [List.getElem_cons_succ] at *
+            exact Or.inr h_sub
+      exact h_helper S ((j * S.length) / k) h_idx_valid
 
 /-- For sorted S, delta is always non-negative. -/
 theorem delta_nonnegative_when_sorted
     (S : List ℕ) (h_sorted : IsSorted S)
     (i : ℕ) (hi : i + 1 < S.length) :
     0 ≤ (S[i+1]! - S[i]!) := by
-  sorry
+  -- For natural numbers, subtraction is truncated at 0, so this is always true.
+  -- The sortedness condition would matter for integer subtraction.
+  exact Nat.zero_le _
 
 /-- The packed anchor representation roundtrips for valid indices and offsets. -/
 theorem anchor_pack_roundtrip (idx : ℕ) (offset : ℤ)
