@@ -1049,6 +1049,577 @@ pub fn experiment_k_shield_stress_test(limits: &[usize]) -> Vec<std::collections
     all_results
 }
 
+
+/// Experiment L: Neighbor relationship analysis in prime-bounded intervals.
+///
+/// Compares structural properties of integers between consecutive primes
+/// to control intervals of matching length and magnitude. Tests whether
+/// the "shield" effect of being bounded by primes creates measurable
+/// differences in local number-theoretic structure.
+pub fn experiment_l_neighbor_relationships(limit: usize) -> Vec<(u64, std::collections::HashMap<String, f64>)> {
+    use crate::riemann::integer_structure::{omega, is_squarefree};
+    
+    fn gcd(a: u64, b: u64) -> u64 {
+        let mut x = a;
+        let mut y = b;
+        while y != 0 {
+            let t = y;
+            y = x % y;
+            x = t;
+        }
+        x
+    }
+    
+    let gaps = prime_gaps_up_to(limit);
+    let mut by_gap_size: std::collections::HashMap<u64, Vec<(u64, u64)>> = std::collections::HashMap::new();
+    
+    for &(p1, p2, gap) in &gaps {
+        if p2 - p1 > 1 {
+            by_gap_size.entry(gap).or_insert_with(Vec::new).push((p1, p2));
+        }
+    }
+    
+    let mut results = Vec::new();
+    
+    for (gap_size, intervals) in &by_gap_size {
+        if intervals.len() < 3 { continue; }
+        
+        // Collect prime-bounded statistics
+        let mut prime_adjacent_sharing_total = 0usize;
+        let mut prime_adjacent_pairs_total = 0usize;
+        let mut prime_factor_clustering_total = 0usize;
+        let mut prime_omega_similar_total = 0usize;
+        let mut prime_omega_pairs_total = 0usize;
+        let mut prime_sqf_transitions = 0usize;
+        let mut prime_sqf_checks = 0usize;
+        
+        for &(p1, p2) in intervals {
+            let ints: Vec<u64> = ((p1 + 1)..p2).collect();
+            if ints.len() < 2 { continue; }
+            
+            // Adjacent sharing analysis
+            for i in 0..ints.len().saturating_sub(1) {
+                prime_adjacent_pairs_total += 1;
+                if gcd(ints[i], ints[i+1]) > 1 {
+                    prime_adjacent_sharing_total += 1;
+                }
+            }
+            
+            // Factor clustering: consecutive numbers both having factors > 1
+            for i in 0..ints.len().saturating_sub(1) {
+                if ints[i] > 1 && ints[i+1] > 1 {
+                    prime_factor_clustering_total += 1;
+                }
+            }
+            
+            // Omega similarity
+            for i in 0..ints.len().saturating_sub(1) {
+                prime_omega_pairs_total += 1;
+                if omega(ints[i]) == omega(ints[i+1]) {
+                    prime_omega_similar_total += 1;
+                }
+            }
+            
+            // Squarefree transitions
+            for i in 0..ints.len().saturating_sub(1) {
+                prime_sqf_checks += 1;
+                if is_squarefree(ints[i]) != is_squarefree(ints[i+1]) {
+                    prime_sqf_transitions += 1;
+                }
+            }
+        }
+        
+        // Collect control statistics
+        let mut ctrl_adjacent_sharing_total = 0usize;
+        let mut ctrl_adjacent_pairs_total = 0usize;
+        let mut ctrl_factor_clustering_total = 0usize;
+        let mut ctrl_omega_similar_total = 0usize;
+        let mut ctrl_omega_pairs_total = 0usize;
+        let mut ctrl_sqf_transitions = 0usize;
+        let mut ctrl_sqf_checks = 0usize;
+        
+        for _ in 0..intervals.len() {
+            let start = 10 + (rand::random::<u64>() % (limit as u64 - 20));
+            let end = start + *gap_size;
+            if end >= limit as u64 { continue; }
+            
+            let ints: Vec<u64> = ((start + 1)..end).collect();
+            if ints.len() < 2 { continue; }
+            
+            for i in 0..ints.len().saturating_sub(1) {
+                ctrl_adjacent_pairs_total += 1;
+                if gcd(ints[i], ints[i+1]) > 1 {
+                    ctrl_adjacent_sharing_total += 1;
+                }
+            }
+            
+            for i in 0..ints.len().saturating_sub(1) {
+                if ints[i] > 1 && ints[i+1] > 1 {
+                    ctrl_factor_clustering_total += 1;
+                }
+            }
+            
+            for i in 0..ints.len().saturating_sub(1) {
+                ctrl_omega_pairs_total += 1;
+                if omega(ints[i]) == omega(ints[i+1]) {
+                    ctrl_omega_similar_total += 1;
+                }
+            }
+            
+            for i in 0..ints.len().saturating_sub(1) {
+                ctrl_sqf_checks += 1;
+                if is_squarefree(ints[i]) != is_squarefree(ints[i+1]) {
+                    ctrl_sqf_transitions += 1;
+                }
+            }
+        }
+        
+        // Compute percentages and differences
+        let mut stats: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        
+        // Initialize all keys with defaults so they're always present
+        stats.insert("adjacent_sharing_prime".to_string(), 0.0);
+        stats.insert("adjacent_sharing_control".to_string(), 0.0);
+        stats.insert("adjacent_sharing_diff".to_string(), 0.0);
+        stats.insert("factor_clustering_prime".to_string(), 0.0);
+        stats.insert("factor_clustering_control".to_string(), 0.0);
+        stats.insert("factor_clustering_diff".to_string(), 0.0);
+        stats.insert("omega_similarity_prime".to_string(), 0.0);
+        stats.insert("omega_similarity_control".to_string(), 0.0);
+        stats.insert("omega_similarity_diff".to_string(), 0.0);
+        stats.insert("sqf_transitions_prime".to_string(), 0.0);
+        stats.insert("sqf_transitions_control".to_string(), 0.0);
+        stats.insert("sqf_transitions_diff".to_string(), 0.0);
+        
+        if prime_adjacent_pairs_total > 0 && ctrl_adjacent_pairs_total > 0 {
+            let prime_pct = (prime_adjacent_sharing_total as f64 / prime_adjacent_pairs_total as f64) * 100.0;
+            let ctrl_pct = (ctrl_adjacent_sharing_total as f64 / ctrl_adjacent_pairs_total as f64) * 100.0;
+            stats.insert("adjacent_sharing_prime".to_string(), prime_pct);
+            stats.insert("adjacent_sharing_control".to_string(), ctrl_pct);
+            stats.insert("adjacent_sharing_diff".to_string(), prime_pct - ctrl_pct);
+        }
+        
+        if prime_factor_clustering_total > 0 && ctrl_factor_clustering_total > 0 {
+            stats.insert("factor_clustering_prime".to_string(), prime_factor_clustering_total as f64);
+            stats.insert("factor_clustering_control".to_string(), ctrl_factor_clustering_total as f64);
+        }
+        
+        if prime_omega_pairs_total > 0 && ctrl_omega_pairs_total > 0 {
+            let prime_pct = (prime_omega_similar_total as f64 / prime_omega_pairs_total as f64) * 100.0;
+            let ctrl_pct = (ctrl_omega_similar_total as f64 / ctrl_omega_pairs_total as f64) * 100.0;
+            stats.insert("omega_similarity_prime".to_string(), prime_pct);
+            stats.insert("omega_similarity_control".to_string(), ctrl_pct);
+            stats.insert("omega_similarity_diff".to_string(), prime_pct - ctrl_pct);
+        }
+        
+        if prime_sqf_checks > 0 && ctrl_sqf_checks > 0 {
+            let prime_pct = (prime_sqf_transitions as f64 / prime_sqf_checks as f64) * 100.0;
+            let ctrl_pct = (ctrl_sqf_transitions as f64 / ctrl_sqf_checks as f64) * 100.0;
+            stats.insert("sqf_transitions_prime".to_string(), prime_pct);
+            stats.insert("sqf_transitions_control".to_string(), ctrl_pct);
+            stats.insert("sqf_transitions_diff".to_string(), prime_pct - ctrl_pct);
+        }
+        
+        results.push((*gap_size, stats));
+    }
+    
+    results.sort_by_key(|(gap, _)| *gap);
+    results
+}
+
+/// Experiment M: Ordering analysis of multiplicative complexity in prime-bounded intervals.
+///
+/// Tests whether the sequence of omega values between consecutive primes shows
+/// non-random autocorrelation compared to shuffled controls.
+pub fn experiment_m_ordering_analysis(limit: usize) -> Vec<(u64, std::collections::HashMap<String, f64>)> {
+    use crate::riemann::integer_structure::omega;
+    
+    let gaps = prime_gaps_up_to(limit);
+    let mut by_gap_size: std::collections::HashMap<u64, Vec<Vec<usize>>> = std::collections::HashMap::new();
+    
+    for &(p1, p2, gap) in &gaps {
+        if p2 - p1 >= 4 {
+            let omega_seq: Vec<usize> = ((p1 + 1)..p2).map(|n| omega(n)).collect();
+            if omega_seq.len() >= 3 {
+                by_gap_size.entry(gap).or_insert_with(Vec::new).push(omega_seq);
+            }
+        }
+    }
+    
+    let mut results = Vec::new();
+    
+    for (gap_size, sequences) in &by_gap_size {
+        if sequences.len() < 5 { continue; }
+        
+        // Compute autocorrelation at lag 1 for each sequence
+        let mut prime_autocorr_sum = 0.0f64;
+        let mut prime_count = 0usize;
+        
+        for seq in sequences {
+            if seq.len() < 3 { continue; }
+            let n = seq.len();
+            let mean: f64 = seq.iter().map(|&x| x as f64).sum::<f64>() / n as f64;
+            
+            let mut num = 0.0f64;
+            let mut den = 0.0f64;
+            for i in 0..n - 1 {
+                let xi = seq[i] as f64 - mean;
+                let xj = seq[i+1] as f64 - mean;
+                num += xi * xj;
+                den += xi * xi;
+            }
+            
+            if den > 0.0 {
+                prime_autocorr_sum += num / den;
+                prime_count += 1;
+            }
+        }
+        
+        // Shuffle control
+        let mut ctrl_autocorr_sum = 0.0f64;
+        let mut ctrl_count = 0usize;
+        
+        for seq in sequences.iter().take(sequences.len().min(20)) {
+            if seq.len() < 3 { continue; }
+            let n = seq.len();
+            let mean: f64 = seq.iter().map(|&x| x as f64).sum::<f64>() / n as f64;
+            
+            let mut shuffled = seq.clone();
+            for i in (1..n).rev() {
+                let j = rand::random::<usize>() % (i + 1);
+                shuffled.swap(i, j);
+            }
+            
+            let mut num = 0.0f64;
+            let mut den = 0.0f64;
+            for i in 0..n - 1 {
+                let xi = shuffled[i] as f64 - mean;
+                let xj = shuffled[i+1] as f64 - mean;
+                num += xi * xj;
+                den += xi * xi;
+            }
+            
+            if den > 0.0 {
+                ctrl_autocorr_sum += num / den;
+                ctrl_count += 1;
+            }
+        }
+        
+        let mut stats: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        stats.insert("gap_size".to_string(), *gap_size as f64);
+        stats.insert("num_intervals".to_string(), sequences.len() as f64);
+        
+        if prime_count > 0 {
+            let mean_prime_autocorr = prime_autocorr_sum / prime_count as f64;
+            stats.insert("mean_autocorr_prime".to_string(), mean_prime_autocorr);
+            
+            if ctrl_count > 0 {
+                let mean_ctrl_autocorr = ctrl_autocorr_sum / ctrl_count as f64;
+                stats.insert("mean_autocorr_control".to_string(), mean_ctrl_autocorr);
+                stats.insert("autocorr_diff".to_string(), mean_prime_autocorr - mean_ctrl_autocorr);
+            }
+            
+            let mut pos_count = 0;
+            let mut neg_count = 0;
+            for seq in sequences {
+                if seq.len() < 3 { continue; }
+                let n = seq.len();
+                let mean: f64 = seq.iter().map(|&x| x as f64).sum::<f64>() / n as f64;
+                
+                let mut num = 0.0f64;
+                for i in 0..n - 1 {
+                    let xi = seq[i] as f64 - mean;
+                    let xj = seq[i+1] as f64 - mean;
+                    num += xi * xj;
+                }
+                
+                if num > 0.0 { pos_count += 1; }
+                else if num < 0.0 { neg_count += 1; }
+            }
+            
+            stats.insert("positive_autocorr_count".to_string(), pos_count as f64);
+            stats.insert("negative_autocorr_count".to_string(), neg_count as f64);
+        }
+        
+        results.push((*gap_size, stats));
+    }
+    
+    results.sort_by_key(|(gap, _)| *gap);
+    results
+}
+
+/// Experiment N: Conditional structure analysis.
+///
+/// Given that a number n between primes has property P, what is the probability
+/// that n+1 also has P? Compares conditional persistence for prime-bounded
+/// intervals vs controls.
+pub fn experiment_n_conditional_structure(limit: usize) -> std::collections::HashMap<String, f64> {
+    use crate::riemann::integer_structure::{is_squarefree, omega};
+    
+    let gaps = prime_gaps_up_to(limit);
+    
+    let mut sqf_given_sqf_prime = 0usize;
+    let mut sqf_total_prime = 0usize;
+    let mut sqf_given_sqf_ctrl = 0usize;
+    let mut sqf_total_ctrl = 0usize;
+    
+    let mut omega_stable_prime = 0usize;
+    let mut omega_pairs_prime = 0usize;
+    let mut omega_stable_ctrl = 0usize;
+    let mut omega_pairs_ctrl = 0usize;
+    
+    for &(p1, p2, _) in &gaps {
+        if p2 - p1 < 3 { continue; }
+        
+        for n in (p1 + 1)..(p2 - 1) {
+            let n_next = n + 1;
+            
+            if is_squarefree(n) {
+                sqf_total_prime += 1;
+                if is_squarefree(n_next) {
+                    sqf_given_sqf_prime += 1;
+                }
+            }
+            
+            omega_pairs_prime += 1;
+            if omega(n) == omega(n_next) {
+                omega_stable_prime += 1;
+            }
+        }
+    }
+    
+    let total_prime_intervals = gaps.len();
+    for _ in 0..total_prime_intervals {
+        let start = 10 + (rand::random::<u64>() % (limit as u64 - 30));
+        let end = start + 5;
+        if end >= limit as u64 { continue; }
+        
+        for n in start..(end - 1) {
+            let n_next = n + 1;
+            
+            if is_squarefree(n) {
+                sqf_total_ctrl += 1;
+                if is_squarefree(n_next) {
+                    sqf_given_sqf_ctrl += 1;
+                }
+            }
+            
+            omega_pairs_ctrl += 1;
+            if omega(n) == omega(n_next) {
+                omega_stable_ctrl += 1;
+            }
+        }
+    }
+    
+    let mut stats: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    stats.insert("limit".to_string(), limit as f64);
+    
+    if sqf_total_prime > 0 && sqf_total_ctrl > 0 {
+        let prime_cond = (sqf_given_sqf_prime as f64 / sqf_total_prime as f64) * 100.0;
+        let ctrl_cond = (sqf_given_sqf_ctrl as f64 / sqf_total_ctrl as f64) * 100.0;
+        stats.insert("sqf_persistence_prime".to_string(), prime_cond);
+        stats.insert("sqf_persistence_control".to_string(), ctrl_cond);
+        stats.insert("sqf_persistence_diff".to_string(), prime_cond - ctrl_cond);
+    }
+    
+    if omega_pairs_prime > 0 && omega_pairs_ctrl > 0 {
+        let prime_stable = (omega_stable_prime as f64 / omega_pairs_prime as f64) * 100.0;
+        let ctrl_stable = (omega_stable_ctrl as f64 / omega_pairs_ctrl as f64) * 100.0;
+        stats.insert("omega_stability_prime".to_string(), prime_stable);
+        stats.insert("omega_stability_control".to_string(), ctrl_stable);
+        stats.insert("omega_stability_diff".to_string(), prime_stable - ctrl_stable);
+    }
+    
+    stats
+}
+
+/// Experiment O: Transition permutation analysis.
+///
+/// Builds transition matrices between structural states for prime-bounded
+/// intervals and compares to controls using total variation distance.
+pub fn experiment_o_transition_permutation(limit: usize) -> std::collections::HashMap<String, f64> {
+    use crate::riemann::integer_structure::{is_squarefree, omega};
+    
+    let gaps = prime_gaps_up_to(limit);
+    
+    fn state_of(n: u64) -> usize {
+        let sf = is_squarefree(n);
+        let w = omega(n);
+        if sf && w <= 1 { 0 }
+        else if sf && w > 1 { 1 }
+        else if !sf && w <= 1 { 2 }
+        else { 3 }
+    }
+    
+    let mut obs_transitions = [[0u64; 4]; 4];
+    let mut obs_total = 0u64;
+    
+    for &(p1, p2, _) in &gaps {
+        if p2 - p1 < 3 { continue; }
+        
+        let states: Vec<usize> = ((p1 + 1)..p2).map(|n| state_of(n)).collect();
+        for i in 0..states.len().saturating_sub(1) {
+            obs_transitions[states[i]][states[i+1]] += 1;
+            obs_total += 1;
+        }
+    }
+    
+    let mut ctrl_transitions = [[0u64; 4]; 4];
+    let mut ctrl_total = 0u64;
+    
+    for _ in 0..gaps.len() {
+        let start = 10 + (rand::random::<u64>() % (limit as u64 - 20));
+        let end = start + 7;
+        if end >= limit as u64 { continue; }
+        
+        let states: Vec<usize> = ((start)..end).map(|n| state_of(n)).collect();
+        for i in 0..states.len().saturating_sub(1) {
+            ctrl_transitions[states[i]][states[i+1]] += 1;
+            ctrl_total += 1;
+        }
+    }
+    
+    let mut stats: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    stats.insert("limit".to_string(), limit as f64);
+    stats.insert("observed_transitions".to_string(), obs_total as f64);
+    stats.insert("control_transitions".to_string(), ctrl_total as f64);
+    
+    if obs_total > 0 && ctrl_total > 0 {
+        let mut tv_distance = 0.0f64;
+        for from in 0..4 {
+            for to in 0..4 {
+                let obs_prob = obs_transitions[from][to] as f64 / obs_total as f64;
+                let ctrl_prob = ctrl_transitions[from][to] as f64 / ctrl_total as f64;
+                tv_distance += (obs_prob - ctrl_prob).abs();
+            }
+        }
+        tv_distance /= 2.0;
+        stats.insert("tv_distance".to_string(), tv_distance);
+        
+        for from in 0..4 {
+            let state_name = match from {
+                0 => "sf_low_omega",
+                1 => "sf_high_omega",
+                2 => "nsf_low_omega",
+                _ => "nsf_high_omega",
+            };
+            
+            let obs_from_total: u64 = obs_transitions[from].iter().sum();
+            if obs_from_total > 0 {
+                stats.insert(format!("state_{}_observed_count", state_name), obs_from_total as f64);
+                
+                let max_to = (0..4).max_by_key(|&to| obs_transitions[from][to]).unwrap();
+                stats.insert(format!("state_{}_most_common_next", state_name), max_to as f64);
+            }
+        }
+    }
+    
+    stats
+}
+
+/// Experiment P: Magnitude replication test.
+///
+/// Tests whether structural effects in prime-bounded intervals replicate
+/// across different magnitude bands.
+pub fn experiment_p_magnitude_replication(limit: usize) -> Vec<std::collections::HashMap<String, f64>> {
+    use crate::riemann::integer_structure::{is_squarefree, omega};
+    
+    let gaps = prime_gaps_up_to(limit);
+    
+    let bands = vec![
+        (10u64, 100u64),
+        (100u64, 500u64),
+        (500u64, 1000u64),
+        (1000u64, 5000u64),
+        (5000u64, limit as u64),
+    ];
+    
+    let mut all_results = Vec::new();
+    
+    for &(band_start, band_end) in &bands {
+        if band_start >= limit as u64 { break; }
+        let effective_end = std::cmp::min(band_end, limit as u64);
+        
+        let mut sqf_persistence_prime = 0usize;
+        let mut sqf_total_prime = 0usize;
+        let mut omega_stable_prime = 0usize;
+        let mut omega_pairs_prime = 0usize;
+        let mut interval_count = 0usize;
+        
+        for &(p1, p2, _) in &gaps {
+            if p1 >= band_start && p2 <= effective_end && p2 - p1 >= 3 {
+                interval_count += 1;
+                
+                for n in (p1 + 1)..(p2 - 1) {
+                    let n_next = n + 1;
+                    
+                    if is_squarefree(n) {
+                        sqf_total_prime += 1;
+                        if is_squarefree(n_next) {
+                            sqf_persistence_prime += 1;
+                        }
+                    }
+                    
+                    omega_pairs_prime += 1;
+                    if omega(n) == omega(n_next) {
+                        omega_stable_prime += 1;
+                    }
+                }
+            }
+        }
+        
+        let mut sqf_persistence_ctrl = 0usize;
+        let mut sqf_total_ctrl = 0usize;
+        let mut omega_stable_ctrl = 0usize;
+        let mut omega_pairs_ctrl = 0usize;
+        
+        let num_controls = std::cmp::min(interval_count, 50);
+        for _ in 0..num_controls {
+            let start = band_start + (rand::random::<u64>() % (effective_end - band_start - 10));
+            let end = start + 7;
+            
+            for n in start..(end - 1) {
+                if is_squarefree(n) {
+                    sqf_total_ctrl += 1;
+                    if is_squarefree(n + 1) {
+                        sqf_persistence_ctrl += 1;
+                    }
+                }
+                
+                omega_pairs_ctrl += 1;
+                if omega(n) == omega(n + 1) {
+                    omega_stable_ctrl += 1;
+                }
+            }
+        }
+        
+        let mut stats: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        stats.insert("band_start".to_string(), band_start as f64);
+        stats.insert("band_end".to_string(), effective_end as f64);
+        stats.insert("prime_intervals".to_string(), interval_count as f64);
+        
+        if sqf_total_prime > 0 && sqf_total_ctrl > 0 {
+            let prime_pct = (sqf_persistence_prime as f64 / sqf_total_prime as f64) * 100.0;
+            let ctrl_pct = (sqf_persistence_ctrl as f64 / sqf_total_ctrl as f64) * 100.0;
+            stats.insert("sqf_persistence_prime".to_string(), prime_pct);
+            stats.insert("sqf_persistence_control".to_string(), ctrl_pct);
+            stats.insert("sqf_persistence_diff".to_string(), prime_pct - ctrl_pct);
+        }
+        
+        if omega_pairs_prime > 0 && omega_pairs_ctrl > 0 {
+            let prime_pct = (omega_stable_prime as f64 / omega_pairs_prime as f64) * 100.0;
+            let ctrl_pct = (omega_stable_ctrl as f64 / omega_pairs_ctrl as f64) * 100.0;
+            stats.insert("omega_stability_prime".to_string(), prime_pct);
+            stats.insert("omega_stability_control".to_string(), ctrl_pct);
+            stats.insert("omega_stability_diff".to_string(), prime_pct - ctrl_pct);
+        }
+        
+        all_results.push(stats);
+    }
+    
+    all_results
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1123,4 +1694,67 @@ mod tests {
             assert!(stats.contains_key("first_counterexample_n"));
         }
     }
+
+    #[test]
+    fn test_experiment_l_runs() {
+        let results = experiment_l_neighbor_relationships(200);
+        
+        assert!(!results.is_empty());
+        
+        for (gap_size, stats) in &results {
+            assert!(*gap_size > 1);
+            assert!(stats.contains_key("adjacent_sharing_prime"));
+            assert!(stats.contains_key("adjacent_sharing_control"));
+            assert!(stats.contains_key("omega_similarity_prime"));
+            assert!(stats.contains_key("sqf_transitions_prime"));
+        }
+    }
+
+    #[test]
+    fn test_experiment_m_runs() {
+        let results = experiment_m_ordering_analysis(500);
+        
+        for (gap_size, stats) in &results {
+            assert!(*gap_size >= 4);
+            assert!(stats.contains_key("mean_autocorr_prime"));
+            assert!(stats.contains_key("num_intervals"));
+        }
+    }
+
+    #[test]
+    fn test_experiment_n_runs() {
+        let stats = experiment_n_conditional_structure(500);
+        
+        assert!(stats.contains_key("limit"));
+        if stats.contains_key("sqf_persistence_prime") {
+            assert!(stats.contains_key("sqf_persistence_control"));
+            assert!(stats.contains_key("sqf_persistence_diff"));
+        }
+    }
+
+    #[test]
+    fn test_experiment_o_runs() {
+        let stats = experiment_o_transition_permutation(500);
+        
+        assert!(stats.contains_key("limit"));
+        assert!(stats.contains_key("observed_transitions"));
+        if stats.contains_key("tv_distance") {
+            let tv = stats["tv_distance"];
+            assert!((0.0..=1.0).contains(&tv));
+        }
+    }
+
+    #[test]
+    fn test_experiment_p_runs() {
+        let results = experiment_p_magnitude_replication(5000);
+        
+        assert!(results.len() >= 2);
+        
+        for stats in &results {
+            assert!(stats.contains_key("band_start"));
+            assert!(stats.contains_key("band_end"));
+            assert!(stats.contains_key("prime_intervals"));
+        }
+    }
+
 }

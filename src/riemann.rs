@@ -14,7 +14,7 @@ mod prime_gaps;
 mod zeta_analysis;
 
 use integer_structure::{factorize, mobius, omega, big_omega, is_semiprime, is_prime_power, is_squarefree};
-use prime_gaps::{prime_gaps_up_to, gap_distribution, maximal_gaps, twin_primes, experiment_d_parity_control, experiment_e_residues, experiment_f_topology, experiment_g_endpoint_conditioned, experiment_h_largest_prime_factor, experiment_i_lpf_ratio, experiment_j_factorization_conditioned, experiment_k_shield_stress_test};
+use prime_gaps::{prime_gaps_up_to, gap_distribution, maximal_gaps, twin_primes, experiment_d_parity_control, experiment_e_residues, experiment_f_topology, experiment_g_endpoint_conditioned, experiment_h_largest_prime_factor, experiment_i_lpf_ratio, experiment_j_factorization_conditioned, experiment_k_shield_stress_test, experiment_l_neighbor_relationships, experiment_m_ordering_analysis, experiment_n_conditional_structure, experiment_o_transition_permutation, experiment_p_magnitude_replication};
 use zeta_analysis::{verify_euler_product, verify_mobius_identity, pnt_comparison, rh_gap_bound};
 
 /// Experiment: Structural classification using independent properties
@@ -286,6 +286,108 @@ fn structural_experiment(limit: usize) {
     println!("\nIf LPF > 100 eventually appears in prime-bounded intervals at larger limits,");
     println!("the 'prime shield' is a redistribution effect (less frequent) rather than");
     println!("a true exclusion (impossible).");
+
+    // Experiment L: Neighbor relationship analysis
+    println!("\n--- EXPERIMENT L: NEIGHBOR RELATIONSHIP ANALYSIS ---");
+    println!("Comparing structural properties of integers between consecutive primes");
+    println!("to control intervals of matching length and magnitude:\n");
+
+    let exp_l_results = experiment_l_neighbor_relationships(200);
+    println!("Gap Size | Adjacent Sharing (PB %) | Adjacent Sharing (Ctrl %) | Diff | Omega Similarity (PB %) | SqF Transitions (PB %)");
+    println!("---------|-------------------------|---------------------------|------|------------------------|---------------------");
+    for (gap_size, stats) in &exp_l_results {
+        let adj_pb = *stats.get("adjacent_sharing_prime").unwrap();
+        let adj_ctrl = *stats.get("adjacent_sharing_control").unwrap();
+        let adj_diff = *stats.get("adjacent_sharing_diff").unwrap();
+        let omega_sim = *stats.get("omega_similarity_prime").unwrap();
+        let sqf_trans = *stats.get("sqf_transitions_prime").unwrap();
+        
+        println!("{:8} | {:>21.1}% | {:>23.1}% | {:>+4.1} | {:>20.1}% | {:>19.1}%",
+            gap_size, adj_pb, adj_ctrl, adj_diff, omega_sim, sqf_trans);
+    }
+
+    // Experiment M: Ordering analysis
+    println!("\n--- EXPERIMENT M: ORDERING ANALYSIS ---");
+    println!("Autocorrelation of omega values in prime-bounded intervals vs shuffled controls:\n");
+
+    let exp_m_results = experiment_m_ordering_analysis(500);
+    println!("Gap Size | Intervals | Mean Autocorr (PB) | Mean Autocorr (Ctrl) | Diff");
+    println!("---------|-----------|--------------------|----------------------|------");
+    for (gap_size, stats) in &exp_m_results {
+        let num_intervals = *stats.get("num_intervals").unwrap() as usize;
+        if num_intervals < 5 { continue; }
+        
+        let autocorr_pb = stats.get("mean_autocorr_prime").copied().unwrap_or(0.0);
+        let autocorr_ctrl = stats.get("mean_autocorr_control").copied().unwrap_or(0.0);
+        let diff = stats.get("autocorr_diff").copied().unwrap_or(0.0);
+        
+        println!("{:8} | {:>9} | {:>18.4} | {:>20.4} | {:>+6.4}",
+            gap_size, num_intervals, autocorr_pb, autocorr_ctrl, diff);
+    }
+
+    // Experiment N: Conditional structure analysis
+    println!("\n--- EXPERIMENT N: CONDITIONAL STRUCTURE ANALYSIS ---");
+    println!("Conditional persistence of structural properties in prime-bounded intervals:\n");
+
+    let exp_n_stats = experiment_n_conditional_structure(500);
+    if let Some(sqf_pb) = exp_n_stats.get("sqf_persistence_prime") {
+        let sqf_ctrl = *exp_n_stats.get("sqf_persistence_control").unwrap();
+        let sqf_diff = *exp_n_stats.get("sqf_persistence_diff").unwrap();
+        println!("Squarefree persistence (n is SF → n+1 is SF):");
+        println!("  Prime-bounded: {:.1}%", sqf_pb);
+        println!("  Control:       {:.1}%", sqf_ctrl);
+        println!("  Difference:    {:+.1}%", sqf_diff);
+    }
+    if let Some(omega_pb) = exp_n_stats.get("omega_stability_prime") {
+        let omega_ctrl = *exp_n_stats.get("omega_stability_control").unwrap();
+        let omega_diff = *exp_n_stats.get("omega_stability_diff").unwrap();
+        println!("\nOmega stability (ω(n) == ω(n+1)):");
+        println!("  Prime-bounded: {:.1}%", omega_pb);
+        println!("  Control:       {:.1}%", omega_ctrl);
+        println!("  Difference:    {:+.1}%", omega_diff);
+    }
+
+    // Experiment O: Transition permutation analysis
+    println!("\n--- EXPERIMENT O: TRANSITION PERMUTATION ANALYSIS ---");
+    println!("Total variation distance between transition distributions:\n");
+
+    let exp_o_stats = experiment_o_transition_permutation(500);
+    if let Some(tv) = exp_o_stats.get("tv_distance") {
+        println!("TV distance (observed vs control transitions): {:.4}", tv);
+        println!("  0.0 = identical distributions, 1.0 = completely different");
+        
+        // Show state counts
+        for state in ["sf_low_omega", "sf_high_omega", "nsf_low_omega", "nsf_high_omega"] {
+            if let Some(count) = exp_o_stats.get(&format!("state_{}_observed_count", state)) {
+                println!("  State {}: {} observed transitions", state, *count as usize);
+            }
+        }
+    }
+
+    // Experiment P: Magnitude replication test
+    println!("\n--- EXPERIMENT P: MAGNITUDE REPLICATION TEST ---");
+    println!("Testing whether structural effects replicate across magnitude bands:\n");
+
+    let exp_p_results = experiment_p_magnitude_replication(5000);
+    println!("Band         | Prime Intervals | SqF Persistence (PB %) | SqF Persistence (Ctrl %) | Diff");
+    println!("-------------|-----------------|--------------------------|--------------------------|------");
+    for stats in &exp_p_results {
+        let band_start = *stats.get("band_start").unwrap() as u64;
+        let band_end = *stats.get("band_end").unwrap() as u64;
+        let intervals = *stats.get("prime_intervals").unwrap() as usize;
+        
+        if intervals < 3 { continue; }
+        
+        let sqf_pb = stats.get("sqf_persistence_prime").copied().unwrap_or(0.0);
+        let sqf_ctrl = stats.get("sqf_persistence_control").copied().unwrap_or(0.0);
+        let sqf_diff = stats.get("sqf_persistence_diff").copied().unwrap_or(0.0);
+        
+        println!("{:5}-{:<10} | {:>13} | {:>24.1}% | {:>24.1}% | {:>+6.1}%",
+            band_start, band_end, intervals, sqf_pb, sqf_ctrl, sqf_diff);
+    }
+
+    println!("\nIf effects are consistent across bands, they are robust structural properties.");
+    println!("If they vary significantly, the 'shield' effect may be magnitude-dependent.");
 }
 
 pub fn show_riemann_station() {
