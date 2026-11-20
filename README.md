@@ -9,6 +9,22 @@ A crombojambo production.
 - **Shor's Factoring**: Classical period-finding components demonstrating the factorization pipeline
 - **NP-Hard Problems**: Subset sum, SAT, and traveling salesman as test cases
 
+## What a Station Is
+
+Each station runs real computations and prints real numbers. The Riemann station
+doesn't tell you about prime gaps — it computes them up to N=10000, compares
+prime-bounded intervals against random controls across 15 experiments (D-P),
+and shows you the TV distance between distributions. Change the limit and watch
+what happens.
+
+The Shannon station doesn't explain entropy — it builds Huffman codes and shows
+you where compression actually works and where it doesn't. The Grover station
+doesn't claim O(√N) speedup — it runs both linear and amplitude-amplified search
+and prints the comparison table.
+
+No slides. No "in this section we will learn." Just code that runs and numbers
+that are either interesting or not.
+
 ## The Quantum Gym
 
 This project has evolved into a "quantum gym" — a collection of themed stations exploring major milestones in computation:
@@ -40,12 +56,15 @@ This project has evolved into a "quantum gym" — a collection of themed station
 | Kripke-Platek Set Theory | 1960s | Type-theoretic grounding of sets, hereditarily finite sets, PEG grammars as KP objects |
 | Gregory Chaitin: Algorithmic Information Theory | 1970s | Kolmogorov complexity, halting probability Ω, Gödel's theorems for programs |
 | John Archibald Wheeler: It from Bit | 1967-2008 | Delayed-choice experiments, participation theory, reality emerges from information |
+| Claude Shannon: Information Theory | 1948 | Entropy computation, Huffman coding, compression limits |
+| Lempel-Ziv Compression | 1977 | LZ77/LZ78 dictionary-based compression, offset analysis |
+| Exponential Time Hypothesis | 2001 | ETH station — subexponential algorithms for NP-complete problems |
 
 ## Running
 
 ```bash
 cargo run --release        # Full gym session through all stations
-cargo test                 # All unit tests (47 across 15 modules)
+cargo test                 # All unit tests (137 across 20+ modules)
 ```
 
 ## The Big Idea
