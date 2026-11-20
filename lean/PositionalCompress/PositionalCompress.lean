@@ -10,7 +10,7 @@ Theorem: For any sorted sequence S of natural numbers and any k ∈ {0,...,n},
 -/
 
 import Mathlib.Data.List.Basic
-import Mathlib.Data.Nat.Basic
+import Mathlib.Data.List.Range
 import Mathlib.Data.Int.Basic
 
 /-! ## Core Definitions -/
@@ -38,51 +38,60 @@ structure PositionalCompression where
   anchors  : List ℕ
   k        : ℕ  -- number of anchors
 
+/-! ## Bit Width Helper -/
+
+/-- Number of bits needed to represent a non-negative integer in binary.
+    bit_width 0 = 1, bit_width 1 = 1, bit_width 2 = 2, ... -/
+def bit_width (n : ℕ) : ℕ :=
+  if n = 0 then 1
+  else
+    let rec count (m : ℕ) (b : ℕ) : ℕ :=
+      if m = 0 then b else count (m / 2) (b + 1)
+    count n 0
+
 /-! ## Anchor Set Construction -/
 
 /-- Given a sorted sequence S of length n and k anchor points,
     construct the anchor set by evenly-spaced sampling.
     Anchor j is at position floor(j * n / k) in S. -/
 def make_anchors (S : List ℕ) (k : ℕ) : List ℕ :=
-  if h : k = 0 then []
+  if k = 0 then []
   else if k ≥ S.length then S
-  else Finset.range k |>.toList.map fun j =>
-    S.get! ((j * S.length) / k)
+  else List.range k |>.map fun j =>
+    S[(j * S.length) / k]!
 
 /-! ## Cost Functions -/
 
-/-- Bit cost to represent a non-negative integer in binary (plus type tag).
-    Uses bitWidth as a discrete proxy for ceil(log2(x+1)). -/
+/-- Bit cost to represent a non-negative integer in binary (plus type tag). -/
 def raw_cost (v : ℕ) : ℕ :=
-  if v = 0 then 1 else v.bitWidth + 1
+  bit_width v + 1
 
 /-- Bit cost to represent a signed delta (magnitude plus type tag). -/
 def delta_cost (d : ℤ) : ℕ :=
-  let mag := d.natAbs
-  if mag = 0 then 1 else mag.bitWidth + 1
+  let mag := Int.natAbs d
+  bit_width mag + 1
 
 /-- Bit cost to represent an anchor reference:
     offset magnitude + anchor index + type tag. -/
 def anchor_cost (offset : ℤ) (k : ℕ) : ℕ :=
-  let off_mag := offset.natAbs
-  let idx_cost := if k ≤ 1 then 0 else k.bitWidth
-  if off_mag = 0 then 1 + idx_cost + 1
-  else off_mag.bitWidth + idx_cost + 1
+  let off_mag := Int.natAbs offset
+  let idx_cost := if k ≤ 1 then 0 else bit_width k
+  bit_width off_mag + idx_cost + 1
 
 /-! ## Nearest Anchor -/
 
 /-- Find the index of the nearest anchor to value v.
     Returns (index, offset) where offset = v - anchors[index]. -/
 def nearest_anchor (v : ℕ) (anchors : List ℕ) : Option (ℕ × ℤ) :=
-  if h : anchors.isEmpty then none
+  if anchors.isEmpty then none
   else
     let best := anchors.zip (List.range anchors.length)
       |>.foldl (fun acc (a, i) =>
-        let dist := (v - a).natAbs
+        let dist := Int.natAbs ((v : ℤ) - a)
         match acc with
-        | none => some ((dist, i), v - a)
+        | none => some ((dist, i), (v : ℤ) - a)
         | some ((best_dist, best_i), _) =>
-          if dist < best_dist then some ((dist, i), v - a)
+          if dist < best_dist then some ((dist, i), (v : ℤ) - a)
           else acc
       ) none
     match best with
@@ -91,14 +100,17 @@ def nearest_anchor (v : ℕ) (anchors : List ℕ) : Option (ℕ × ℤ) :=
 
 /-! ## Greedy Representation Selection -/
 
+/-- Large sentinel value for "unavailable" cost options. -/
+def COST_INF : ℕ := (2 : ℕ) ^ 64
+
 /-- For element s_i at position i in sequence S, choose the cheapest
     representation type. Ties broken: raw < delta < anchor. -/
 def choose_repr (s : ℕ) (prev : Option ℕ) (anchors : List ℕ) (k : ℕ) : RepType :=
   let c_raw := raw_cost s
-  let c_delta := prev |>.map (fun p => delta_cost ((s : ℤ) - p)) |>.getD Nat.maxValue
+  let c_delta := prev |>.map (fun p => delta_cost ((s : ℤ) - p)) |>.getD COST_INF
   let c_anchor :=
-    if k = 0 then Nat.maxValue
-    else nearest_anchor s anchors |>.map (fun (_, off) => anchor_cost off k) |>.getD Nat.maxValue
+    if k = 0 then COST_INF
+    else nearest_anchor s anchors |>.map (fun (_, off) => anchor_cost off k) |>.getD COST_INF
 
   if c_raw ≤ c_delta ∧ c_raw ≤ c_anchor then RepType.raw
   else if c_delta ≤ c_anchor then RepType.delta
@@ -124,7 +136,7 @@ def compress (S : List ℕ) (k : ℕ) : PositionalCompression :=
         | RepType.anchor =>
           match nearest_anchor s anchors with
           | none => 0  -- unreachable when k > 0 and s is in S
-          | some (idx, off) => ((idx : ℤ) << 64) + (off & 0xFFFFFFFFFFFFFFFF)
+          | some (idx, off) => ((idx : ℤ) * (2 ^ 64)) + off
       go rest (some s) (EncodedElement.mk r payload :: acc)
   { elements := go S none [], anchors := anchors, k := k }
 
@@ -141,25 +153,33 @@ def reconstruct (pc : PositionalCompression) : Option (List ℕ) :=
       let current :=
         match elem.rep_type with
         | RepType.raw =>
-          if elem.payload ≥ 0 then some (elem.payload.toNat) else none
+          if elem.payload ≥ 0 then some elem.payload.toNat else none
         | RepType.delta =>
-          prev |>.andThen (fun p =>
+          prev |>.bind (fun p =>
             let d := elem.payload
             if d ≥ 0 then some (p + d.toNat)
-            else if d.natAbs ≤ p then some (p - d.natAbs)
+            else if Int.natAbs d ≤ p then some (p - Int.natAbs d)
             else none)
         | RepType.anchor =>
-          let idx := ((elem.payload >> 64).toNat : ℕ)
-          let off_raw := elem.payload & 0xFFFFFFFFFFFFFFFF
-          let offset := if (off_raw >>> 63) = 1 then -(off_raw - (1 << 63)) else off_raw
-          pc.anchors.get? idx |>.andThen (fun a =>
+          let idx := (elem.payload / (2 ^ 64)).toNat
+          let offset := elem.payload % (2 ^ 64)
+          pc.anchors[idx]? |>.bind (fun a =>
             if offset ≥ 0 then some (a + offset.toNat)
-            else if offset.natAbs ≤ a then some (a - offset.natAbs)
+            else if Int.natAbs offset ≤ a then some (a - Int.natAbs offset)
             else none)
       match current with
       | none => none
       | some v => go rest (some v) (v :: acc)
   go pc.elements none []
+
+/-! ## Sorted Predicate -/
+
+/-- A list is sorted (non-decreasing). Defined recursively to avoid import issues. -/
+def IsSorted (S : List ℕ) : Prop :=
+  match S with
+  | [] => True
+  | [x] => True
+  | x :: y :: rest => x ≤ y ∧ IsSorted (y :: rest)
 
 /-! ## Main Theorem -/
 
@@ -167,7 +187,7 @@ def reconstruct (pc : PositionalCompression) : Option (List ℕ) :=
     Requires S to be sorted (non-decreasing). -/
 theorem positional_compress_lossless
     (S : List ℕ) (k : ℕ)
-    (h_sorted : S.Sorted (· ≤ ·)) :
+    (h_sorted : IsSorted S) :
     let pc := compress S k
     reconstruct pc = some S := by
   -- Proof strategy: induction on S
@@ -195,20 +215,17 @@ theorem anchors_subset_sequence (S : List ℕ) (k : ℕ) :
 
 /-- For sorted S, delta is always non-negative. -/
 theorem delta_nonnegative_when_sorted
-    (S : List ℕ) (h_sorted : S.Sorted (· ≤ ·))
+    (S : List ℕ) (h_sorted : IsSorted S)
     (i : ℕ) (hi : i + 1 < S.length) :
-    0 ≤ (S.get! (i + 1) - S.get! i) := by
+    0 ≤ (S[i+1]! - S[i]!) := by
   sorry
 
 /-- The packed anchor representation roundtrips for valid indices and offsets. -/
 theorem anchor_pack_roundtrip (idx : ℕ) (offset : ℤ)
-    (h_idx : idx < 65536)  -- practical bound on k
-    (h_off : offset.natAbs < 2^63) :
-    let packed := ((idx : ℤ) << 64) + (offset & 0xFFFFFFFFFFFFFFFF)
-    ((packed >> 64).toNat = idx) ∧
-    (let off_raw := packed & 0xFFFFFFFFFFFFFFFF
-     let decoded := if (off_raw >>> 63) = 1 then -(off_raw - (1 << 63)) else off_raw
-     decoded = offset) := by
+    (h_off : Int.natAbs offset < 2 ^ 63) :
+    let packed := ((idx : ℤ) * (2 ^ 64)) + offset
+    ((packed / (2 ^ 64)).toNat = idx) ∧
+    (packed % (2 ^ 64) = offset) := by
   sorry
 
 /-! ## Complexity Notes -/

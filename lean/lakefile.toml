@@ -1,6 +1,6 @@
 name = "positional-compress"
 lake_version = "1.0.0"
-lean_version = "v4.12.0"
+lean_version = "v4.36.0"
 
 [[require]]
 scope = "leanprover-community"
