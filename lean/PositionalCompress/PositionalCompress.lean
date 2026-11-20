@@ -12,6 +12,8 @@ Theorem: For any sorted sequence S of natural numbers and any k ∈ {0,...,n},
 import Mathlib.Data.List.Basic
 import Mathlib.Data.List.Range
 import Mathlib.Data.Int.Basic
+import Mathlib.Data.Int.Lemmas
+import Mathlib.Tactic
 
 /-! ## Core Definitions -/
 
@@ -116,6 +118,23 @@ def choose_repr (s : ℕ) (prev : Option ℕ) (anchors : List ℕ) (k : ℕ) : R
   else if c_delta ≤ c_anchor then RepType.delta
   else RepType.anchor
 
+/-! ## Anchor Packing (Two's Complement) -/
+
+/-- Pack anchor index and signed offset into a single integer.
+    Uses two's complement representation for the offset in the low 64 bits. -/
+def pack_anchor (idx : ℕ) (offset : ℤ) : ℤ :=
+  let off_u := if offset < 0 then offset + (2 ^ 64 : ℤ) else offset
+  ((idx : ℤ) * (2 ^ 64)) + off_u
+
+/-- Unpack anchor index from packed representation. -/
+def unpack_idx (packed : ℤ) : ℕ :=
+  (packed / (2 ^ 64)).toNat
+
+/-- Unpack signed offset from packed representation (two's complement decode). -/
+def unpack_offset (packed : ℤ) : ℤ :=
+  let raw := packed % (2 ^ 64)
+  if raw ≥ (2 ^ 63 : ℤ) then raw - (2 ^ 64 : ℤ) else raw
+
 /-! ## Compression -/
 
 /-- Compress a sorted sequence using positional tracing with k anchors. -/
@@ -136,7 +155,7 @@ def compress (S : List ℕ) (k : ℕ) : PositionalCompression :=
         | RepType.anchor =>
           match nearest_anchor s anchors with
           | none => 0  -- unreachable when k > 0 and s is in S
-          | some (idx, off) => ((idx : ℤ) * (2 ^ 64)) + off
+          | some (idx, off) => pack_anchor idx off
       go rest (some s) (EncodedElement.mk r payload :: acc)
   { elements := go S none [], anchors := anchors, k := k }
 
@@ -161,8 +180,8 @@ def reconstruct (pc : PositionalCompression) : Option (List ℕ) :=
             else if Int.natAbs d ≤ p then some (p - Int.natAbs d)
             else none)
         | RepType.anchor =>
-          let idx := (elem.payload / (2 ^ 64)).toNat
-          let offset := elem.payload % (2 ^ 64)
+          let idx := unpack_idx elem.payload
+          let offset := unpack_offset elem.payload
           pc.anchors[idx]? |>.bind (fun a =>
             if offset ≥ 0 then some (a + offset.toNat)
             else if Int.natAbs offset ≤ a then some (a - Int.natAbs offset)
@@ -223,10 +242,103 @@ theorem delta_nonnegative_when_sorted
 /-- The packed anchor representation roundtrips for valid indices and offsets. -/
 theorem anchor_pack_roundtrip (idx : ℕ) (offset : ℤ)
     (h_off : Int.natAbs offset < 2 ^ 63) :
-    let packed := ((idx : ℤ) * (2 ^ 64)) + offset
-    ((packed / (2 ^ 64)).toNat = idx) ∧
-    (packed % (2 ^ 64) = offset) := by
-  sorry
+    unpack_idx (pack_anchor idx offset) = idx ∧
+    unpack_offset (pack_anchor idx offset) = offset := by
+  have h_pow_pos : (0 : ℤ) < 2 ^ 64 := by decide
+  -- Helper: (a*b + c) / b = a when 0 ≤ c < b and a ≥ 0
+  have h_div_prop : ∀ (a c b : ℤ), 0 < b → 0 ≤ a → 0 ≤ c → c < b → ((a * b + c) / b) = a := by
+    intro a c b hb ha_nonneg hc_nonneg hc_lt
+    have h_abs_b : |b| = b := by rw [abs_of_nonneg (le_of_lt hb)]
+    -- Use ediv_emod_unique'': x/b = q ∧ x%b = r ↔ r + b*q = x ∧ 0 ≤ r ∧ r < |b|
+    have h_unique : (a * b + c) / b = a ∧ (a * b + c) % b = c ↔
+                    c + b * a = a * b + c ∧ 0 ≤ c ∧ c < |b| := by
+      apply Int.ediv_emod_unique''
+      exact hb.ne'
+    have h_forward : (c + b * a = a * b + c ∧ 0 ≤ c ∧ c < |b|) → ((a * b + c) / b = a) := by
+      intro h
+      rw [← h_unique] at h
+      exact h.1
+    have h_rhs : c + b * a = a * b + c ∧ 0 ≤ c ∧ c < |b| := by
+      constructor
+      · ring
+      · constructor
+        · exact hc_nonneg
+        · rw [h_abs_b]; exact hc_lt
+    exact h_forward h_rhs
+  -- Helper: (a*b + c) % b = c when 0 ≤ c < b and a ≥ 0
+  have h_mod_prop : ∀ (a c b : ℤ), 0 < b → 0 ≤ a → 0 ≤ c → c < b → ((a * b + c) % b) = c := by
+    intro a c b hb ha_nonneg hc_nonneg hc_lt
+    have h_abs_b : |b| = b := by rw [abs_of_nonneg (le_of_lt hb)]
+    have h_unique : (a * b + c) / b = a ∧ (a * b + c) % b = c ↔
+                    c + b * a = a * b + c ∧ 0 ≤ c ∧ c < |b| := by
+      apply Int.ediv_emod_unique''
+      exact hb.ne'
+    have h_rhs : c + b * a = a * b + c ∧ 0 ≤ c ∧ c < |b| := by
+      constructor
+      · ring
+      · constructor
+        · exact hc_nonneg
+        · rw [h_abs_b]; exact hc_lt
+    exact (h_unique.mpr h_rhs).2
+
+  constructor
+  · -- Prove unpack_idx recovers idx
+    by_cases hneg : offset < 0
+    · -- offset < 0: off_u = offset + 2^64
+      have h_off_neg_bounds : -(2 ^ 63 : ℤ) < offset := by
+        linarith [show |offset| = -offset from abs_of_neg hneg, h_off]
+      have h_off_u_range : 0 ≤ (offset + 2 ^ 64 : ℤ) ∧ (offset + 2 ^ 64 : ℤ) < 2 ^ 64 := by
+        constructor <;> linarith [h_off_neg_bounds]
+      -- packed = idx * 2^64 + (offset + 2^64), with 0 ≤ offset+2^64 < 2^64
+      have h_div : ((idx : ℤ) * 2 ^ 64 + (offset + 2 ^ 64)) / 2 ^ 64 = (idx : ℤ) := by
+        exact h_div_prop (idx : ℤ) (offset + 2 ^ 64) (2 ^ 64) h_pow_pos (show (0 : ℤ) ≤ idx from Nat.cast_nonneg idx) h_off_u_range.1 h_off_u_range.2
+      simp [unpack_idx, pack_anchor] at *
+      split_ifs <;> try { linarith [hneg] } <;>
+        (try { rw [h_div]; simp }) <;>
+        (try { omega })
+    · -- offset ≥ 0: off_u = offset
+      have h_off_nonneg : 0 ≤ offset := by linarith [hneg]
+      have h_off_range : 0 ≤ (offset : ℤ) ∧ (offset : ℤ) < 2 ^ 64 := by
+        constructor
+        · exact h_off_nonneg
+        · linarith [show |offset| = offset from abs_of_nonneg h_off_nonneg, h_off]
+      have h_div : ((idx : ℤ) * 2 ^ 64 + offset) / 2 ^ 64 = (idx : ℤ) := by
+        exact h_div_prop (idx : ℤ) offset (2 ^ 64) h_pow_pos (show (0 : ℤ) ≤ idx from Nat.cast_nonneg idx) h_off_range.1 h_off_range.2
+      simp [unpack_idx, pack_anchor] at *
+      split_ifs <;> try { linarith [hneg] } <;>
+        (try { rw [h_div]; simp }) <;>
+        (try { omega })
+  · -- Prove unpack_offset recovers offset
+    by_cases hneg : offset < 0
+    · -- offset < 0: off_u = offset + 2^64 ≥ 2^63
+      have h_off_neg_bounds : -(2 ^ 63 : ℤ) < offset := by
+        linarith [show |offset| = -offset from abs_of_neg hneg, h_off]
+      have h_off_u_range : 0 ≤ (offset + 2 ^ 64 : ℤ) ∧ (offset + 2 ^ 64 : ℤ) < 2 ^ 64 := by
+        constructor <;> linarith [h_off_neg_bounds]
+      have h_off_u_ge_63 : 2 ^ 63 ≤ (offset + 2 ^ 64 : ℤ) := by
+        linarith [show |offset| = -offset from abs_of_neg hneg, h_off]
+      -- packed % 2^64 = offset + 2^64
+      have h_mod : ((idx : ℤ) * 2 ^ 64 + (offset + 2 ^ 64)) % 2 ^ 64 = offset + 2 ^ 64 := by
+        exact h_mod_prop (idx : ℤ) (offset + 2 ^ 64) (2 ^ 64) h_pow_pos (show (0 : ℤ) ≤ idx from Nat.cast_nonneg idx) h_off_u_range.1 h_off_u_range.2
+      -- unpack_offset: raw ≥ 2^63, so returns raw - 2^64 = offset
+      simp [unpack_offset, pack_anchor] at *
+      split_ifs <;> try { linarith [hneg] } <;>
+        (try { rw [h_mod]; linarith }) <;>
+        (try { omega })
+    · -- offset ≥ 0: off_u = offset < 2^63
+      have h_off_nonneg : 0 ≤ offset := by linarith [hneg]
+      have h_off_range : 0 ≤ (offset : ℤ) ∧ (offset : ℤ) < 2 ^ 64 := by
+        constructor
+        · exact h_off_nonneg
+        · linarith [show |offset| = offset from abs_of_nonneg h_off_nonneg, h_off]
+      -- packed % 2^64 = offset
+      have h_mod : ((idx : ℤ) * 2 ^ 64 + offset) % 2 ^ 64 = offset := by
+        exact h_mod_prop (idx : ℤ) offset (2 ^ 64) h_pow_pos (show (0 : ℤ) ≤ idx from Nat.cast_nonneg idx) h_off_range.1 h_off_range.2
+      -- unpack_offset: raw < 2^63, so returns raw = offset
+      simp [unpack_offset, pack_anchor] at *
+      split_ifs <;> try { linarith [hneg] } <;>
+        (try { rw [h_mod]; linarith }) <;>
+        (try { omega })
 
 /-! ## Complexity Notes -/
 -- Compression: O(n·k) — nearest_anchor is O(k) per element
