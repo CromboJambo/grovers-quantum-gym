@@ -214,7 +214,7 @@ pub fn huffman_estimate_bits(values: &[usize]) -> f64 {
 /// Each element can be stored as one of three representations; the algorithm
 /// chooses the cheapest per-element (greedy decision, like Huffman's optimal
 /// code selection but over representation *types* rather than symbols).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RepType {
     /// Store the value absolutely. Cost: log2(max_value) bits.
     Raw = 0,
@@ -231,7 +231,7 @@ pub struct EncodedElement {
     /// For Raw: the value itself.
     /// For Delta: signed displacement from previous element.
     /// For Anchor: (anchor_index << 32) | offset — packed representation.
-    pub payload: i64,
+    pub payload: i128,
 }
 
 /// Result of positional compression.
@@ -255,7 +255,7 @@ impl PositionalCompression {
     /// Lossless reconstruction of the original sequence.
     pub fn reconstruct(&self) -> Vec<usize> {
         let mut result = Vec::with_capacity(self.elements.len());
-        let mut previous: Option<i64> = None;
+        let mut previous: Option<i128> = None;
 
         for elem in &self.elements {
             let value = match elem.rep_type {
@@ -265,9 +265,14 @@ impl PositionalCompression {
                     prev + elem.payload
                 }
                 RepType::Anchor => {
-                    let anchor_idx = (elem.payload >> 32) as usize;
-                    let offset = (elem.payload & 0xFFFFFFFF) as i32 as i64;
-                    self.anchors[anchor_idx] as i64 + offset
+                    let anchor_idx = (elem.payload >> 64) as usize;
+                    let offset_raw = (elem.payload & 0xFFFFFFFFFFFFFFFFi128) as u64 as i128;
+                    let offset = if offset_raw >= (1i128 << 63) {
+                        offset_raw - (1i128 << 64)
+                    } else {
+                        offset_raw
+                    };
+                    self.anchors[anchor_idx] as i128 + offset
                 }
             };
             result.push(value as usize);
@@ -339,17 +344,17 @@ pub fn positional_compress(values: &[usize], k: usize) -> PositionalCompression 
     // Step 2-3: For each element, choose cheapest representation
     let mut elements = Vec::with_capacity(n);
     let mut total_bits = 0.0;
-    let mut previous_value: Option<i64> = None;
+    let mut previous_value: Option<i128> = None;
 
     for (i, &v) in values.iter().enumerate() {
         if i == 0 {
             // First element must be Raw (no reference point exists yet)
             elements.push(EncodedElement {
                 rep_type: RepType::Raw,
-                payload: v as i64,
+                payload: v as i128,
             });
             total_bits += raw_bits_per_val;
-            previous_value = Some(v as i64);
+            previous_value = Some(v as i128);
             continue;
         }
 
@@ -357,28 +362,36 @@ pub fn positional_compress(values: &[usize], k: usize) -> PositionalCompression 
         let cost_raw = raw_bits_per_val;
 
         // Cost of Delta representation
-        let delta = (v as i64) - previous_value.unwrap();
+        let delta = (v as i128) - previous_value.unwrap();
         let abs_delta = delta.abs().max(1) as f64;
         let cost_delta = abs_delta.log2().ceil().max(1.0) + 1.0; // +1 for type tag
 
-        // Cost of Anchor representation
-        let (best_anchor_idx, best_offset) = nearest_anchor(v as i64, &anchors);
-        let abs_offset = best_offset.abs().max(1) as f64;
-        let cost_anchor = abs_offset.log2().ceil().max(1.0) + anchor_idx_bits + 1.0; // +1 for type tag
-
-        // Choose minimum cost representation
-        let (rep_type, payload, cost) = if cost_raw <= cost_delta && cost_raw <= cost_anchor {
-            (RepType::Raw, v as i64, cost_raw)
-        } else if cost_delta <= cost_anchor {
-            (RepType::Delta, delta, cost_delta)
+        // Cost of Anchor representation (only if anchors exist)
+        let (rep_type, payload, cost) = if anchors.is_empty() {
+            // No anchors available — choose between Raw and Delta only
+            if cost_raw <= cost_delta {
+                (RepType::Raw, v as i128, cost_raw)
+            } else {
+                (RepType::Delta, delta, cost_delta)
+            }
         } else {
-            let packed = ((best_anchor_idx as i64) << 32) | (best_offset as u32 as i64);
-            (RepType::Anchor, packed, cost_anchor)
+            let (best_anchor_idx, best_offset) = nearest_anchor(v as i128, &anchors);
+            let abs_offset = best_offset.abs().max(1) as f64;
+            let cost_anchor = abs_offset.log2().ceil().max(1.0) + anchor_idx_bits + 1.0; // +1 for type tag
+
+            if cost_raw <= cost_delta && cost_raw <= cost_anchor {
+                (RepType::Raw, v as i128, cost_raw)
+            } else if cost_delta <= cost_anchor {
+                (RepType::Delta, delta, cost_delta)
+            } else {
+                let packed = ((best_anchor_idx as i128) << 64) | ((best_offset & 0xFFFFFFFFFFFFFFFFi128) as u64 as i128);
+                (RepType::Anchor, packed, cost_anchor)
+            }
         };
 
         elements.push(EncodedElement { rep_type, payload });
         total_bits += cost;
-        previous_value = Some(v as i64);
+        previous_value = Some(v as i128);
     }
 
     PositionalCompression {
@@ -390,17 +403,17 @@ pub fn positional_compress(values: &[usize], k: usize) -> PositionalCompression 
 }
 
 /// Find the nearest anchor to a value and return (anchor_index, signed_offset).
-fn nearest_anchor(value: i64, anchors: &[usize]) -> (usize, i64) {
+fn nearest_anchor(value: i128, anchors: &[usize]) -> (usize, i128) {
     let mut best_idx = 0;
-    let mut best_dist = i64::MAX;
+    let mut best_dist = i128::MAX;
     for (i, &anchor) in anchors.iter().enumerate() {
-        let dist = (value - anchor as i64).abs();
+        let dist = (value - anchor as i128).abs();
         if dist < best_dist {
             best_dist = dist;
             best_idx = i;
         }
     }
-    (best_idx, value - anchors[best_idx] as i64)
+    (best_idx, value - anchors[best_idx] as i128)
 }
 
 // --- Prime Gap Positional Analysis -------------------------------------------
@@ -1001,4 +1014,253 @@ mod tests {
         // (the overhead is the anchor storage cost)
         assert!(compressed.total_bits < delta_bits * 1.5);
     }
+
+    // --- Stress tests: break POSITIONAL-COMPRESS ---
+
+    #[test]
+    fn test_stress_unsorted_data() {
+        let values = vec![100, 5, 999, 42, 1, 500, 7];
+        let compressed = positional_compress(&values, 3);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values);
+    }
+
+    #[test]
+    fn test_stress_duplicate_values() {
+        let values = vec![5, 5, 5, 5, 5];
+        let compressed = positional_compress(&values, 2);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values);
+    }
+
+    #[test]
+    fn test_stress_alternating_pattern() {
+        let values: Vec<usize> = (0..100).map(|i| if i % 2 == 0 { 10 } else { 9990 }).collect();
+        let compressed = positional_compress(&values, 5);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values);
+    }
+
+    #[test]
+    fn test_stress_large_values_anchor_overflow() {
+        // CRITICAL: anchor packing uses (idx << 32) | offset as u32.
+        // If offset exceeds 2^31 - 1, the cast truncates and reconstruction fails.
+        let values = vec![0usize, 1_000_000_000usize, 2_000_000_000usize];
+        let compressed = positional_compress(&values, 3);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values, "Anchor packing overflow with large offsets");
+    }
+
+    #[test]
+    fn test_stress_huge_sequence_performance() {
+        let primes = sieve_primes(1_300_000);
+        assert!(primes.len() > 50_000);
+        let compressed = positional_compress(&primes, 100);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed.len(), primes.len());
+        assert_eq!(reconstructed[0], primes[0]);
+        assert_eq!(reconstructed[primes.len() - 1], primes[primes.len() - 1]);
+        assert_eq!(reconstructed[primes.len() / 2], primes[primes.len() / 2]);
+    }
+
+    #[test]
+    fn test_stress_k_equals_n() {
+        let values: Vec<usize> = (0..50).map(|i| i * 3).collect();
+        let compressed = positional_compress(&values, 50);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values);
+    }
+
+    #[test]
+    fn test_stress_k_equals_one() {
+        let values: Vec<usize> = (0..20).map(|i| 100 + i * 2).collect();
+        let compressed = positional_compress(&values, 1);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values);
+    }
+
+    #[test]
+    fn test_stress_mixed_representation_reconstruction() {
+        let values = vec![10, 12, 14, 16, 5000, 5002, 5004, 5006];
+        let compressed = positional_compress(&values, 2);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values);
+
+        let types: Vec<RepType> = compressed.elements.iter().map(|e| e.rep_type).collect();
+        let unique_types = types.iter().collect::<std::collections::HashSet<_>>();
+        assert!(unique_types.len() >= 2, "Expected mixed representations");
+    }
+
+    #[test]
+    fn test_stress_zero_values() {
+        let values = vec![0, 1, 2, 3, 4];
+        let compressed = positional_compress(&values, 2);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values);
+    }
+
+    #[test]
+    fn test_stress_max_u64_values() {
+        let values = vec![usize::MAX - 10, usize::MAX - 5, usize::MAX];
+        let compressed = positional_compress(&values, 2);
+        // Use checked reconstruction to detect overflow silently
+        let reconstructed = checked_reconstruct_safe(&compressed);
+        assert_eq!(reconstructed.len(), values.len());
+    }
+
+    fn checked_reconstruct_safe(compressed: &PositionalCompression) -> Vec<usize> {
+        let mut result = Vec::with_capacity(compressed.elements.len());
+        let mut previous: Option<i128> = None;
+        for elem in &compressed.elements {
+            let value = match elem.rep_type {
+                RepType::Raw => Some(elem.payload),
+                RepType::Delta => {
+                    match previous {
+                        Some(prev) => prev.checked_add(elem.payload),
+                        None => return result,
+                    }
+                }
+                RepType::Anchor => {
+                    let anchor_idx = (elem.payload >> 64) as usize;
+                    if anchor_idx >= compressed.anchors.len() {
+                        return result;
+                    }
+                    let offset_raw = (elem.payload & 0xFFFFFFFFFFFFFFFFi128) as u64 as i128;
+                    let offset = if offset_raw >= (1i128 << 63) { offset_raw - (1i128 << 64) } else { offset_raw };
+                    (compressed.anchors[anchor_idx] as i128).checked_add(offset)
+                }
+            };
+            match value {
+                Some(v) if v >= 0 => { result.push(v as usize); previous = Some(v); }
+                _ => return result,
+            }
+        }
+        result
+    }
+
+    #[test]
+    fn test_stress_decreasing_sequence() {
+        let values: Vec<usize> = (0..20).rev().collect();
+        let compressed = positional_compress(&values, 3);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values);
+    }
+
+    #[test]
+    fn test_stress_periodic_with_noise() {
+        let mut rng_state: u64 = 42;
+        let values: Vec<usize> = (0..100)
+            .map(|i| {
+                rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let noise = (rng_state >> 33) % 5 as u64;
+                (i * 7 + noise) as usize
+            })
+            .collect();
+        let compressed = positional_compress(&values, 10);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values);
+        assert!(compressed.compression_ratio() < 1.0);
+    }
+    // --- Additional stress tests: edge cases and adversarial inputs ---
+
+    #[test]
+    fn test_stress_k_equals_zero() {
+        let values: Vec<usize> = (0..50).map(|i| i * 7 + 3).collect();
+        let compressed = positional_compress(&values, 0);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values, "k=0 should still roundtrip");
+    }
+
+    #[test]
+    fn test_stress_k_greater_than_len() {
+        let values = vec![100usize, 200, 300];
+        let compressed = positional_compress(&values, 10);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values, "k > len should still roundtrip");
+    }
+
+    #[test]
+    fn test_stress_decreasing_huge_gaps() {
+        let values = vec![
+            18_446_744_073_709_551_615usize,
+            18_446_744_073_709_551_600,
+            18_446_744_073_709_551_500,
+            18_446_744_073_709_551_000,
+        ];
+        let compressed = positional_compress(&values, 2);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values, "Decreasing huge gaps should roundtrip");
+    }
+
+    #[test]
+    fn test_stress_single_element() {
+        let values = vec![42usize];
+        let compressed = positional_compress(&values, 3);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values);
+    }
+
+    #[test]
+    fn test_stress_two_elements() {
+        let values = vec![1usize, usize::MAX];
+        let compressed = positional_compress(&values, 2);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values);
+    }
+
+    #[test]
+    fn test_stress_very_large_n() {
+        let n = 100_000;
+        let values: Vec<usize> = (0..n).map(|i| (i as u64 * 2654435761u64) as usize % 1_000_000_000).collect();
+        let compressed = positional_compress(&values, 10);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed.len(), values.len());
+        assert_eq!(reconstructed, values, "Large N should roundtrip");
+    }
+
+    #[test]
+    fn test_stress_all_same_value() {
+        let values = vec![999usize; 100];
+        let compressed = positional_compress(&values, 5);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values);
+    }
+
+    #[test]
+    fn test_stress_zero_and_max() {
+        let values = vec![0usize, usize::MAX / 2, usize::MAX];
+        let compressed = positional_compress(&values, 3);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values);
+    }
+
+    #[test]
+    fn test_stress_oscillating_extremes() {
+        let values = vec![0usize, usize::MAX, 1, usize::MAX - 1, 2, usize::MAX - 2];
+        let compressed = positional_compress(&values, 3);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values);
+    }
+
+    #[test]
+    fn test_stress_prime_gaps_large() {
+        let mut is_prime = vec![true; 100_000];
+        is_prime[0] = false;
+        is_prime[1] = false;
+        for i in 2..(100_000usize as f64).sqrt() as usize {
+            if is_prime[i] {
+                for j in ((i*i)..100_000).step_by(i) {
+                    is_prime[j] = false;
+                }
+            }
+        }
+        let primes: Vec<usize> = (2..100_000).filter(|&i| is_prime[i]).collect();
+        assert!(primes.len() > 5000, "Should have many primes");
+        let compressed = positional_compress(&primes, 10);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, primes, "Primes up to 100k should roundtrip");
+        assert!(compressed.compression_ratio() < 0.7, 
+            "Prime gaps should compress below 70% raw");
+    }
+
 }
