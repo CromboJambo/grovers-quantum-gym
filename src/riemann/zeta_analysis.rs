@@ -1,7 +1,7 @@
 //! Zeta Analysis Module
 //! Euler product verification, Möbius function, zeta zeros, approximation errors.
 
-use crate::riemann::integer_structure::{mobius, is_prime};
+use crate::riemann::integer_structure::{is_prime, mobius};
 
 /// Compute ζ(s) for real s > 1 using Dirichlet series
 pub fn zeta_real(s: f64) -> f64 {
@@ -89,7 +89,9 @@ pub fn prime_counting(x: u64) -> usize {
 pub fn pnt_comparison(limit: u64, sample_points: &[u64]) -> Vec<(u64, usize, f64, f64)> {
     let mut results = Vec::new();
     for &x in sample_points {
-        if x > limit { continue; }
+        if x > limit {
+            continue;
+        }
         let pi_x = prime_counting(x);
         let li_x = logarithmic_integral(x as f64);
         let ratio = pi_x as f64 / li_x;
@@ -131,8 +133,8 @@ mod tests {
 
     #[test]
     fn test_prime_counting() {
-        assert_eq!(prime_counting(10), 4);  // 2,3,5,7
-        assert_eq!(prime_counting(20), 8);  // 2,3,5,7,11,13,17,19
+        assert_eq!(prime_counting(10), 4); // 2,3,5,7
+        assert_eq!(prime_counting(20), 8); // 2,3,5,7,11,13,17,19
     }
 
     #[test]

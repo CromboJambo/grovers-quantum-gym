@@ -2,7 +2,6 @@
 /// Demonstrates that no local hidden variable theory can reproduce all
 /// predictions of quantum mechanics. Simulates both LHV and QM to show
 /// the violation of Bell's inequality.
-
 use std::f64::consts::PI;
 
 pub fn show_bell_station() {

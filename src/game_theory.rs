@@ -55,7 +55,7 @@ fn demonstrate_prisoners_dilemma() {
     let alice_choice = "DEFECT";
     let bob_choice = "DEFECT";
     let outcome = -3;
-    
+
     println!();
     println!("Simulation (single-shot):");
     println!("  Alice chooses: {}", alice_choice);
@@ -74,20 +74,20 @@ fn demonstrate_iterated_cooperation() {
 
     // Simulate iterated game with different strategies
     let rounds = 50;
-    
+
     // Tit-for-Tat vs Always Defect
     let mut tft_score = 0;
     let mut ad_score = 0;
     let mut prev_tft = "COOPERATE";
-    
+
     println!("Strategy: Tit-for-Tat (cooperate first, then mirror opponent)");
     println!("vs Strategy: Always Defect");
     println!();
-    
+
     for round in 1..=rounds {
         let tft_move = prev_tft;
         let ad_move = "DEFECT";
-        
+
         // Payoff matrix
         if tft_move == "COOPERATE" && ad_move == "DEFECT" {
             tft_score -= 5;
@@ -96,10 +96,10 @@ fn demonstrate_iterated_cooperation() {
             tft_score -= 3;
             ad_score -= 3;
         }
-        
+
         prev_tft = ad_move; // TFT mirrors opponent's last move
     }
-    
+
     println!("After {} rounds:", rounds);
     println!("  Tit-for-Tat score: {}", tft_score);
     println!("  Always Defect score: {}", ad_score);
@@ -110,14 +110,14 @@ fn demonstrate_iterated_cooperation() {
     let mut tft2_score = 0;
     let mut prev_tft1 = "COOPERATE";
     let mut prev_tft2 = "COOPERATE";
-    
+
     println!("Strategy: Tit-for-Tat vs Tit-for-Tat");
     println!();
-    
+
     for round in 1..=rounds {
         let move1 = prev_tft1;
         let move2 = prev_tft2;
-        
+
         if move1 == "COOPERATE" && move2 == "COOPERATE" {
             tft1_score -= 1;
             tft2_score -= 1;
@@ -125,11 +125,11 @@ fn demonstrate_iterated_cooperation() {
             tft1_score -= 3;
             tft2_score -= 3;
         }
-        
+
         prev_tft1 = move2;
         prev_tft2 = move1;
     }
-    
+
     println!("After {} rounds:", rounds);
     println!("  Tit-for-Tat 1 score: {}", tft1_score);
     println!("  Tit-for-Tat 2 score: {}", tft2_score);
@@ -152,13 +152,13 @@ mod tests {
 
     #[test]
     fn test_prisoners_dilemma_payoffs() {
-        // Verify the payoff structure is correct
+        // Verify the payoff structure is correct (negative = prison years, higher is better)
         let cooperate_cooperate = (-1, -1);
         let defect_defect = (-3, -3);
         let betray_cooperate = (0, -5);
-        
-        assert!(cooperate_cooperate.0 < defect_defect.0); // Cooperation better than mutual defection
-        assert!(betray_cooperate.0 < cooperate_cooperate.0); // Betrayal best for betrayer
+
+        assert!(cooperate_cooperate.0 > defect_defect.0); // Cooperation better than mutual defection
+        assert!(betray_cooperate.0 > cooperate_cooperate.0); // Betrayal best for betrayer
         assert!(betray_cooperate.1 < defect_defect.1); // Betrayed worst off
     }
 
@@ -170,11 +170,11 @@ mod tests {
         let mut tft2_score = 0;
         let mut prev_tft1 = "COOPERATE";
         let mut prev_tft2 = "COOPERATE";
-        
+
         for _ in 1..=rounds {
             let move1 = prev_tft1;
             let move2 = prev_tft2;
-            
+
             if move1 == "COOPERATE" && move2 == "COOPERATE" {
                 tft1_score -= 1;
                 tft2_score -= 1;
@@ -182,11 +182,11 @@ mod tests {
                 tft1_score -= 3;
                 tft2_score -= 3;
             }
-            
+
             prev_tft1 = move2;
             prev_tft2 = move1;
         }
-        
+
         // With perfect TFT, they should always cooperate → -1 per round each
         assert_eq!(tft1_score, -rounds);
         assert_eq!(tft2_score, -rounds);

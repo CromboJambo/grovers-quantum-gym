@@ -68,7 +68,7 @@ fn demonstrate_learning_from_wrong() {
     println!();
     println!("Example: debugging a broken light");
     println!("Testing hypotheses one by one:");
-    
+
     let mut tested = 0;
     for (i, hyp) in hypotheses.iter().enumerate() {
         println!("  Test {}: {} ...", i + 1, hyp);
@@ -79,9 +79,12 @@ fn demonstrate_learning_from_wrong() {
         println!("    → Wrong. Eliminated.");
         tested += 1;
     }
-    
+
     println!();
-    println!("We learned from {} wrong hypotheses before finding the right one.", tested);
+    println!(
+        "We learned from {} wrong hypotheses before finding the right one.",
+        tested
+    );
     println!("Each 'no' brought us closer to understanding.");
 }
 
@@ -134,7 +137,8 @@ fn conclude_perfect_participation() {
     println!();
     println!("Until we can figure out another way to achieve perfect participation,");
     println!("that's the only way we get sub-exponential growth. We're limited by how");
-    println!("many people are actually seeking — not just consuming.")}
+    println!("many people are actually seeking — not just consuming.")
+}
 
 #[cfg(test)]
 mod tests {

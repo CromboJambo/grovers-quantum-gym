@@ -50,7 +50,9 @@ fn print_biography() {
 fn demonstrate_projection_postulate() {
     println!("--- DEMONSTRATION: The Projection Postulate ---");
     println!();
-    println!("Before von Neumann, quantum measurement was hand-waved. He gave it mathematical rigor.");
+    println!(
+        "Before von Neumann, quantum measurement was hand-waved. He gave it mathematical rigor."
+    );
     println!();
     println!("The projection postulate states:");
     println!("  When you measure an observable and get outcome λᵢ, the state collapses to");
@@ -60,7 +62,10 @@ fn demonstrate_projection_postulate() {
     // Demonstrate with a simple spin measurement
     let alpha = 0.6;
     let beta = 0.8;
-    println!("Example: Electron in superposition |ψ⟩ = {:.1}|↑⟩ + {:.1}|↓⟩", alpha, beta);
+    println!(
+        "Example: Electron in superposition |ψ⟩ = {:.1}|↑⟩ + {:.1}|↓⟩",
+        alpha, beta
+    );
     println!();
 
     // Calculate probabilities
@@ -187,11 +192,41 @@ mod tests {
     #[test]
     fn test_von_neumann_chain_has_five_steps() {
         let steps = vec![
-            MeasurementStep { id: 1, entity: "Electron".to_string(), state_before: "".to_string(), state_after: "".to_string(), description: "".to_string() },
-            MeasurementStep { id: 2, entity: "Apparatus".to_string(), state_before: "".to_string(), state_after: "".to_string(), description: "".to_string() },
-            MeasurementStep { id: 3, entity: "Screen".to_string(), state_before: "".to_string(), state_after: "".to_string(), description: "".to_string() },
-            MeasurementStep { id: 4, entity: "Eye".to_string(), state_before: "".to_string(), state_after: "".to_string(), description: "".to_string() },
-            MeasurementStep { id: 5, entity: "Brain".to_string(), state_before: "".to_string(), state_after: "".to_string(), description: "".to_string() },
+            MeasurementStep {
+                id: 1,
+                entity: "Electron".to_string(),
+                state_before: "".to_string(),
+                state_after: "".to_string(),
+                description: "".to_string(),
+            },
+            MeasurementStep {
+                id: 2,
+                entity: "Apparatus".to_string(),
+                state_before: "".to_string(),
+                state_after: "".to_string(),
+                description: "".to_string(),
+            },
+            MeasurementStep {
+                id: 3,
+                entity: "Screen".to_string(),
+                state_before: "".to_string(),
+                state_after: "".to_string(),
+                description: "".to_string(),
+            },
+            MeasurementStep {
+                id: 4,
+                entity: "Eye".to_string(),
+                state_before: "".to_string(),
+                state_after: "".to_string(),
+                description: "".to_string(),
+            },
+            MeasurementStep {
+                id: 5,
+                entity: "Brain".to_string(),
+                state_before: "".to_string(),
+                state_after: "".to_string(),
+                description: "".to_string(),
+            },
         ];
         assert_eq!(steps.len(), 5);
     }
@@ -200,10 +235,10 @@ mod tests {
     fn test_prisoners_dilemma_payoffs() {
         // Verify the payoff structure is correct for Prisoner's Dilemma
         // T > R > P > S and 2R > T + S
-        let t = 0;   // Temptation to betray
-        let r = -1;  // Reward for mutual cooperation
-        let p = -2;  // Punishment for mutual betrayal
-        let s = -3;  // Sucker's payoff
+        let t = 0; // Temptation to betray
+        let r = -1; // Reward for mutual cooperation
+        let p = -2; // Punishment for mutual betrayal
+        let s = -3; // Sucker's payoff
 
         assert!(t > r);
         assert!(r > p);

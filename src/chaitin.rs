@@ -55,7 +55,10 @@ fn demonstrate_kolmogorov_complexity() {
     let compressed = "a6b5c5d5";
     println!("  Original: {} ({} chars)", repetitive, repetitive.len());
     println!("  Compressed: {} ({} chars)", compressed, compressed.len());
-    println!("  Ratio: {:.1}x", repetitive.len() as f64 / compressed.len() as f64);
+    println!(
+        "  Ratio: {:.1}x",
+        repetitive.len() as f64 / compressed.len() as f64
+    );
     println!();
 
     // Random data doesn't compress
@@ -78,9 +81,9 @@ fn demonstrate_halt_probability() {
 
     // Construct a finite approximation of Ω
     let programs: Vec<(&str, bool)> = vec![
-        ("print('hello')", true),      // halts
-        ("while True: pass", false),   // infinite loop
-        ("x = 1 + 1", true),           // halts
+        ("print('hello')", true),              // halts
+        ("while True: pass", false),           // infinite loop
+        ("x = 1 + 1", true),                   // halts
         ("for i in range(3): print(i)", true), // halts
         ("n = 0; while n < 10: n += 1", true), // halts
     ];
@@ -105,9 +108,13 @@ fn demonstrate_halt_probability() {
     println!();
 
     println!("Properties of Ω:");
-    println!("  1. Well-defined: There's one true value for each universal prefix-free program set");
+    println!(
+        "  1. Well-defined: There's one true value for each universal prefix-free program set"
+    );
     println!("  2. Random: Its digits are algorithmically incompressible");
-    println!("  3. Unknowable: No finite proof system can determine more than finitely many digits");
+    println!(
+        "  3. Unknowable: No finite proof system can determine more than finitely many digits"
+    );
     println!();
 
     // Show why Ω is random — each bit encodes halting info

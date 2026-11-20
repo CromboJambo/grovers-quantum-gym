@@ -60,12 +60,12 @@ fn explain_delayed_choice() {
 fn demonstrate_delayed_choice() {
     println!("--- DEMONSTRATION: Delayed Choice ---");
     println!();
-    
+
     // Simulate the experiment with deterministic outcomes
     let photon_path = "photon emitted → travels toward slits";
     println!("{}", photon_path);
     println!();
-    
+
     // Scenario 1: Choose to measure as wave (recombine paths)
     println!("SCENARIO A: After passing through slits, we recombine the paths");
     println!("          and look for interference pattern.");
@@ -76,7 +76,7 @@ fn demonstrate_delayed_choice() {
     println!("           We chose to measure wave behavior AFTER it passed the slits,");
     println!("           and that choice determined it was a wave all along.");
     println!();
-    
+
     // Scenario 2: Choose to measure as particle (which-path)
     println!("SCENARIO B: After passing through slits, we place detectors at");
     println!("          each slit to see which one the photon used.");
@@ -87,7 +87,7 @@ fn demonstrate_delayed_choice() {
     println!("           We chose to measure particle behavior AFTER it passed the");
     println!("           slits, and that choice determined it was a particle all along.");
     println!();
-    
+
     println!("THE PARADOX: In both scenarios, the photon had already passed through");
     println!("the slits before we made our measurement choice. Yet our later choice");
     println!("determined what actually happened earlier. The past is not determined");
@@ -122,21 +122,21 @@ fn explain_it_from_bit() {
 fn demonstrate_participatory_universe() {
     println!("--- DEMONSTRATION: Participatory Universe ---");
     println!();
-    
+
     // Show how information builds reality through binary choices
     let mut universe = 0u8;
     let questions = [
         "Is there gravity? (yes=1, no=0)",
-        "Do particles have spin? (yes=1, no=0)", 
+        "Do particles have spin? (yes=1, no=0)",
         "Is spacetime curved? (yes=1, no=0)",
-        "Does light bend around stars? (yes=1, no=0)"
+        "Does light bend around stars? (yes=1, no=0)",
     ];
-    
+
     let answers = [1u8, 1, 1, 1]; // All yes — our universe
-    
+
     println!("Building reality through binary questions:");
     println!();
-    
+
     for (i, question) in questions.iter().enumerate() {
         let answer = answers[i];
         universe = (universe << 1) | answer;
@@ -145,15 +145,17 @@ fn demonstrate_participatory_universe() {
         println!("    Universe state so far: {:04b}", universe);
         println!();
     }
-    
-    println!("Final universe configuration: {:04b} (binary) = {} (decimal)", 
-             universe, universe);
+
+    println!(
+        "Final universe configuration: {:04b} (binary) = {} (decimal)",
+        universe, universe
+    );
     println!();
     println!("Each 'it' in the universe emerged from a sequence of 'bits'.");
     println!("The observer participates by asking questions and receiving answers.");
     println!("Without questions being asked, there are no answers — no reality.");
     println!();
-    
+
     // Connect to Everett
     println!("CONNECTION TO EVERETT: Wheeler was Hugh Everett's PhD advisor at");
     println!("Princeton. He supervised Everett's 1957 thesis that proposed the");
@@ -165,49 +167,49 @@ fn demonstrate_participatory_universe() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_delayed_choice_interference() {
         let result = simulate_interference();
         assert!(result); // Wave measurement always shows interference
     }
-    
+
     #[test]
     fn test_delayed_choice_which_path() {
         let result = simulate_which_path();
         assert!(result == 1 || result == 2); // Must be one of the two slits
     }
-    
+
     #[test]
     fn test_participatory_universe_bits() {
         let mut universe = 0u8;
         let answers = [1u8, 1, 1, 1];
-        
+
         for answer in &answers {
             universe = (universe << 1) | *answer;
         }
-        
+
         // Four yes-answers should give binary 1111 = 15
         assert_eq!(universe, 15);
     }
-    
+
     #[test]
     fn test_universe_state_progression() {
         let mut universe = 0u8;
         let answers = [1u8, 0, 1, 1];
-        
+
         // After first bit: 1
         universe = (universe << 1) | answers[0];
         assert_eq!(universe, 1);
-        
+
         // After second bit: 10 = 2
         universe = (universe << 1) | answers[1];
         assert_eq!(universe, 2);
-        
+
         // After third bit: 101 = 5
         universe = (universe << 1) | answers[2];
         assert_eq!(universe, 5);
-        
+
         // After fourth bit: 1011 = 11
         universe = (universe << 1) | answers[3];
         assert_eq!(universe, 11);

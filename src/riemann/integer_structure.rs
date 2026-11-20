@@ -25,9 +25,15 @@ pub fn factorize(n: u64) -> Vec<(u64, u32)> {
 
 /// Check if n is prime using optimized trial division
 pub fn is_prime(n: u64) -> bool {
-    if n < 2 { return false; }
-    if n < 4 { return true; }
-    if n % 2 == 0 || n % 3 == 0 { return false; }
+    if n < 2 {
+        return false;
+    }
+    if n < 4 {
+        return true;
+    }
+    if n % 2 == 0 || n % 3 == 0 {
+        return false;
+    }
     let mut divisor = 5;
     while divisor * divisor <= n {
         if n % divisor == 0 || n % (divisor + 2) == 0 {
@@ -76,11 +82,7 @@ pub fn mobius(n: u64) -> i32 {
     }
     // Squarefree: return (-1)^k where k is number of distinct prime factors
     let k = factors.len();
-    if k % 2 == 0 {
-        1
-    } else {
-        -1
-    }
+    if k % 2 == 0 { 1 } else { -1 }
 }
 
 /// Check if n is squarefree (no squared prime factor)
@@ -95,15 +97,14 @@ pub fn omega(n: u64) -> usize {
 
 /// Total number of prime factors counting multiplicity Ω(n)
 pub fn big_omega(n: u64) -> usize {
-    factorize(n)
-        .iter()
-        .map(|(_, exp)| *exp as usize)
-        .sum()
+    factorize(n).iter().map(|(_, exp)| *exp as usize).sum()
 }
 
 /// Check if n is a prime power p^k with k >= 2
 pub fn is_prime_power(n: u64) -> bool {
-    if n < 4 { return false; }
+    if n < 4 {
+        return false;
+    }
     let factors = factorize(n);
     factors.len() == 1 && factors[0].1 >= 2
 }
@@ -132,15 +133,14 @@ pub fn smallest_prime_factor(n: u64) -> u64 {
 }
 
 /// Classify integer by structural type (mutually exclusive for legacy use)
-#[derive(Debug, Clone, Copy)]
-#[derive(PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IntegerClass {
     One,
     Prime,
-    PrimePower(u32),      // p^k where k > 1
-    Semiprime,            // p*q where p≠q
+    PrimePower(u32),        // p^k where k > 1
+    Semiprime,              // p*q where p≠q
     SquarefreeMulti(usize), // product of k distinct primes, k >= 3
-    HasSquaredFactor,     // contains p^2 for some prime p
+    HasSquaredFactor,       // contains p^2 for some prime p
 }
 
 pub fn classify(n: u64) -> IntegerClass {
@@ -181,13 +181,17 @@ pub fn classify_range(start: u64, end: u64) -> std::collections::HashMap<String,
         match classify(n) {
             IntegerClass::One => *counts.entry("one".to_string()).or_insert(0) += 1,
             IntegerClass::Prime => *counts.entry("prime".to_string()).or_insert(0) += 1,
-            IntegerClass::PrimePower(_) => *counts.entry("prime_power".to_string()).or_insert(0) += 1,
+            IntegerClass::PrimePower(_) => {
+                *counts.entry("prime_power".to_string()).or_insert(0) += 1
+            }
             IntegerClass::Semiprime => *counts.entry("semiprime".to_string()).or_insert(0) += 1,
             IntegerClass::SquarefreeMulti(k) => {
                 let key = format!("squarefree_{}", k);
                 *counts.entry(key).or_insert(0) += 1;
             }
-            IntegerClass::HasSquaredFactor => *counts.entry("squared_factor".to_string()).or_insert(0) += 1,
+            IntegerClass::HasSquaredFactor => {
+                *counts.entry("squared_factor".to_string()).or_insert(0) += 1
+            }
         }
     }
     counts
@@ -208,8 +212,8 @@ mod tests {
     fn test_mobius() {
         assert_eq!(mobius(1), 1);
         assert_eq!(mobius(2), -1);
-        assert_eq!(mobius(6), 1);   // 2*3, two distinct primes
-        assert_eq!(mobius(12), 0);  // has squared factor (2^2)
+        assert_eq!(mobius(6), 1); // 2*3, two distinct primes
+        assert_eq!(mobius(12), 0); // has squared factor (2^2)
         assert_eq!(mobius(30), -1); // 2*3*5, three distinct primes
     }
 

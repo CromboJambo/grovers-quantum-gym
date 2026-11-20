@@ -61,18 +61,30 @@ fn demonstrate_four_strands() {
     println!();
     println!("Example: The shared pattern across all four strands");
     println!("-----------------------------------------------");
-    
+
     let examples = [
-        ("Quantum", "Superposition of states → measurement selects one outcome"),
-        ("Epistemology", "Multiple hypotheses → evidence eliminates wrong ones"),
-        ("Computation", "Branching paths in algorithm → backtracking finds solution"),
-        ("Evolution", "Genetic variation → natural selection removes unfit"),
+        (
+            "Quantum",
+            "Superposition of states → measurement selects one outcome",
+        ),
+        (
+            "Epistemology",
+            "Multiple hypotheses → evidence eliminates wrong ones",
+        ),
+        (
+            "Computation",
+            "Branching paths in algorithm → backtracking finds solution",
+        ),
+        (
+            "Evolution",
+            "Genetic variation → natural selection removes unfit",
+        ),
     ];
-    
+
     for (domain, pattern) in examples {
         println!("  {}: {}", domain, pattern);
     }
-    
+
     println!();
     println!("Same fundamental process: generate possibilities, eliminate the bad ones.");
 }
@@ -136,7 +148,8 @@ fn conclude_beginning_of_infinity() {
     println!("more to learn.");
     println!();
     println!("As he puts it: 'The universe is not only queerer than we suppose, but");
-    println!("queerer than we CAN suppose.'") }
+    println!("queerer than we CAN suppose.'")
+}
 
 #[cfg(test)]
 mod tests {
