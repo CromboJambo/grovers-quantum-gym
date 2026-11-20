@@ -208,6 +208,201 @@ pub fn huffman_estimate_bits(values: &[usize]) -> f64 {
     text.len() as f64 * (entropy + 0.5)
 }
 
+// --- The Positional Tracing Algorithm ----------------------------------------
+
+/// Representation type for a single element in the compressed stream.
+/// Each element can be stored as one of three representations; the algorithm
+/// chooses the cheapest per-element (greedy decision, like Huffman's optimal
+/// code selection but over representation *types* rather than symbols).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepType {
+    /// Store the value absolutely. Cost: log2(max_value) bits.
+    Raw = 0,
+    /// Store displacement from previous element. Cost: log2(|delta|) + 1 bit tag.
+    Delta = 1,
+    /// Store offset from nearest anchor. Cost: log2(|offset|) + log2(k) + 1 bit tag.
+    Anchor = 2,
+}
+
+/// A single encoded element in the positional trace stream.
+#[derive(Debug, Clone)]
+pub struct EncodedElement {
+    pub rep_type: RepType,
+    /// For Raw: the value itself.
+    /// For Delta: signed displacement from previous element.
+    /// For Anchor: (anchor_index << 32) | offset — packed representation.
+    pub payload: i64,
+}
+
+/// Result of positional compression.
+#[derive(Debug)]
+pub struct PositionalCompression {
+    pub anchors: Vec<usize>,
+    pub elements: Vec<EncodedElement>,
+    pub total_bits: f64,
+    pub raw_bits: f64,
+}
+
+impl PositionalCompression {
+    /// Compression ratio relative to raw storage.
+    pub fn compression_ratio(&self) -> f64 {
+        if self.raw_bits == 0.0 {
+            return 1.0;
+        }
+        self.total_bits / self.raw_bits
+    }
+
+    /// Lossless reconstruction of the original sequence.
+    pub fn reconstruct(&self) -> Vec<usize> {
+        let mut result = Vec::with_capacity(self.elements.len());
+        let mut previous: Option<i64> = None;
+
+        for elem in &self.elements {
+            let value = match elem.rep_type {
+                RepType::Raw => elem.payload,
+                RepType::Delta => {
+                    let prev = previous.expect("Delta before any Raw element");
+                    prev + elem.payload
+                }
+                RepType::Anchor => {
+                    let anchor_idx = (elem.payload >> 32) as usize;
+                    let offset = (elem.payload & 0xFFFFFFFF) as i32 as i64;
+                    self.anchors[anchor_idx] as i64 + offset
+                }
+            };
+            result.push(value as usize);
+            previous = Some(value);
+        }
+
+        result
+    }
+}
+
+/// **POSITIONAL-COMPRESS(S, k)** — The positional tracing algorithm.
+///
+/// Given a sorted sequence S of n values and k anchor points, produces a
+/// lossless compressed representation where each element is stored using
+/// whichever representation type (raw, delta, or anchor-offset) requires
+/// the fewest bits.
+///
+/// **Algorithm:**
+/// 1. Select k anchors from S using evenly-spaced density sampling.
+/// 2. For each element s[i], compute the bit cost of all three representations:
+///    - Raw:     ceil(log2(max_value)) bits
+///    - Delta:   ceil(log2(|s[i] - s[i-1]|)) + 1 bit (type tag)
+///    - Anchor:  ceil(log2(|offset|)) + ceil(log2(k)) + 1 bit (type tag)
+/// 3. Choose the minimum-cost representation for each element.
+/// 4. First element is always Raw (no previous value for delta, establishes anchor).
+///
+/// **Complexity:** O(n log n) for anchor selection + O(nk) for cost evaluation.
+/// With fixed k, this is O(n) — linear in input size.
+///
+/// **Correctness:** Lossless by construction. Each representation type has a
+/// unique inverse transform, and the type tag disambiguates during decode.
+///
+/// **Relation to Huffman/LZ:**
+/// - Huffman chooses the best *code length* per symbol (given a frequency model).
+/// - LZ77 chooses the best *(offset, length)* pair per position (given history).
+/// - Positional-COMPRESS chooses the best *representation type* per element
+///   (given spatial structure). All three are greedy per-element decisions
+///   that exploit different kinds of redundancy.
+pub fn positional_compress(values: &[usize], k: usize) -> PositionalCompression {
+    if values.is_empty() {
+        return PositionalCompression {
+            anchors: vec![],
+            elements: vec![],
+            total_bits: 0.0,
+            raw_bits: 0.0,
+        };
+    }
+
+    let n = values.len();
+    let max_val = *values.iter().max().unwrap_or(&1).max(&1) as f64;
+    let raw_bits_per_val = max_val.log2().ceil().max(1.0);
+    let total_raw_bits = n as f64 * raw_bits_per_val;
+
+    // Step 1: Select anchors (evenly spaced for now — density-based in future)
+    let actual_k = k.min(n);
+    let mut anchors = Vec::with_capacity(actual_k);
+    for i in 0..actual_k {
+        let idx = (i * n) / actual_k;
+        anchors.push(values[idx]);
+    }
+
+    // Precompute log2(k) for anchor index cost
+    let anchor_idx_bits = if actual_k > 1 {
+        (actual_k as f64).log2().ceil().max(1.0)
+    } else {
+        0.0
+    };
+
+    // Step 2-3: For each element, choose cheapest representation
+    let mut elements = Vec::with_capacity(n);
+    let mut total_bits = 0.0;
+    let mut previous_value: Option<i64> = None;
+
+    for (i, &v) in values.iter().enumerate() {
+        if i == 0 {
+            // First element must be Raw (no reference point exists yet)
+            elements.push(EncodedElement {
+                rep_type: RepType::Raw,
+                payload: v as i64,
+            });
+            total_bits += raw_bits_per_val;
+            previous_value = Some(v as i64);
+            continue;
+        }
+
+        // Cost of Raw representation
+        let cost_raw = raw_bits_per_val;
+
+        // Cost of Delta representation
+        let delta = (v as i64) - previous_value.unwrap();
+        let abs_delta = delta.abs().max(1) as f64;
+        let cost_delta = abs_delta.log2().ceil().max(1.0) + 1.0; // +1 for type tag
+
+        // Cost of Anchor representation
+        let (best_anchor_idx, best_offset) = nearest_anchor(v as i64, &anchors);
+        let abs_offset = best_offset.abs().max(1) as f64;
+        let cost_anchor = abs_offset.log2().ceil().max(1.0) + anchor_idx_bits + 1.0; // +1 for type tag
+
+        // Choose minimum cost representation
+        let (rep_type, payload, cost) = if cost_raw <= cost_delta && cost_raw <= cost_anchor {
+            (RepType::Raw, v as i64, cost_raw)
+        } else if cost_delta <= cost_anchor {
+            (RepType::Delta, delta, cost_delta)
+        } else {
+            let packed = ((best_anchor_idx as i64) << 32) | (best_offset as u32 as i64);
+            (RepType::Anchor, packed, cost_anchor)
+        };
+
+        elements.push(EncodedElement { rep_type, payload });
+        total_bits += cost;
+        previous_value = Some(v as i64);
+    }
+
+    PositionalCompression {
+        anchors,
+        elements,
+        total_bits,
+        raw_bits: total_raw_bits,
+    }
+}
+
+/// Find the nearest anchor to a value and return (anchor_index, signed_offset).
+fn nearest_anchor(value: i64, anchors: &[usize]) -> (usize, i64) {
+    let mut best_idx = 0;
+    let mut best_dist = i64::MAX;
+    for (i, &anchor) in anchors.iter().enumerate() {
+        let dist = (value - anchor as i64).abs();
+        if dist < best_dist {
+            best_dist = dist;
+            best_idx = i;
+        }
+    }
+    (best_idx, value - anchors[best_idx] as i64)
+}
+
 // --- Prime Gap Positional Analysis -------------------------------------------
 
 /// Generate primes up to a limit using sieve.
@@ -691,5 +886,119 @@ mod tests {
             assert!(gap > 0);
             assert!(count > 0);
         }
+    }
+
+    // --- Tests for POSITIONAL-COMPRESS algorithm ---
+
+    #[test]
+    fn test_positional_compress_roundtrip_primes() {
+        let primes = sieve_primes(100);
+        let compressed = positional_compress(&primes, 5);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, primes);
+    }
+
+    #[test]
+    fn test_positional_compress_roundtrip_arithmetic() {
+        let seq: Vec<usize> = (0..20).map(|i| i * 7 + 3).collect();
+        let compressed = positional_compress(&seq, 3);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, seq);
+    }
+
+    #[test]
+    fn test_positional_compress_roundtrip_random() {
+        // Non-sorted random data — algorithm should still work (uses Raw mostly)
+        let values = vec![42, 17, 89, 3, 56, 23, 78, 11, 65, 90];
+        let compressed = positional_compress(&values, 3);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values);
+    }
+
+    #[test]
+    fn test_positional_compress_beats_raw_for_primes() {
+        let primes = sieve_primes(1000);
+        let compressed = positional_compress(&primes, 10);
+        assert!(compressed.total_bits < compressed.raw_bits);
+        assert!(compressed.compression_ratio() < 1.0);
+    }
+
+    #[test]
+    fn test_positional_compress_beats_raw_for_arithmetic() {
+        let seq: Vec<usize> = (0..50).map(|i| i * 13 + 5).collect();
+        let compressed = positional_compress(&seq, 5);
+        // Arithmetic sequences should compress well with delta
+        // (type tags add overhead, so expect ~50-60% of raw)
+        assert!(compressed.compression_ratio() < 0.6);
+    }
+
+    #[test]
+    fn test_positional_compress_rep_type_distribution_primes() {
+        let primes = sieve_primes(1000);
+        let compressed = positional_compress(&primes, 10);
+
+        let mut raw_count = 0;
+        let mut delta_count = 0;
+        let mut anchor_count = 0;
+        for elem in &compressed.elements {
+            match elem.rep_type {
+                RepType::Raw => raw_count += 1,
+                RepType::Delta => delta_count += 1,
+                RepType::Anchor => anchor_count += 1,
+            }
+        }
+
+        // For primes, delta should dominate (small gaps)
+        assert!(delta_count > raw_count);
+        println!(
+            "Primes up to 1000: Raw={}, Delta={}, Anchor={}",
+            raw_count, delta_count, anchor_count
+        );
+    }
+
+    #[test]
+    fn test_positional_compress_first_element_always_raw() {
+        let values = vec![5, 10, 15, 20];
+        let compressed = positional_compress(&values, 2);
+        assert_eq!(compressed.elements[0].rep_type, RepType::Raw);
+    }
+
+    #[test]
+    fn test_positional_compress_empty() {
+        let values: Vec<usize> = vec![];
+        let compressed = positional_compress(&values, 5);
+        assert!(compressed.elements.is_empty());
+        assert_eq!(compressed.total_bits, 0.0);
+    }
+
+    #[test]
+    fn test_positional_compress_single_element() {
+        let values = vec![42];
+        let compressed = positional_compress(&values, 3);
+        assert_eq!(compressed.elements.len(), 1);
+        assert_eq!(compressed.elements[0].rep_type, RepType::Raw);
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, vec![42]);
+    }
+
+    #[test]
+    fn test_positional_compress_k_larger_than_n() {
+        let values = vec![3, 7, 11];
+        let compressed = positional_compress(&values, 100); // k > n
+        let reconstructed = compressed.reconstruct();
+        assert_eq!(reconstructed, values);
+    }
+
+    #[test]
+    fn test_positional_compress_vs_delta_only() {
+        // For data with strong local structure but global variation,
+        // positional_compress should do at least as well as pure delta
+        let primes = sieve_primes(500);
+        let compressed = positional_compress(&primes, 10);
+        let delta_bits = delta_encode_bits(&primes);
+
+        // Positional compress with anchors should be <= delta-only + overhead
+        // (the overhead is the anchor storage cost)
+        assert!(compressed.total_bits < delta_bits * 1.5);
     }
 }
