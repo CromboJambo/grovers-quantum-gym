@@ -24,6 +24,7 @@ pub mod shannon;
 pub mod grover;
 pub mod lovelace;
 pub mod navier_stokes;
+pub mod positional_tracing;
 pub mod p_vs_np;
 pub mod eth;
 pub mod problems;

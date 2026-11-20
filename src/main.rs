@@ -184,6 +184,8 @@ fn main() {
 
     println!("\n--- LEMPEL-ZIV: STRUCTURAL COMPRESSION VIA DICTIONARIES (1977, 1978) ---");
     shor_grover_exploration::lemper_ziv::show_lz_station();
+    println!();
+    shor_grover_exploration::positional_tracing::show_positional_tracing_station();
 
     println!("\n=== EXPLORATION COMPLETE ===");
 }
