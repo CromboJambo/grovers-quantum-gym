@@ -19,6 +19,8 @@ pub mod fft;
 pub mod game_theory;
 pub mod godel;
 pub mod kripke_platek;
+pub mod lemper_ziv;
+pub mod shannon;
 pub mod grover;
 pub mod lovelace;
 pub mod navier_stokes;

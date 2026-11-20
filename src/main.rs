@@ -179,5 +179,11 @@ fn main() {
     println!("\n--- KRIPKE-PLATEK SET THEORY: TYPE-THEORETIC GROUNDING (1960s) ---");
     shor_grover_exploration::kripke_platek::show_kripke_platek_station();
 
+    println!("\n--- SHANNON: INFORMATION THEORY & HUFFMAN CODING (1948) ---");
+    shor_grover_exploration::shannon::show_shannon_station();
+
+    println!("\n--- LEMPEL-ZIV: STRUCTURAL COMPRESSION VIA DICTIONARIES (1977, 1978) ---");
+    shor_grover_exploration::lemper_ziv::show_lz_station();
+
     println!("\n=== EXPLORATION COMPLETE ===");
 }
