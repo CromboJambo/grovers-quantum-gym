@@ -1,0 +1,12 @@
+name = "positional-compress"
+lake_version = "1.0.0"
+lean_version = "v4.12.0"
+
+[[require]]
+scope = "leanprover-community"
+name = "mathlib"
+git = "https://github.com/leanprover-community/mathlib4"
+subdir = ""
+
+[[lean_lib]]
+name = "PositionalCompress"
