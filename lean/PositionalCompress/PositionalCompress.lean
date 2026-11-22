@@ -13,6 +13,7 @@ import Mathlib.Data.List.Basic
 import Mathlib.Data.List.Range
 import Mathlib.Data.Int.Basic
 import Mathlib.Data.Int.Lemmas
+import Mathlib.Data.Int.NatAbs
 import Mathlib.Tactic
 
 /-! ## Core Definitions -/
@@ -137,59 +138,68 @@ def unpack_offset (packed : ℤ) : ℤ :=
 
 /-! ## Compression -/
 
+/-- Auxiliary compression function with explicit state.
+    Processes `remaining` elements, tracking `prev`, accumulating into `acc`.\n    Anchors are fixed (precomputed) and passed as a parameter. -/
+def compress_aux (remaining : List ℕ) (prev : Option ℕ)
+                 (anchors : List ℕ) (k : ℕ)
+                 (acc : List EncodedElement) : List EncodedElement :=
+  match remaining with
+  | [] => acc.reverse
+  | s :: rest =>
+    let r := choose_repr s prev anchors k
+    let payload :=
+      match r with
+      | RepType.raw => (s : ℤ)
+      | RepType.delta =>
+        match prev with
+        | none => 0  -- unreachable: delta not chosen for first element
+        | some p => (s : ℤ) - p
+      | RepType.anchor =>
+        match nearest_anchor s anchors with
+        | none => 0  -- unreachable when k > 0 and s is in S
+        | some (idx, off) => pack_anchor idx off
+    compress_aux rest (some s) anchors k (EncodedElement.mk r payload :: acc)
+
 /-- Compress a sorted sequence using positional tracing with k anchors. -/
 def compress (S : List ℕ) (k : ℕ) : PositionalCompression :=
   let anchors := make_anchors S k
-  let rec go (remaining : List ℕ) (prev : Option ℕ) (acc : List EncodedElement) : List EncodedElement :=
-    match remaining with
-    | [] => acc.reverse
-    | s :: rest =>
-      let r := choose_repr s prev anchors k
-      let payload :=
-        match r with
-        | RepType.raw => (s : ℤ)
-        | RepType.delta =>
-          match prev with
-          | none => 0  -- unreachable: delta not chosen for first element
-          | some p => (s : ℤ) - p
-        | RepType.anchor =>
-          match nearest_anchor s anchors with
-          | none => 0  -- unreachable when k > 0 and s is in S
-          | some (idx, off) => pack_anchor idx off
-      go rest (some s) (EncodedElement.mk r payload :: acc)
-  { elements := go S none [], anchors := anchors, k := k }
+  { elements := compress_aux S none anchors k [], anchors := anchors, k := k }
 
 /-! ## Reconstruction -/
+
+/-- Auxiliary reconstruction function with explicit state.
+    Processes `remaining` encoded elements, tracking `prev`, accumulating into `acc`.\n    Uses the fixed anchor table from `pc`. Returns none on corrupted data. -/
+def reconstruct_aux (remaining : List EncodedElement) (prev : Option ℕ)
+                    (anchors : List ℕ)
+                    (acc : List ℕ) : Option (List ℕ) :=
+  match remaining with
+  | [] => some acc.reverse
+  | elem :: rest =>
+    let current :=
+      match elem.rep_type with
+      | RepType.raw =>
+        if elem.payload ≥ 0 then some elem.payload.toNat else none
+      | RepType.delta =>
+        prev |>.bind (fun p =>
+          let d := elem.payload
+          if d ≥ 0 then some (p + d.toNat)
+          else if Int.natAbs d ≤ p then some (p - Int.natAbs d)
+          else none)
+      | RepType.anchor =>
+        let idx := unpack_idx elem.payload
+        let offset := unpack_offset elem.payload
+        anchors[idx]? |>.bind (fun a =>
+          if offset ≥ 0 then some (a + offset.toNat)
+          else if Int.natAbs offset ≤ a then some (a - Int.natAbs offset)
+          else none)
+    match current with
+    | none => none
+    | some v => reconstruct_aux rest (some v) anchors (v :: acc)
 
 /-- Reconstruct the original sequence from a compressed representation.
     Returns none if reconstruction fails (corrupted data). -/
 def reconstruct (pc : PositionalCompression) : Option (List ℕ) :=
-  let rec go (remaining : List EncodedElement) (prev : Option ℕ)
-            (acc : List ℕ) : Option (List ℕ) :=
-    match remaining with
-    | [] => some acc.reverse
-    | elem :: rest =>
-      let current :=
-        match elem.rep_type with
-        | RepType.raw =>
-          if elem.payload ≥ 0 then some elem.payload.toNat else none
-        | RepType.delta =>
-          prev |>.bind (fun p =>
-            let d := elem.payload
-            if d ≥ 0 then some (p + d.toNat)
-            else if Int.natAbs d ≤ p then some (p - Int.natAbs d)
-            else none)
-        | RepType.anchor =>
-          let idx := unpack_idx elem.payload
-          let offset := unpack_offset elem.payload
-          pc.anchors[idx]? |>.bind (fun a =>
-            if offset ≥ 0 then some (a + offset.toNat)
-            else if Int.natAbs offset ≤ a then some (a - Int.natAbs offset)
-            else none)
-      match current with
-      | none => none
-      | some v => go rest (some v) (v :: acc)
-  go pc.elements none []
+  reconstruct_aux pc.elements none pc.anchors []
 
 /-! ## Sorted Predicate -/
 
@@ -200,30 +210,137 @@ def IsSorted (S : List ℕ) : Prop :=
   | [x] => True
   | x :: y :: rest => x ≤ y ∧ IsSorted (y :: rest)
 
+/-! ## Helper Lemmas for Losslessness Proof -/
+
+/-- Arithmetic lemma: delta roundtrip preserves value.
+    For sorted sequences, s_{i+1} ≥ s_i, so the delta is non-negative and
+    prev + (s - prev) = s. -/
+theorem delta_roundtrip_sorted (prev s : ℕ) (h_le : prev ≤ s) :
+    prev + ((s : ℤ) - prev).toNat = s := by
+  have h_nonneg : 0 ≤ (s : ℤ) - prev := by omega
+  simp [Int.toNat_of_nonneg h_nonneg]
+  omega
+
+/-- Arithmetic lemma: anchor roundtrip with non-negative offset.
+    If s ≥ a, then encoding s as anchor reference to a and decoding gives back s. -/
+theorem anchor_roundtrip_nonneg (a s : ℕ) (h_le : a ≤ s) :
+    let off := (s : ℤ) - a
+    0 ≤ off ∧ off.toNat = s - a ∧ a + off.toNat = s := by
+  intro off
+  dsimp [off]
+  have h_nonneg : 0 ≤ (s : ℤ) - a := by omega
+  constructor
+  · exact h_nonneg
+  · simp [Int.toNat_of_nonneg h_nonneg]
+    omega
+
+/-! ## Token Decoding Correctness (splitting correctness from cost-based choice) -/
+
+/-- Decode a single encoded element given the current state.
+    This mirrors the per-element logic in reconstruct_aux. -/
+def decodeOne (prev : Option ℕ) (anchors : List ℕ) (e : EncodedElement) : Option ℕ :=
+  match e.rep_type with
+  | RepType.raw => if e.payload ≥ 0 then some e.payload.toNat else none
+  | RepType.delta =>
+      prev.bind fun p =>
+        let d := e.payload
+        if d ≥ 0 then some (p + d.toNat)
+        else if Int.natAbs d ≤ p then some (p - Int.natAbs d)
+        else none
+  | RepType.anchor =>
+      let i := unpack_idx e.payload
+      let off := unpack_offset e.payload
+      anchors[i]?.bind fun av =>
+        if off ≥ 0 then some (av + off.toNat)
+        else if Int.natAbs off ≤ av then some (av - Int.natAbs off)
+        else none
+
+/-- Raw token decodes correctly. -/
+theorem decode_raw_correct (s : ℕ):
+    decodeOne none [] { rep_type := RepType.raw, payload := (s : ℤ) } = some s := by
+  dsimp [decodeOne]
+
+/-- Delta token decodes correctly when prev ≤ s (sortedness invariant).
+    The encoder computes payload = s - prev; the decoder computes prev + (s - prev) = s. -/
+theorem decode_delta_correct_sorted (prev s : ℕ) (h_le : prev ≤ s):
+    decodeOne (some prev) [] { rep_type := RepType.delta, payload := (s : ℤ) - prev } = some s := by
+  dsimp [decodeOne]
+  have h_nonneg : 0 ≤ (s : ℤ) - prev := by omega
+  simp_all [Int.toNat_of_nonneg h_nonneg]
+
+/-- Delta token decodes correctly when s < prev (negative delta case).
+    The encoder computes payload = s - prev < 0; the decoder computes prev - |s - prev| = s. -/
+theorem decode_delta_correct_neg (prev s : ℕ) (h_lt : s < prev):
+    decodeOne (some prev) [] { rep_type := RepType.delta, payload := (s : ℤ) - prev } = some s := by
+  dsimp [decodeOne]
+  have h_neg : (s : ℤ) - prev < 0 := by omega
+  have h_abs_eq : Int.natAbs ((s : ℤ) - prev) = prev - s := by
+    rw [Int.natAbs_natCast_sub_natCast_of_le (by omega)]
+  have h_bound : (prev - s : ℕ) ≤ prev := by omega
+  split_ifs with h_ge
+  · exfalso
+    omega
+  · have h_arith : prev - (prev - s) = s := by
+      have h_le : s ≤ prev := by omega
+      simp [Nat.sub_sub_self h_le]
+    rw [h_abs_eq, h_arith]
+  · exfalso
+    omega
+
+/-- Anchor token decodes correctly when the anchor value a ≤ s.
+    The encoder computes offset = s - a; the decoder computes a + (s - a) = s.\n    Requires that the anchor at index i is indeed a and that pack/unpack roundtrips. -/
+theorem decode_anchor_correct_nonneg (anchors : List ℕ) (a s : ℕ) (i : ℕ)
+    (h_le : a ≤ s)
+    (h_unpack_roundtrip : unpack_idx (pack_anchor i ((s : ℤ) - a)) = i ∧
+                          unpack_offset (pack_anchor i ((s : ℤ) - a)) = (s : ℤ) - a)
+    (h_anchor_at_i : anchors[i]? = some a) :
+    decodeOne none anchors { rep_type := RepType.anchor,
+                             payload := pack_anchor i ((s : ℤ) - a) } = some s := by
+  dsimp [decodeOne]
+  simp_all [h_unpack_roundtrip, h_anchor_at_i]
+
+/-! ## Stateful Induction Lemma -/
+
+/-- The core losslessness lemma, stated with state generalized.
+    For any list xs and any valid prev state (prev ≤ head xs or prev = none),
+    compressing then reconstructing yields the original list.\n
+    This is the induction principle that makes the proof work: the hypothesis
+    holds for arbitrary prev, not just the initial none. -/
+theorem compress_reconstruct_aux_lossless
+    (xs : List ℕ) (prev : Option ℕ) (anchors : List ℕ) (k : ℕ)
+    (h_inv : ∀ p, prev = some p → ∃ h, xs.head? = some h ∧ p ≤ h)
+    (h_sorted : IsSorted xs) :
+    let elems := compress_aux xs prev anchors k []
+    reconstruct_aux elems prev anchors [] = some xs := by
+  -- This is the key inductive statement. Proof by induction on xs.
+  intro elems
+  induction xs with
+  | nil =>
+    simp [compress_aux, reconstruct_aux, elems]
+  | cons a rest ih =>
+    sorry
+
 /-! ## Main Theorem -/
 
 /-- Losslessness: compression followed by reconstruction yields the original.
-    Requires S to be sorted (non-decreasing). -/
+    Requires S to be sorted (non-decreasing).\n
+    This is a corollary of the stateful induction lemma at the initial state. -/
 theorem positional_compress_lossless
     (S : List ℕ) (k : ℕ)
     (h_sorted : IsSorted S) :
     let pc := compress S k
     reconstruct pc = some S := by
-  -- Proof strategy: induction on S
-  -- Base case: empty list trivially roundtrips
-  -- Inductive step: for s :: rest, the first element is always raw or anchor
-  --   (delta unavailable), and reconstruction of the head gives back s.
-  --   The tail reconstructs by IH given that prev = some s is tracked.
-  --
-  -- Key lemmas needed:
-  -- 1. make_anchors S k ⊆ S (anchors are elements of S)
-  -- 2. For any s ∈ S and anchors from S, nearest_anchor returns a valid offset
-  -- 3. The greedy choice always produces a payload that reconstructs correctly
-  -- 4. Delta reconstruction: if prev = s_{i-1} and payload = s_i - s_{i-1},
-  --    then prev + payload = s_i (when s_i ≥ s_{i-1}, guaranteed by sortedness)
-  -- 5. Anchor reconstruction: if offset = s_i - a_j, then a_j + offset = s_i
-  --    (trivial arithmetic, but need to handle the packed representation)
-  sorry
+  intro pc
+  -- By definition, compress S k uses anchors = make_anchors S k and starts with prev = none
+  -- reconstruct pc uses the same anchors and starts with prev = none
+  -- So this is exactly compress_reconstruct_aux_lossless at prev = none
+  change reconstruct_aux (compress_aux S none (make_anchors S k) k []) none (make_anchors S k) [] = some S
+  -- The initial state invariant holds trivially (prev = none)
+  apply compress_reconstruct_aux_lossless _ none _ _
+  · intro p hp
+    exfalso
+    simp at hp
+  · exact h_sorted
 
 /-! ## Supporting Lemmas (statements only) -/
 
