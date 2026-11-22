@@ -113,10 +113,10 @@ ns3d/                      # Navier-Stokes blowup solver (separate crate)
 
 ## Lean Formalization
 
-The `lean/` directory contains formal proofs in Lean 4:
+The `lean/` directory contains formal correctness work in Lean 4:
 
-- **PositionalCompress**: Proves that the positional tracing compression algorithm is lossless — for any sorted sequence S and any k ∈ {0,...,n}, `reconstruct (compress S k) = S`.
-- **KvCacheCompress**: Domain-specific correctness proof applying positional compression to LLM KV caches. Exploits bounded values (f16 range), fixed dimensionality, and temporal smoothness to prove bounded reconstruction error rather than losslessness.
+- **PositionalCompress**: Proving that positional tracing compression is lossless — for any sorted sequence S and any k ∈ {0,...,n}, `reconstruct (compress S k) = S`. Most lemmas are proven; the main roundtrip theorem has one remaining inductive case.
+- **KvCacheCompress**: Domain-specific correctness proof applying positional compression to LLM KV caches. Exploits bounded values (f16 range), fixed dimensionality, and temporal smoothness to prove bounded reconstruction error. All 8 theorems proven, no `sorry` remaining.
 
 Build with `lake build` from the `lean/` directory.
 
