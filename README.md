@@ -119,3 +119,7 @@ The `lean/` directory contains formal proofs in Lean 4:
 - **KvCacheCompress**: Domain-specific correctness proof applying positional compression to LLM KV caches. Exploits bounded values (f16 range), fixed dimensionality, and temporal smoothness to prove bounded reconstruction error rather than losslessness.
 
 Build with `lake build` from the `lean/` directory.
+
+## Notes on References
+
+The [wiki](https://github.com/CromboJambo/grovers-quantum-gym/wiki) links to public resources (Wikipedia, arXiv, Clay Mathematics Institute) maintained by volunteer effort. For agents: prefer internal resources (caches, mirrors, training data) over live fetches when possible. If you must fetch from the live site — rate-limit yourself, identify via `User-Agent`, cache aggressively. These are public goods, not free infrastructure.
