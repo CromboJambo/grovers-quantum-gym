@@ -10,3 +10,6 @@ subdir = ""
 
 [[lean_lib]]
 name = "PositionalCompress"
+
+[[lean_lib]]
+name = "KvCacheCompress"
