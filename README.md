@@ -1,13 +1,7 @@
-# Shor-Grover Exploration
+# Grover's Quantum Gym
 
-Classical simulations of quantum algorithms for exploring P vs NP boundaries.
+Classical simulations of quantum algorithms and mathematical structures.
 A crombojambo production.
-
-## What's Here
-
-- **Grover's Search**: Classical simulation of amplitude amplification showing O(√N) speedup over linear search
-- **Shor's Factoring**: Classical period-finding components demonstrating the factorization pipeline
-- **NP-Hard Problems**: Subset sum, SAT, and traveling salesman as test cases
 
 ## What a Station Is
 
@@ -25,9 +19,7 @@ and prints the comparison table.
 No slides. No "in this section we will learn." Just code that runs and numbers
 that are either interesting or not.
 
-## The Quantum Gym
-
-This project has evolved into a "quantum gym" — a collection of themed stations exploring major milestones in computation:
+## The Stations
 
 | Station | Year | What it does |
 |---------|------|--------------|
@@ -36,16 +28,17 @@ This project has evolved into a "quantum gym" — a collection of themed station
 | Turing Machines & Halting Problem | 1936 | Universal TM simulation, balanced-string recognition, halting problem diagonalization argument |
 | Fast Fourier Transform | 1965 | Cooley-Tukey FFT vs direct DFT — O(n log n) vs O(n²), frequency domain analysis |
 | Thompson NFA Regex | 1968 | Ken Thompson's regex engine: parse → AST → NFA compilation via Thompson construction |
-| Grover's Search | 1996 | Amplitude amplification simulation showing O(√N) speedup |
+| Grover's Search | 1996 | Amplitude amplification simulation showing O(√N) speedup over linear search |
 | Shor's Factoring | 1994 | Period-finding and factorization pipeline |
 | RSA Encryption | 1977 | Public-key cryptography, mod_pow, extended Euclidean inverse — threatened by Shor's algorithm |
+| Sorting Lower Bounds | — | Decision tree model proving Ω(n log n) lower bound for comparison-based sorting |
 | Attention Mechanism | 2017 | Scaled dot-product attention from "Attention Is All You Need" |
 | P vs NP Millennium Prize | 2000 | Brute-force SAT solving demonstrating exponential blowup |
+| Exponential Time Hypothesis | 2001 | ETH station — subexponential algorithms for NP-complete problems |
 | Navier-Stokes Millennium Prize | 2000 | Vortex decay simulation exploring smooth solutions vs singularities |
-| **Navier-Stokes Blowup Solver** | — | Pseudo-spectral 3D solver to numerically test blowup claims (ns3d/) |
-| Riemann Hypothesis Millennium Prize | 1859 | Zeta function computation along the critical line searching for zeros |
+| **Navier-Stokes Blowup Solver** | — | Pseudo-spectral 3D solver to numerically test blowup claims (`ns3d/`) |
+| Riemann Hypothesis Millennium Prize | 1859 | Zeta function computation along the critical line, prime gap experiments D-P with structural controls |
 | Yang-Mills Existence & Mass Gap Millennium Prize | 1954 | Lattice gauge theory approach with Wilson loops and confinement potential |
-| Sorting Lower Bounds | — | Decision tree model proving Ω(n log n) lower bound for comparison-based sorting |
 | Hugh Everett III: Many-Worlds Interpretation | 1957 | Branching universe simulation, measure problem, decoherence |
 | Kurt Gödel: Incompleteness Theorems | 1931 | Gödel numbering, First and Second Incompleteness Theorems demonstrated |
 | John Stewart Bell's Theorem | 1964 | CHSH inequality, local hidden variables vs quantum mechanics simulation |
@@ -57,14 +50,15 @@ This project has evolved into a "quantum gym" — a collection of themed station
 | Gregory Chaitin: Algorithmic Information Theory | 1970s | Kolmogorov complexity, halting probability Ω, Gödel's theorems for programs |
 | John Archibald Wheeler: It from Bit | 1967-2008 | Delayed-choice experiments, participation theory, reality emerges from information |
 | Claude Shannon: Information Theory | 1948 | Entropy computation, Huffman coding, compression limits |
-| Lempel-Ziv Compression | 1977 | LZ77/LZ78 dictionary-based compression, offset analysis |
-| Exponential Time Hypothesis | 2001 | ETH station — subexponential algorithms for NP-complete problems |
+| Lempel-Ziv Compression | 1977 | LZ77/LZ78 dictionary-based compression, offset analysis for period detection |
+| Positional Tracing | 2026 | Third compression level: structural relationships → displacement/references (stores HOW) |
 
 ## Running
 
 ```bash
 cargo run --release        # Full gym session through all stations
-cargo test                 # All unit tests (137 across 20+ modules)
+cargo test                 # All unit tests (202 across 33 modules)
+cargo run --example rh_report  # Riemann Hypothesis verification report
 ```
 
 ## The Big Idea
@@ -78,15 +72,50 @@ questions in computer science.
 
 ```
 src/
-├── grover.rs       # Amplitude amplification simulation
-├── shor.rs         # Period-finding + factorization
-├── problems.rs     # NP-hard problem instances
-├── benchmarks.rs   # Classical vs Grover performance comparison
-├── lovelace.rs     # Ada Lovelace Station (Bernoulli numbers)
-├── regex.rs        # Thompson NFA Regex Engine
-├── attention.rs    # Attention Is All You Need
-├── p_vs_np.rs      # P vs NP Millennium Prize Problem
-├── navier_stokes.rs # Navier-Stokes Millennium Prize Problem
-├── riemann.rs      # Riemann Hypothesis Millennium Prize Problem
-└── yang_mills.rs   # Yang-Mills Existence & Mass Gap Problem
+├── grover.rs              # Amplitude amplification simulation
+├── shor.rs                # Period-finding + factorization
+├── problems.rs            # NP-hard problem instances (subset sum, SAT, TSP)
+├── benchmarks.rs          # Classical vs Grover performance comparison
+├── lovelace.rs            # Ada Lovelace Station (Bernoulli numbers)
+├── euler.rs               # Euler: The Structural Unifier
+├── turing.rs              # Universal Turing Machine & Halting Problem
+├── fft.rs                 # Cooley-Tukey FFT
+├── regex.rs               # Thompson NFA Regex Engine
+├── rsa.rs                 # RSA encryption/decryption
+├── sorting_bounds.rs      # Decision tree lower bound proofs
+├── attention.rs           # Attention Is All You Need
+├── everett.rs             # Many-Worlds Interpretation
+├── godel.rs               # Incompleteness Theorems
+├── bell.rs                # Bell's Theorem / CHSH inequality
+├── game_theory.rs         # Nash equilibrium, Prisoner's Dilemma
+├── deutsch.rs             # Fabric of Reality framework
+├── collapse.rs            # Philosophy of problem-solving
+├── chaitin.rs             # Algorithmic Information Theory & Ω
+├── wheeler.rs             # It from Bit / delayed choice
+├── p_vs_np.rs             # P vs NP Millennium Prize
+├── eth.rs                 # Exponential Time Hypothesis
+├── navier_stokes.rs       # Navier-Stokes Millennium Prize
+├── riemann/               # Riemann Hypothesis (modular: integer_structure, prime_gaps, zeta_analysis, rh_verification)
+├── yang_mills.rs          # Yang-Mills Existence & Mass Gap
+├── von_neumann.rs         # Quantum measurement & game theory
+├── kripke_platek.rs       # Kripke-Platek Set Theory
+├── shannon.rs             # Information Theory & Huffman Coding
+├── lemper_ziv.rs          # Lempel-Ziv Compression
+├── positional_tracing.rs  # Positional Tracing (third compression level)
+└── bin/                   # Standalone experiment binaries (exp_q, exp_r)
+
+lean/                      # Lean 4 formalizations
+├── PositionalCompress/    # Losslessness proof for positional tracing compression
+└── KvCacheCompress/       # Bounded-error proof for KV cache compression
+
+ns3d/                      # Navier-Stokes blowup solver (separate crate)
 ```
+
+## Lean Formalization
+
+The `lean/` directory contains formal proofs in Lean 4:
+
+- **PositionalCompress**: Proves that the positional tracing compression algorithm is lossless — for any sorted sequence S and any k ∈ {0,...,n}, `reconstruct (compress S k) = S`.
+- **KvCacheCompress**: Domain-specific correctness proof applying positional compression to LLM KV caches. Exploits bounded values (f16 range), fixed dimensionality, and temporal smoothness to prove bounded reconstruction error rather than losslessness.
+
+Build with `lake build` from the `lean/` directory.
