@@ -1,4 +1,4 @@
-//! Classical simulations of quantum algorithms for exploring P vs NP boundaries.
+//! Grover's Quantum Gym — classical simulations of quantum algorithms and mathematical structures.
 //!
 //! This crate implements:
 //! - Grover's search algorithm (classical simulation of amplitude amplification)
