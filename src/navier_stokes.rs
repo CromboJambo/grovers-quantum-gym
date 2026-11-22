@@ -1,411 +1,465 @@
-//! Navier-Stokes Millennium Prize Problem Station
+//! 3D incompressible Navier-Stokes on [0,2π)³, pseudo-spectral.
 //!
-//! Explores the Clay Mathematics Institute's $1 million question:
-//! Do smooth solutions to the 3D incompressible Navier-Stokes equations
-//! always exist, or can they develop singularities (blow up) in finite time?
+//! Rotational form with the pressure removed by Leray projection:
 //!
-//! Demonstrates via a 2D projection method solver with viscosity.
+//!   û_t = P[ FFT(u × ω) ] - ν|k|² û,     P f̂ = f̂ - k (k·f̂)/|k|²
+//!
+//! 2/3 dealiasing (cube |k_i| <= n/3), integrating-factor RK4, CFL-adaptive dt.
+//!
+//! Usage: ns3d [n=64] [re=1600] [t_end=20] [ic=tg|abc]
+//!
+//!   tg  : Taylor-Green vortex (Re=1600 benchmark; dissipation peaks near t≈9)
+//!   abc : Arnold-Beltrami-Childress flow with A=B=C=1. It is a Beltrami field
+//!         (ω = u, so u×ω = 0): exact solution is u(t) = u0·exp(-ν t).
+//!         Use e.g. `ns3d 32 20 5 abc` to validate viscous term / FFT / stepper.
+//!
+//! Writes <ic>_n<n>.csv with t, E, Z, eps, max|ω|, ∫max|ω|dt (BKM integral).
 
-const GRID: usize = 32;
-const DT: f64 = 0.01;
-const VISCOSITY: f64 = 0.001;
+use rayon::prelude::*;
+use rustfft::{num_complex::Complex64 as C, Fft, FftPlanner};
+use std::{f64::consts::PI, fs::File, io::Write, sync::Arc};
 
-/// Simple Jacobi iteration for Poisson equation: ∇²φ = f
-fn solve_poisson(f: &[f64], n: usize, iters: usize) -> Vec<f64> {
-    let mut phi = vec![0.0; n * n];
+type Field = Vec<C>;
+const ZERO: C = C { re: 0.0, im: 0.0 };
 
-    for _ in 0..iters {
-        let mut new_phi = phi.clone();
-        for j in 1..n - 1 {
-            for i in 1..n - 1 {
-                let idx = j * n + i;
-                new_phi[idx] =
-                    (f[idx] + phi[idx - 1] + phi[idx + 1] + phi[idx - n] + phi[idx + n]) / 4.0;
-            }
-        }
-        phi = new_phi;
-    }
-
-    phi
+pub struct Solver {
+    n: usize,
+    fwd: Arc<dyn Fft<f64>>,
+    inv: Arc<dyn Fft<f64>>,
+    kd: Vec<f64>,  // 1D derivative wavenumbers (Nyquist zeroed)
+    k2: Vec<f64>,  // |k|² (integer wavenumbers), n³
+    k2p: Vec<f64>, // |k|² built from kd, for the projector, n³
+    mask: Vec<f64>,
+    nu: f64,
 }
 
-/// Apply diffusion operator: ∂u/∂t = ν∇²u (explicit scheme)
-fn diffuse(field: &[f64], n: usize, nu: f64, dt: f64) -> Vec<f64> {
-    let mut result = field.to_vec();
-
-    for j in 1..n - 1 {
-        for i in 1..n - 1 {
-            let idx = j * n + i;
-            let laplacian = field[idx - 1] + field[idx + 1] + field[idx - n] + field[idx + n]
-                - 4.0 * field[idx];
-            result[idx] = field[idx] + nu * dt * laplacian;
-        }
-    }
-
-    result
+fn build<F: Fn(usize) -> C + Sync + Send>(n3: usize, f: F) -> Field {
+    (0..n3).into_par_iter().map(f).collect()
 }
 
-/// Advection step: ∂u/∂t + u·∇u = 0 (semi-Lagrangian, simplified)
-fn advect(field: &[f64], vel_x: &[f64], vel_y: &[f64], n: usize, dt: f64) -> Vec<f64> {
-    let mut result = field.to_vec();
-
-    for j in 1..n - 1 {
-        for i in 1..n - 1 {
-            let idx = j * n + i;
-            // Backtrace particle position (simplified - just use current velocity)
-            let back_i = i as f64 - vel_x[idx] * dt;
-            let back_j = j as f64 - vel_y[idx] * dt;
-
-            if back_i > 0.0 && back_i < n as f64 && back_j > 0.0 && back_j < n as f64 {
-                // Bilinear interpolation (simplified to nearest)
-                let src_i = back_i as usize;
-                let src_j = back_j as usize;
-                result[idx] = field[src_j * n + src_i];
-            }
-        }
-    }
-
-    result
-}
-
-/// Project velocity onto divergence-free field (Helmholtz decomposition)
-fn project(vel_x: &[f64], vel_y: &[f64], n: usize) -> (Vec<f64>, Vec<f64>) {
-    // Compute divergence
-    let mut div = vec![0.0; n * n];
-    for j in 1..n - 1 {
-        for i in 1..n - 1 {
-            let idx = j * n + i;
-            div[idx] =
-                (vel_x[idx + 1] - vel_x[idx - 1]) / 2.0 + (vel_y[idx + n] - vel_y[idx - n]) / 2.0;
-        }
-    }
-
-    // Solve for pressure: ∇²p = div
-    let p = solve_poisson(&div, n, 100);
-
-    // Subtract gradient of pressure
-    let mut new_vel_x = vel_x.to_vec();
-    let mut new_vel_y = vel_y.to_vec();
-    for j in 1..n - 1 {
-        for i in 1..n - 1 {
-            let idx = j * n + i;
-            new_vel_x[idx] -= (p[idx + 1] - p[idx - 1]) / 2.0;
-            new_vel_y[idx] -= (p[idx + n] - p[idx - n]) / 2.0;
-        }
-    }
-
-    (new_vel_x, new_vel_y)
-}
-
-/// Initialize flow with a vortex
-fn init_vortex(n: usize) -> (Vec<f64>, Vec<f64>) {
-    let mut vel_x = vec![0.0; n * n];
-    let mut vel_y = vec![0.0; n * n];
-
-    let center = n as f64 / 2.0;
-    for j in 0..n {
-        for i in 0..n {
-            let idx = j * n + i;
-            let dx = i as f64 - center;
-            let dy = j as f64 - center;
-            let r2 = dx * dx + dy * dy;
-
-            if r2 > 1.0 && r2 < (n as f64 * n as f64) / 4.0 {
-                // Rankine vortex: solid body rotation inside, decay outside
-                vel_x[idx] = -dy / (r2 + 1.0);
-                vel_y[idx] = dx / (r2 + 1.0);
-            }
-        }
-    }
-
-    (vel_x, vel_y)
-}
-
-/// Demonstrate energy cascade: how nonlinear advection transfers energy
-/// from large scales to small scales (potential blowup mechanism)
-fn demonstrate_energy_cascade() {
-    println!("--- ENERGY CASCADE DEMONSTRATION ---");
-    println!();
-    println!("The key question: Can nonlinear advection concentrate energy");
-    println!("at smaller scales faster than viscosity can dissipate it?");
-    println!();
-
-    // Simulate a simplified energy cascade across "scales"
-    let n_scales = 10;
-    let mut energy = vec![0.0; n_scales];
-    energy[0] = 1.0; // All energy starts at largest scale
-
-    println!("Scale | Energy | Notes");
-    println!("------|--------|------");
-
-    let dt_cascade = 0.1;
-    for step in 0..20 {
-        // Nonlinear transfer: energy moves from large to small scales
-        // This is the (u·∇)u term doing its work
-        let mut transfers = vec![0.0; n_scales];
-        for s in 0..n_scales - 1 {
-            // Energy transfer rate proportional to energy at this scale
-            let transfer = energy[s] * dt_cascade * (s + 1) as f64 / 5.0;
-            transfers[s] -= transfer;
-            transfers[s + 1] += transfer;
-        }
-
-        // Viscous dissipation: stronger at small scales
-        for s in 0..n_scales {
-            let viscosity = 0.01 * (s + 1) as f64;
-            energy[s] -= viscosity * energy[s] * dt_cascade;
-            energy[s] += transfers[s];
-            if energy[s] < 0.0 {
-                energy[s] = 0.0;
-            }
-        }
-
-        if step == 0 || step == 5 || step == 10 || step == 19 {
-            let total: f64 = energy.iter().sum();
-            println!("Step {:2}: total_energy={:.4}", step, total);
-
-            // Show distribution
-            for s in 0..n_scales {
-                if energy[s] > 0.001 {
-                    let note = if s == 0 {
-                        "Largest scales (input)"
-                    } else if s == n_scales - 1 {
-                        "Smallest scales (dissipation)"
-                    } else {
-                        ""
-                    };
-                    println!("      {:5}: {:.6} {}", s, energy[s], note);
+impl Solver {
+    fn new(n: usize, nu: f64) -> Self {
+        let mut pl = FftPlanner::new();
+        let fwd = pl.plan_fft_forward(n);
+        let inv = pl.plan_fft_inverse(n);
+        let kint: Vec<f64> = (0..n)
+            .map(|i| if i <= n / 2 { i as f64 } else { i as f64 - n as f64 })
+            .collect();
+        let kd: Vec<f64> = (0..n).map(|i| if 2 * i == n { 0.0 } else { kint[i] }).collect();
+        let kmax = (n / 3) as f64;
+        let n3 = n * n * n;
+        let mut k2 = vec![0.0; n3];
+        let mut k2p = vec![0.0; n3];
+        let mut mask = vec![0.0; n3];
+        for k in 0..n {
+            for j in 0..n {
+                for i in 0..n {
+                    let idx = (k * n + j) * n + i;
+                    k2[idx] = kint[i] * kint[i] + kint[j] * kint[j] + kint[k] * kint[k];
+                    k2p[idx] = kd[i] * kd[i] + kd[j] * kd[j] + kd[k] * kd[k];
+                    if kint[i].abs() <= kmax && kint[j].abs() <= kmax && kint[k].abs() <= kmax {
+                        mask[idx] = 1.0;
+                    }
                 }
             }
-            println!();
+        }
+        Self { n, fwd, inv, kd, k2, k2p, mask, nu }
+    }
+
+    #[inline]
+    fn k(&self, idx: usize) -> (f64, f64, f64) {
+        let n = self.n;
+        (self.kd[idx % n], self.kd[(idx / n) % n], self.kd[idx / (n * n)])
+    }
+
+    /// 3D FFT, layout idx = (z*n + y)*n + x. Inverse is scaled by 1/n³.
+    fn fft3(&self, a: &mut [C], inverse: bool) {
+        let n = self.n;
+        let plan = if inverse { &self.inv } else { &self.fwd };
+        let sl = plan.get_inplace_scratch_len();
+
+        // x: contiguous rows
+        a.par_chunks_mut(n).for_each_init(
+            || vec![ZERO; sl],
+            |sc, row| plan.process_with_scratch(row, sc),
+        );
+        // y: strided within each z-slab
+        a.par_chunks_mut(n * n).for_each_init(
+            || (vec![ZERO; n], vec![ZERO; sl]),
+            |(buf, sc), slab| {
+                for i in 0..n {
+                    for j in 0..n {
+                        buf[j] = slab[j * n + i];
+                    }
+                    plan.process_with_scratch(&mut buf[..], sc);
+                    for j in 0..n {
+                        slab[j * n + i] = buf[j];
+                    }
+                }
+            },
+        );
+        // z: swap axes x<->z, transform rows, swap back
+        let mut t = vec![ZERO; n * n * n];
+        {
+            let a_ref: &[C] = &*a;
+            t.par_chunks_mut(n * n).enumerate().for_each(|(i, ch)| {
+                for j in 0..n {
+                    for k in 0..n {
+                        ch[j * n + k] = a_ref[(k * n + j) * n + i];
+                    }
+                }
+            });
+        }
+        t.par_chunks_mut(n).for_each_init(
+            || vec![ZERO; sl],
+            |sc, row| plan.process_with_scratch(row, sc),
+        );
+        {
+            let t_ref: &[C] = &t;
+            a.par_chunks_mut(n * n).enumerate().for_each(|(k, ch)| {
+                for j in 0..n {
+                    for i in 0..n {
+                        ch[j * n + i] = t_ref[(i * n + j) * n + k];
+                    }
+                }
+            });
+        }
+        if inverse {
+            let s = 1.0 / (n * n * n) as f64;
+            a.par_iter_mut().for_each(|c| *c *= s);
         }
     }
 
-    let total_final: f64 = energy.iter().sum();
-    println!(
-        "Final total energy: {:.4} (dissipated {:.1}%)",
-        total_final,
-        (1.0 - total_final) * 100.0
-    );
-    println!();
-    println!("In this demo, viscosity wins — energy dissipates.");
-    println!("But in 3D with stronger nonlinearity, could the cascade");
-    println!("accelerate and create infinite velocity in finite time?");
-    println!("That's the Clay problem. Nobody knows.\n");
+    fn to_spec(&self, f: &[f64]) -> Field {
+        let mut a: Field = f.iter().map(|&x| C::new(x, 0.0)).collect();
+        self.fft3(&mut a, false);
+        a
+    }
+
+    fn to_phys(&self, hat: &[C]) -> Vec<f64> {
+        let mut a = hat.to_vec();
+        self.fft3(&mut a, true);
+        a.par_iter().map(|c| c.re).collect()
+    }
+
+    /// ω̂ = i k × û
+    fn vorticity_hat(&self, u: &[Field; 3]) -> [Field; 3] {
+        let n3 = self.n.pow(3);
+        let i = C::new(0.0, 1.0);
+        [
+            build(n3, |m| { let (_, ky, kz) = self.k(m); i * (u[2][m] * ky - u[1][m] * kz) }),
+            build(n3, |m| { let (kx, _, kz) = self.k(m); i * (u[0][m] * kz - u[2][m] * kx) }),
+            build(n3, |m| { let (kx, ky, _) = self.k(m); i * (u[1][m] * kx - u[0][m] * ky) }),
+        ]
+    }
+
+    /// N(û) = P[ mask · FFT(u × ω) ]. Also returns max|u|+max|v|+max|w| for CFL.
+    fn nonlinear(&self, uh: &[Field; 3]) -> ([Field; 3], f64) {
+        let n3 = self.n.pow(3);
+        let oh = self.vorticity_hat(uh);
+        let up: Vec<Vec<f64>> = uh.iter().map(|f| self.to_phys(f)).collect();
+        let op: Vec<Vec<f64>> = oh.iter().map(|f| self.to_phys(f)).collect();
+
+        let vsum: f64 = up
+            .iter()
+            .map(|f| f.par_iter().fold(|| 0.0f64, |m, x| m.max(x.abs())).reduce(|| 0.0, f64::max))
+            .sum();
+
+        let cross = |a: usize, b: usize, c: usize, d: usize| -> Vec<f64> {
+            // u_a ω_b - u_c ω_d
+            (0..n3).into_par_iter().map(|m| up[a][m] * op[b][m] - up[c][m] * op[d][m]).collect()
+        };
+        let mut f0 = self.to_spec(&cross(1, 2, 2, 1)); // v ωz - w ωy
+        let mut f1 = self.to_spec(&cross(2, 0, 0, 2)); // w ωx - u ωz
+        let mut f2 = self.to_spec(&cross(0, 1, 1, 0)); // u ωy - v ωx
+
+        f0.par_iter_mut()
+            .zip(f1.par_iter_mut())
+            .zip(f2.par_iter_mut())
+            .enumerate()
+            .for_each(|(m, ((a, b), c))| {
+                let mk = self.mask[m];
+                *a *= mk;
+                *b *= mk;
+                *c *= mk;
+                if self.k2p[m] > 0.0 {
+                    let (kx, ky, kz) = self.k(m);
+                    let kdf = (*a * kx + *b * ky + *c * kz) / self.k2p[m];
+                    *a -= kdf * kx;
+                    *b -= kdf * ky;
+                    *c -= kdf * kz;
+                }
+            });
+        ([f0, f1, f2], vsum)
+    }
+
+    /// Integrating-factor RK4. Returns the CFL velocity sum of the *pre-step* state.
+    fn step(&self, u: &mut [Field; 3], dt: f64) -> f64 {
+        let n3 = self.n.pow(3);
+        let e: Vec<f64> = self.k2.par_iter().map(|k| (-self.nu * k * dt).exp()).collect();
+        let e2: Vec<f64> = self.k2.par_iter().map(|k| (-self.nu * k * dt / 2.0).exp()).collect();
+        let comp3 = |f: &dyn Fn(usize) -> Field| [f(0), f(1), f(2)];
+
+        let (k1, vs) = self.nonlinear(u);
+        let a = comp3(&|c| build(n3, |m| e2[m] * (u[c][m] + k1[c][m] * (0.5 * dt))));
+        let (k2, _) = self.nonlinear(&a);
+        drop(a);
+        let b = comp3(&|c| build(n3, |m| e2[m] * u[c][m] + k2[c][m] * (0.5 * dt)));
+        let (k3, _) = self.nonlinear(&b);
+        drop(b);
+        let cc = comp3(&|c| build(n3, |m| e[m] * u[c][m] + k3[c][m] * (dt * e2[m])));
+        let (k4, _) = self.nonlinear(&cc);
+        drop(cc);
+
+        for c in 0..3 {
+            let new = build(n3, |m| {
+                e[m] * u[c][m]
+                    + (k1[c][m] * e[m] + (k2[c][m] + k3[c][m]) * (2.0 * e2[m]) + k4[c][m]) * (dt / 6.0)
+            });
+            u[c] = new;
+        }
+        vs
+    }
+
+    fn norm6(&self) -> f64 {
+        (self.n as f64).powi(6)
+    }
+
+    /// (energy, enstrophy) via Parseval; Z = ½Σ|k|²|û|² since |ω̂|² = |k|²|û|².
+    fn energy_enstrophy(&self, u: &[Field; 3]) -> (f64, f64) {
+        let (e, z) = (0..self.n.pow(3))
+            .into_par_iter()
+            .map(|m| {
+                let p = u[0][m].norm_sqr() + u[1][m].norm_sqr() + u[2][m].norm_sqr();
+                (0.5 * p, 0.5 * p * self.k2[m])
+            })
+            .reduce(|| (0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1));
+        (e / self.norm6(), z / self.norm6())
+    }
+
+    fn wmax(&self, u: &[Field; 3]) -> f64 {
+        let oh = self.vorticity_hat(u);
+        let op: Vec<Vec<f64>> = oh.iter().map(|f| self.to_phys(f)).collect();
+        (0..self.n.pow(3))
+            .into_par_iter()
+            .map(|m| (op[0][m].powi(2) + op[1][m].powi(2) + op[2][m].powi(2)).sqrt())
+            .reduce(|| 0.0, f64::max)
+    }
+
+    fn div_max(&self, u: &[Field; 3]) -> f64 {
+        let i = C::new(0.0, 1.0);
+        (0..self.n.pow(3))
+            .into_par_iter()
+            .map(|m| {
+                let (kx, ky, kz) = self.k(m);
+                (i * (u[0][m] * kx + u[1][m] * ky + u[2][m] * kz)).norm()
+            })
+            .reduce(|| 0.0, f64::max)
+    }
+
+    /// Fraction of enstrophy in the top quarter of retained |k| — under-resolution alarm.
+    fn tail_fraction(&self, u: &[Field; 3]) -> f64 {
+        let kc = (self.n / 3) as f64;
+        let cut = (0.75 * kc).powi(2);
+        let (tail, tot) = (0..self.n.pow(3))
+            .into_par_iter()
+            .map(|m| {
+                let p = (u[0][m].norm_sqr() + u[1][m].norm_sqr() + u[2][m].norm_sqr()) * self.k2[m];
+                (if self.k2[m] > cut { p } else { 0.0 }, p)
+            })
+            .reduce(|| (0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1));
+        if tot > 0.0 { tail / tot } else { 0.0 }
+    }
+
+    fn initial(&self, ic: &str) -> [Field; 3] {
+        let n = self.n;
+        let dx = 2.0 * PI / n as f64;
+        let n3 = n * n * n;
+        let mut p = [vec![0.0; n3], vec![0.0; n3], vec![0.0; n3]];
+        for k in 0..n {
+            for j in 0..n {
+                for i in 0..n {
+                    let idx = (k * n + j) * n + i;
+                    let (x, y, z) = (i as f64 * dx, j as f64 * dx, k as f64 * dx);
+                    match ic {
+                        "abc" => {
+                            p[0][idx] = z.sin() + y.cos();
+                            p[1][idx] = x.sin() + z.cos();
+                            p[2][idx] = y.sin() + x.cos();
+                        }
+                        _ => {
+                            p[0][idx] = x.sin() * y.cos() * z.cos();
+                            p[1][idx] = -x.cos() * y.sin() * z.cos();
+                            p[2][idx] = 0.0;
+                        }
+                    }
+                }
+            }
+        }
+        let mut u = [self.to_spec(&p[0]), self.to_spec(&p[1]), self.to_spec(&p[2])];
+        for c in 0..3 {
+            u[c].par_iter_mut().zip(self.mask.par_iter()).for_each(|(a, m)| *a *= *m);
+        }
+        u
+    }
 }
 
-/// Compute vorticity magnitude at each grid point
-fn compute_vorticity(vel_x: &[f64], vel_y: &[f64], n: usize) -> Vec<f64> {
-    let mut omega = vec![0.0; n * n];
 
-    for j in 1..n - 1 {
-        for i in 1..n - 1 {
-            let idx = j * n + i;
-            // ω = ∂v/∂x - ∂u/∂y (2D vorticity)
-            let dvdx = (vel_y[idx + 1] - vel_y[idx - 1]) / 2.0;
-            let dudy = (vel_x[idx + n] - vel_x[idx - n]) / 2.0;
-            omega[idx] = dvdx - dudy;
+/// Run a Navier-Stokes simulation and return results.
+/// 
+/// # Arguments
+/// * `n` - Grid resolution (n³ grid points)
+/// * `re` - Reynolds number
+/// * `t_end` - End time
+/// * `ic` - Initial condition: "tg" (Taylor-Green vortex) or "abc" (Arnold-Beltrami-Childress)
+/// 
+/// # Returns
+/// Simulation results including energy, enstrophy, BKM integral, etc.
+pub fn run_simulation(n: usize, re: f64, t_end: f64, ic: &str) -> SimulationResult {
+    let nu = 1.0 / re;
+    let s = Solver::new(n, nu);
+    let dx = 2.0 * PI / n as f64;
+    let mut u = s.initial(ic);
+
+    let (e0, z0) = s.energy_enstrophy(&u);
+    let mut vsum = s.nonlinear(&u).1;
+
+    let csv_name = format!("{ic}_n{n}.csv");
+    let mut csv = File::create(&csv_name).expect("csv");
+    writeln!(csv, "t,E,Z,eps,wmax,bkm").unwrap();
+
+    let (cfl, dt_max) = (0.5, 0.05);
+    let (mut t, mut steps) = (0.0f64, 0usize);
+    let mut wm = s.wmax(&u);
+    let mut bkm = 0.0;
+    let (mut next_csv, _) = (0.0, 0.0);
+    let (mut eps_peak, mut t_peak) = (0.0f64, 0.0f64);
+
+    loop {
+        let (e, z) = s.energy_enstrophy(&u);
+        let eps = 2.0 * nu * z;
+        if eps > eps_peak {
+            eps_peak = eps;
+            t_peak = t;
+        }
+        let mut dt = (cfl * dx / vsum.max(1e-12)).min(dt_max);
+        let done = t + dt >= t_end;
+        if done {
+            dt = t_end - t;
+        }
+        if t >= next_csv || done {
+            writeln!(csv, "{t},{e},{z},{eps},{wm},{bkm}").unwrap();
+            next_csv += 0.25;
+        }
+        vsum = s.step(&mut u, dt);
+        t += dt;
+        steps += 1;
+        let w_new = s.wmax(&u);
+        bkm += 0.5 * (w_new + wm) * dt;
+        wm = w_new;
+        if done {
+            break;
         }
     }
 
-    omega
-}
+    let (e, z) = s.energy_enstrophy(&u);
+    drop(csv);
 
-/// Compute total kinetic energy of the flow
-fn kinetic_energy(vel_x: &[f64], vel_y: &[f64], n: usize) -> f64 {
-    let mut e = 0.0;
-    for j in 1..n - 1 {
-        for i in 1..n - 1 {
-            let idx = j * n + i;
-            e += vel_x[idx] * vel_x[idx] + vel_y[idx] * vel_y[idx];
-        }
+    SimulationResult {
+        n, re, t_end: t, ic: ic.to_string(),
+        e0, z0, e_final: e, z_final: z,
+        steps, bkm_integral: bkm,
+        eps_peak, t_peak,
+        divergence_max: s.div_max(&u),
+        csv_file: csv_name,
     }
-    e / (n as f64 * n as f64)
 }
 
+/// Results from a Navier-Stokes simulation.
+#[derive(Debug)]
+pub struct SimulationResult {
+    pub n: usize,
+    pub re: f64,
+    pub t_end: f64,
+    pub ic: String,
+    pub e0: f64,
+    pub z0: f64,
+    pub e_final: f64,
+    pub z_final: f64,
+    pub steps: usize,
+    pub bkm_integral: f64,
+    pub eps_peak: f64,
+    pub t_peak: f64,
+    pub divergence_max: f64,
+    pub csv_file: String,
+}
+
+impl std::fmt::Display for SimulationResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Navier-Stokes Simulation Results")?;
+        writeln!(f, "  Grid: {}³ ({} points)", self.n, self.n.pow(3))?;
+        writeln!(f, "  Reynolds number: {}", self.re)?;
+        writeln!(f, "  Initial condition: {}", self.ic)?;
+        writeln!(f, "  Time: 0 → {:.4}", self.t_end)?;
+        writeln!(f, "  Steps: {}", self.steps)?;
+        writeln!(f, "")?;
+        writeln!(f, "Energy:")?;
+        writeln!(f, "  E₀ = {:.6}", self.e0)?;
+        writeln!(f, "  E(t_end) = {:.6} ({:.2}% of initial)", self.e_final, self.e_final / self.e0 * 100.0)?;
+        if self.ic == "abc" {
+            let exact = (-2.0 * (1.0 / self.re) * self.t_end).exp();
+            writeln!(f, "  Exact decay: {:.6} (rel err: {:.2e})", exact, ((self.e_final / self.e0) - exact).abs() / exact)?;
+        }
+        writeln!(f, "")?;
+        writeln!(f, "Enstrophy:")?;
+        writeln!(f, "  Z₀ = {:.6}", self.z0)?;
+        writeln!(f, "  Z(t_end) = {:.6} ({:.2}% of initial)", self.z_final, self.z_final / self.z0 * 100.0)?;
+        writeln!(f, "")?;
+        writeln!(f, "Dissipation:")?;
+        writeln!(f, "  Peak ε = {:.5e} at t = {:.3}", self.eps_peak, self.t_peak)?;
+        writeln!(f, "")?;
+        writeln!(f, "BKM integral ∫max|ω|dt = {:.4}", self.bkm_integral)?;
+        writeln!(f, "Max divergence |k·û| = {:.2e}", self.divergence_max)?;
+        writeln!(f, "Data: {}", self.csv_file)?;
+        Ok(())
+    }
+}
+
+
+/// Educational station for the main binary.
 pub fn show_navier_stokes_station() {
     println!("=== NAVIER-STOKES MILLENNIUM PRIZE PROBLEM ===");
     println!("Clay Mathematics Institute: $1,000,000 prize for proof\n");
 
-    println!("THE QUESTION: Do smooth solutions to the 3D incompressible");
-    println!("Navier-Stokes equations always exist? Or can they develop");
-    println!("singularities (infinite velocity) in finite time?\n");
+    println!("THE QUESTION: Do smooth, initial-data solutions to the 3D incompressible");
+    println!("Navier-Stokes equations remain smooth for all time, or can they develop");
+    println!("singularities (blow up) in finite time?\n");
 
-    println!("The equations describe fluid motion:");
-    println!("∂u/∂t + (u·∇)u = -∇p + ν∇²u + f  (momentum)");
-    println!("∇·u = 0                              (incompressibility)\n");
+    println!("The equations describe how velocity u and pressure p evolve:");
+    println!("  ∂u/∂t + (u·∇)u = -∇p + ν∇²u,     ∇·u = 0\n");
 
-    println!("Where u = velocity, p = pressure, ν = viscosity\n");
+    println!("We simulate this using pseudo-spectral methods on [0,2π)³:");
+    println!("  • Transform to Fourier space with FFT");
+    println!("  • Remove pressure via Leray projection (enforces incompressibility)");
+    println!("  • Advance with integrating-factor RK4 + CFL-adaptive timestep\n");
 
-    println!("--- EXPERIMENT: VORTEX DECAY ---");
-    println!(
-        "Simulating a decaying vortex on a {}x{} grid for 100 time steps.",
-        GRID, GRID
-    );
-    println!("Viscosity ν = {:.4}\n", VISCOSITY);
+    println!("Running a short validation simulation (ABC flow, n=32, Re=1600, t=5):");
+    println!("The ABC flow is a Beltrami field (ω = u), so it has an exact solution:");
+    println!("  E(t) = E₀ · exp(-2νt)\n");
 
-    // Initialize vortex
-    let (mut vel_x, mut vel_y) = init_vortex(GRID);
+    let result = run_simulation(32, 1600.0, 5.0, "abc");
+    println!("{}", result);
 
-    let initial_energy = kinetic_energy(&vel_x, &vel_y, GRID);
-    let initial_omega = compute_vorticity(&vel_x, &vel_y, GRID);
-    let max_initial_omega = initial_omega
-        .iter()
-        .fold(0.0f64, |m, &v| if v.abs() > m.abs() { v } else { m });
+    println!();
+    println!("THE BKM CRITERION (Beale-Kato-Majda):");
+    println!("If the integral ∫₀ᵀ max|ω(t)| dt diverges as T → T*, then the solution");
+    println!("blows up at time T*. Our simulation tracks this integral.\n");
 
-    println!("Initial kinetic energy: {:.6}", initial_energy);
-    println!("Initial max vorticity:  {:.4}\n", max_initial_omega);
+    println!("Current state of the problem:");
+    println!("  • No blowup has been found numerically (simulations stay smooth)");
+    println!("  • No proof exists that blowup cannot happen");
+    println!("  • The equations are well-posed in 2D but open in 3D");
+    println!("  • This is one of the seven Millennium Prize Problems\n");
 
-    // Time stepping
-    for step in 0..100 {
-        // Diffusion (viscosity smooths)
-        let vel_x_diff = diffuse(&vel_x, GRID, VISCOSITY, DT);
-        let vel_y_diff = diffuse(&vel_y, GRID, VISCOSITY, DT);
-
-        // Advect (nonlinear self-interaction - source of potential blowup)
-        let vel_x_adv = advect(&vel_x_diff, &vel_x_diff, &vel_y_diff, GRID, DT);
-        let vel_y_adv = advect(&vel_y_diff, &vel_x_diff, &vel_y_diff, GRID, DT);
-
-        // Project onto divergence-free field (enforce incompressibility)
-        (vel_x, vel_y) = project(&vel_x_adv, &vel_y_adv, GRID);
-
-        if step == 25 || step == 50 || step == 75 || step == 99 {
-            let energy = kinetic_energy(&vel_x, &vel_y, GRID);
-            let omega = compute_vorticity(&vel_x, &vel_y, GRID);
-            let max_omega = omega
-                .iter()
-                .fold(0.0f64, |m, &v| if v.abs() > m.abs() { v } else { m });
-
-            println!(
-                "Step {:3}: energy={:.6}  max_vorticity={:.4}",
-                step + 1,
-                energy,
-                max_omega
-            );
-        }
-    }
-
-    let final_energy = kinetic_energy(&vel_x, &vel_y, GRID);
-    let final_omega = compute_vorticity(&vel_x, &vel_y, GRID);
-    let max_final_omega = final_omega
-        .iter()
-        .fold(0.0f64, |m, &v| if v.abs() > m.abs() { v } else { m });
-
-    println!(
-        "\nFinal kinetic energy:   {:.6} (dissipated {:.1}%)",
-        final_energy,
-        (1.0 - final_energy / initial_energy) * 100.0
-    );
-    println!("Final max vorticity:    {:.4}", max_final_omega);
-
-    println!("--- WHAT THIS SHOWS ---");
-    println!("In this viscous simulation, the vortex decays smoothly.");
-    println!("Kinetic energy is dissipated by viscosity (ν∇²u term).");
-    println!("No singularity forms - solution remains smooth.\n");
-
-    println!("BUT: The Clay problem asks about 3D solutions for ALL time.");
-    println!("In 2D, global existence and uniqueness are proven. In 3D:");
-    println!("- The nonlinear advection term (u·∇)u can potentially amplify");
-    println!("  velocity gradients faster than viscosity can smooth them.");
-    println!("- If this happens, vorticity could become infinite in finite time.");
-    println!("- No one has proven whether this can actually happen.\n");
-
-    println!("--- OPENAI'S CLAIMED SOLUTION (Sept 2026) ---");
-    println!("OpenAI claims to have CONSTRUCTED a solution that blows up.");
-    println!("Their approach: design oscillatory initial conditions where");
-    println!("nonlinear advection creates a self-reinforcing cascade:");
-    println!("1. Velocity gradients focus energy at smaller scales");
-    println!("2. At smaller scales, viscosity is weaker (∝ 1/scale²)");
-    println!("3. Nonlinear term grows faster than viscous damping");
-    println!("4. Singularity forms in finite time\n");
-    println!("This is the energy cascade taken to its logical extreme —");
-    println!("exactly what this station demonstrates conceptually above.");
-    println!("\n--- NUMERICAL VERIFICATION TOOL ---");
-    println!("The ns3d/ directory contains a pseudo-spectral 3D Navier-Stokes");
-    println!("solver built to numerically test blowup claims. Usage:");
-    println!("  cd ns3d && cargo run --release -- [n] [re] [t_end] [ic]");
-    println!("Initial conditions: 'tg' (Taylor-Green vortex) or 'abc' (Beltrami flow)");
-    println!("The solver validates itself against known exact solutions and");
-    println!("tracks the Beale-Kato-Majama integral ∫max|ω|dt as a blowup indicator.");
-
-    println!("\n--- WHY IT'S HARD ---");
-    println!("- Navier-Stokes is nonlinear: solutions interact with themselves");
-    println!("- Small-scale structures cascade to smaller scales (turbulence)");
-    println!("- We don't know if energy always cascades down or can concentrate");
-    println!("  into singularities\n");
-
-    println!("--- CONNECTION TO TURBULENCE ---");
-    println!("Turbulent flow is the most complex motion of matter known.");
-    println!("The transition from laminar to turbulent flow remains one of");
-    println!("the great unsolved problems in physics. If singularities can");
-    println!("form, it would explain why turbulence is so chaotic and hard");
-    println!("to predict.\n");
-
-    println!("=== NAVIER-STOKES STATION COMPLETE ===");
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_poisson_solver() {
-        // Simple test: ∇²φ = -4πδ(x) → φ should be positive near center
-        let n = 10;
-        let mut f = vec![0.0; n * n];
-        f[n / 2 * n + n / 2] = 1.0; // Point source
-
-        let phi = solve_poisson(&f, n, 100);
-
-        // Solution should be positive near source
-        assert!(phi[n / 2 * n + n / 2] > 0.0);
-    }
-
-    #[test]
-    fn test_diffusion_smooths() {
-        let n = 10;
-        let mut field = vec![0.0; n * n];
-        field[n / 2 * n + n / 2] = 1.0; // Hot spot
-
-        let diffused = diffuse(&field, n, 0.1, 1.0);
-
-        // Diffusion should spread the heat
-        assert!(diffused[n / 2 * n + n / 2] < 1.0);
-        assert!(diffused[n / 2 * n + n / 2 - 1] > 0.0);
-    }
-
-    #[test]
-    fn test_vorticity_computation() {
-        let n = 10;
-        let mut vel_x = vec![0.0; n * n];
-        let vel_y = vec![0.0; n * n];
-
-        // Simple shear flow: u = (y, 0) → ω = -1 everywhere
-        for j in 0..n {
-            for i in 0..n {
-                vel_x[j * n + i] = j as f64;
-            }
-        }
-
-        let omega = compute_vorticity(&vel_x, &vel_y, n);
-
-        // Interior points should have ω ≈ -1
-        assert!((omega[n / 2 * n + n / 2] + 1.0).abs() < 0.1);
-    }
-
-    #[test]
-    fn test_kinetic_energy_positive() {
-        let n = 10;
-        let mut vel_x = vec![0.0; n * n];
-        let mut vel_y = vec![0.0; n * n];
-
-        // Uniform flow
-        for idx in 0..n * n {
-            vel_x[idx] = 1.0;
-            vel_y[idx] = 1.0;
-        }
-
-        let e = kinetic_energy(&vel_x, &vel_y, n);
-        assert!(e > 0.0);
-    }
+    println!("For a longer run: cargo run --release --example ns3d 64 1600 20 tg");
 }

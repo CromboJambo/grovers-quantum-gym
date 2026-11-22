@@ -3,3 +3,6 @@ guard.db
 guard/guard.db
 state-docs.db
 test-state-docs.db
+
+# Generated simulation data
+*.csv
