@@ -3,6 +3,14 @@ name = "shor-grover-exploration"
 version = "0.1.0"
 edition = "2024"
 description = "Grover's Quantum Gym — classical simulations of quantum algorithms and mathematical structures"
+authors = ["CromboJambo"]
+license = "Apache-2.0"
+repository = "https://github.com/CromboJambo/grovers-quantum-gym"
+documentation = "https://docs.rs/shor-grover-exploration"
+readme = "README.md"
+keywords = ["quantum", "algorithms", "simulation", "education", "riemann"]
+categories = ["science", "mathematics", "education"]
+exclude = [".crabjar_config.toml", ".gitmodules"]
 
 [dependencies]
 rand = { version = "0.8", features = ["std"] }
