@@ -2,13 +2,14 @@
 name = "shor-grover-exploration"
 version = "0.1.0"
 edition = "2024"
-description = "Classical simulations of quantum algorithms: Grover search and Shor factoring on NP-hard problems"
+description = "Grover's Quantum Gym — classical simulations of quantum algorithms and mathematical structures"
 
 [dependencies]
 rand = { version = "0.8", features = ["std"] }
 rayon = "1.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+num-complex = "0.4"
 
 [dev-dependencies]
 criterion = "0.5"
