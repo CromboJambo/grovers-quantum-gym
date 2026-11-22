@@ -3,6 +3,16 @@
 /// and Popperian epistemology. Directly connects to the user's themes
 /// about learning from being wrong and problem propagation.
 
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "deutsch",
+    version: "0.0.1",
+    formalized: false,
+    notes: "Deutsch algorithm simulation",
+};
+
+
 pub fn show_deutsch_station() {
     println!("=== DAVID DEUTSCH: THE FABRIC OF REALITY (1997) ===");
     println!();

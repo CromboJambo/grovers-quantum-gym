@@ -2,6 +2,16 @@
 /// Based on the user's "Math Comeback Theory" — a reflection on learning,
 /// being wrong, and what it means to consider something "solved."
 
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "collapse",
+    version: "0.0.1",
+    formalized: false,
+    notes: "Wave function collapse simulation",
+};
+
+
 pub fn show_collapse_station() {
     println!("=== THE PHILOSOPHY OF PROBLEM-SOLVING: CELEBRATING COLLAPSE ===");
     println!();

@@ -4,6 +4,16 @@
 //! then simulates it using subset construction. Based on Ken Thompson's
 //! original algorithm for the ed editor.
 
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "regex",
+    version: "0.0.1",
+    formalized: false,
+    notes: "Regular expression matching simulation",
+};
+
+
 use std::collections::{HashMap, HashSet};
 
 // AST node types

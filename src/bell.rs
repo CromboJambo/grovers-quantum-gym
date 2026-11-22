@@ -2,6 +2,16 @@
 /// Demonstrates that no local hidden variable theory can reproduce all
 /// predictions of quantum mechanics. Simulates both LHV and QM to show
 /// the violation of Bell's inequality.
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "bell",
+    version: "0.0.1",
+    formalized: false,
+    notes: "Bell's theorem and entanglement simulation",
+};
+
+
 use std::f64::consts::PI;
 
 pub fn show_bell_station() {

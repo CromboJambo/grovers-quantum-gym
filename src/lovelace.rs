@@ -7,6 +7,16 @@
 //!   B₀ = 1, B₁ = -1/2
 //!   B_n = -1/(n+1) * Σ_{k=0}^{n-1} C(n+1,k) * B_k  for n ≥ 2 (odd n > 1 are zero)
 
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "lovelace",
+    version: "0.0.1",
+    formalized: false,
+    notes: "Bernoulli number computation per Ada Lovelace 1843",
+};
+
+
 use std::f64;
 
 /// Compute binomial coefficient C(n, k)

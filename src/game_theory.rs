@@ -3,6 +3,16 @@
 /// cooperation emerges from selfish rationality — connecting to the
 /// philosophical theme that problems propagate with solutions.
 
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "game_theory",
+    version: "0.0.1",
+    formalized: false,
+    notes: "Quantum game theory simulations",
+};
+
+
 pub fn show_game_theory_station() {
     println!("=== GAME THEORY: NASH EQUILIBRIUM AND COOPERATION ===");
     println!();

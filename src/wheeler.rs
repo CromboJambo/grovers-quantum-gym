@@ -12,6 +12,16 @@
 /// - Proposed the delayed-choice experiment in 1978
 /// - Developed "it from bit" philosophy in his later years
 
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "wheeler",
+    version: "0.0.1",
+    formalized: false,
+    notes: "Wheeler's delayed choice experiment",
+};
+
+
 pub fn show_wheeler_station() {
     println!("=== JOHN ARCHIBALD WHEELER STATION (1967-2008) ===");
     println!();

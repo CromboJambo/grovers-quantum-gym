@@ -9,6 +9,16 @@
 //! - prime_gaps: ordinal positions, distances, gap distributions
 //! - zeta_analysis: Euler product, zeta zeros, approximation errors
 
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "riemann",
+    version: "0.0.1",
+    formalized: false,
+    notes: "Zeta function computation on critical strip (Euler-Maclaurin)",
+};
+
+
 mod integer_structure;
 mod prime_gaps;
 pub mod rh_verification;

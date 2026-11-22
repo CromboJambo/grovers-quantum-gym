@@ -12,6 +12,16 @@
 /// - Died at 51 in 1982, long before MWI became dominant
 /// - Einstein responded to his letter at age 12
 
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "everett",
+    version: "0.0.1",
+    formalized: false,
+    notes: "Everett (many-worlds) interpretation simulation",
+};
+
+
 #[derive(Debug, Clone)]
 struct Branch {
     id: usize,

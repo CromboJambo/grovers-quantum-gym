@@ -2,6 +2,16 @@
 /// Demonstrates how KP axioms construct types from the empty set,
 /// and why this is the minimal substrate for tuples, functions, and computation.
 
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "kripke_platek",
+    version: "0.0.1",
+    formalized: false,
+    notes: "Kripke-Platek set theory exploration",
+};
+
+
 use std::collections::BTreeSet;
 use std::fmt;
 

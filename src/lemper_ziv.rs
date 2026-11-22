@@ -10,6 +10,16 @@
 /// - Both reduce "what is this?" to "where have I seen this before?"
 /// - The compressed form preserves all information (lossless) while discarding redundancy
 
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "lemper_ziv",
+    version: "0.0.1",
+    formalized: false,
+    notes: "Lempel-Ziv compression algorithms",
+};
+
+
 use std::collections::HashMap;
 
 // --- LZ77 Compression -------------------------------------------------------

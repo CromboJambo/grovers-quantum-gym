@@ -14,6 +14,16 @@
 /// - Shor period-finding detects repeating structure in function values
 /// - Positional tracing asks: can we represent the entire prime set by its gap structure?
 
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "positional_tracing",
+    version: "0.1.0",
+    formalized: true,
+    notes: "Lossless positional compression — Lean: PositionalCompress, KvCacheCompress",
+};
+
+
 use std::collections::HashMap;
 
 // --- Delta Encoding (Displacement from Previous) -----------------------------

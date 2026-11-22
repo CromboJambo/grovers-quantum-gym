@@ -7,6 +7,16 @@
 //! Demonstrates through brute-force SAT solving, exponential blowup,
 //! and the fundamental difficulty of NP-complete problems.
 
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "p_vs_np",
+    version: "0.0.1",
+    formalized: false,
+    notes: "P vs NP boundary exploration",
+};
+
+
 use std::time::Instant;
 
 /// Evaluate a 3-CNF clause (literal1 OR literal2 OR literal3)

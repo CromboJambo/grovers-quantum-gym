@@ -2,6 +2,16 @@
 /// Explores Kolmogorov complexity, the limits of formal proof systems,
 /// and a real number that is mathematically well-defined but fundamentally unknowable.
 
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "chaitin",
+    version: "0.0.1",
+    formalized: false,
+    notes: "Chaitin's incompleteness and algorithmic randomness",
+};
+
+
 pub fn show_chaitin_station() {
     println!("=== GREGORY CHAITIN STATION: ALGORITHMIC INFORMATION THEORY ===");
     println!();

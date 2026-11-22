@@ -5,6 +5,28 @@
 //! - Shor's factoring algorithm (classical period-finding components)
 //! - Applications to NP-hard problems: subset sum, SAT, traveling salesman
 
+
+/// Per-station version and formalization metadata.
+///
+/// Versioning policy:
+/// - 0.0.x — simulation runs, no formal verification in this repo
+/// - 0.1.0 — key claims have Lean formalization (e.g., losslessness, error bounds)
+/// - 1.0.0 — full theorem coverage for the station's core mathematical claims
+pub struct StationMeta {
+    pub name: &'static str,
+    pub version: &'static str,
+    pub formalized: bool,
+    pub notes: &'static str,
+}
+
+impl StationMeta {
+    /// Format for display in the gym session.
+    pub fn display(&self) -> String {
+        let status = if self.formalized { "✓ formalized" } else { "simulation" };
+        format!("{} v{} [{}]", self.name, self.version, status)
+    }
+}
+
 pub mod attention;
 pub mod bell;
 pub mod benchmarks;

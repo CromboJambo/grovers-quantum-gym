@@ -15,6 +15,16 @@
 //!
 //! Writes <ic>_n<n>.csv with t, E, Z, eps, max|ω|, ∫max|ω|dt (BKM integral).
 
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "navier_stokes",
+    version: "0.0.1",
+    formalized: false,
+    notes: "3D pseudo-spectral NS solver, BKM blowup tracking",
+};
+
+
 use rayon::prelude::*;
 use rustfft::{num_complex::Complex64 as C, Fft, FftPlanner};
 use std::{f64::consts::PI, fs::File, io::Write, sync::Arc};

@@ -7,6 +7,16 @@
 //!
 //! Theme: Mathematics as connected structure rather than isolated tricks.
 
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "euler",
+    version: "0.0.1",
+    formalized: false,
+    notes: "Euler's formula and identity",
+};
+
+
 use std::f64::consts::PI;
 
 // Simple complex number type for demonstration

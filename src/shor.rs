@@ -5,6 +5,16 @@
 //! continued fractions, and the overall factorization pipeline.
 
 /// Compute gcd using Euclidean algorithm
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "shor",
+    version: "0.0.1",
+    formalized: false,
+    notes: "Shor's factoring — period finding via continued fractions",
+};
+
+
 fn gcd(mut a: u64, mut b: u64) -> u64 {
     while b != 0 {
         let t = b;

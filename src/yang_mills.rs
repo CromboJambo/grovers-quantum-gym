@@ -7,6 +7,16 @@
 
 /// Compute Wilson loop expectation for a rectangular loop on a lattice
 /// This is simplified — real lattice QCD uses Monte Carlo simulation
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "yang_mills",
+    version: "0.0.1",
+    formalized: false,
+    notes: "Yang-Mills field theory simulation",
+};
+
+
 fn wilson_loop_expectation(area: usize, coupling: f64) -> f64 {
     // Area law: <W(C)> ~ exp(-σ * A) where σ is string tension
     // For small loops, perimeter law dominates; for large loops, area law

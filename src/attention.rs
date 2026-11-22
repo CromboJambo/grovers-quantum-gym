@@ -4,6 +4,16 @@
 //! original transformer paper. Shows how self-attention allows each position
 //! to attend to all other positions, enabling parallel sequence processing.
 
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "attention",
+    version: "0.0.1",
+    formalized: false,
+    notes: "Transformer attention mechanism simulation",
+};
+
+
 use std::f64;
 
 // Scaled dot-product attention: softmax(QK^T/sqrt(d_k))V

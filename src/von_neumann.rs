@@ -12,6 +12,16 @@
 /// - Manhattan Project consultant (implosion lens design); IAS and AEC committees in the 1950s.
 /// - Died February 8, 1957 at age 53; Medal of Freedom recipient; crater on the Moon named for him.
 
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "von_neumann",
+    version: "0.0.1",
+    formalized: false,
+    notes: "Von Neumann entropy and architecture",
+};
+
+
 #[derive(Debug, Clone)]
 struct MeasurementStep {
     id: usize,

@@ -4,6 +4,16 @@
 //! search problems, using probability amplitude manipulation.
 
 /// Oracle trait: given a candidate index, returns true if it's the target.
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "grover",
+    version: "0.0.1",
+    formalized: false,
+    notes: "Grover's search — O(√N) amplitude amplification",
+};
+
+
 pub trait GroverOracle {
     fn evaluate(&self, x: usize) -> bool;
 }

@@ -8,6 +8,16 @@
 /// - Shannon entropy measures how much structure (redundancy) exists in a source
 /// - Both ask: what is the minimal representation that preserves the essential pattern?
 
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "shannon",
+    version: "0.0.1",
+    formalized: false,
+    notes: "Shannon entropy and information theory",
+};
+
+
 use std::collections::{BinaryHeap, HashMap};
 use std::cmp::Ordering;
 

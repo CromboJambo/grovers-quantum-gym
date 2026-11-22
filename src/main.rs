@@ -188,4 +188,43 @@ fn main() {
     shor_grover_exploration::positional_tracing::show_positional_tracing_station();
 
     println!("\n=== EXPLORATION COMPLETE ===");
+
+    // Station version summary
+    println!("\n═══════════════════════════════════════════");
+    println!("  STATION REGISTRY — versions & formalization status");
+    println!("═══════════════════════════════════════════");
+    let stations = [
+        (&shor_grover_exploration::grover::STATION),
+        (&shor_grover_exploration::shor::STATION),
+        (&shor_grover_exploration::lovelace::STATION),
+        (&shor_grover_exploration::euler::STATION),
+        (&shor_grover_exploration::attention::STATION),
+        (&shor_grover_exploration::regex::STATION),
+        (&shor_grover_exploration::deutsch::STATION),
+        (&shor_grover_exploration::bell::STATION),
+        (&shor_grover_exploration::game_theory::STATION),
+        (&shor_grover_exploration::everett::STATION),
+        (&shor_grover_exploration::collapse::STATION),
+        (&shor_grover_exploration::godel::STATION),
+        (&shor_grover_exploration::chaitin::STATION),
+        (&shor_grover_exploration::wheeler::STATION),
+        (&shor_grover_exploration::p_vs_np::STATION),
+        (&shor_grover_exploration::eth::STATION),
+        (&shor_grover_exploration::von_neumann::STATION),
+        (&shor_grover_exploration::kripke_platek::STATION),
+        (&shor_grover_exploration::shannon::STATION),
+        (&shor_grover_exploration::lemper_ziv::STATION),
+        (&shor_grover_exploration::positional_tracing::STATION),
+        (&shor_grover_exploration::navier_stokes::STATION),
+        (&shor_grover_exploration::riemann::STATION),
+        (&shor_grover_exploration::yang_mills::STATION),
+    ];
+    for meta in stations {
+        println!("  {}", meta.display());
+    }
+    let formalized_count = stations.iter().filter(|s| s.formalized).count();
+    println!("═══════════════════════════════════════════");
+    println!("  {} of {} stations formally verified in Lean", formalized_count, stations.len());
+    println!("  Version policy: 0.0.x=simulation · 0.1.0=Lean-backed · 1.0.0=full coverage");
+
 }

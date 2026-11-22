@@ -1,6 +1,16 @@
 /// Kurt Gödel's Incompleteness Theorems (1931)
 /// Demonstrates the limits of formal systems through executable examples.
 
+
+/// Station metadata for versioning and formalization tracking.
+pub const STATION: crate::StationMeta = crate::StationMeta {
+    name: "godel",
+    version: "0.0.1",
+    formalized: false,
+    notes: "Gödel incompleteness theorems exploration",
+};
+
+
 pub fn show_godel_station() {
     println!("=== KURT GÖDEL STATION (1931) ===");
     println!();

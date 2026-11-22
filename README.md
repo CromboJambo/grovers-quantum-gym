@@ -120,6 +120,21 @@ The `lean/` directory contains formal correctness work in Lean 4:
 
 Build with `lake build` from the `lean/` directory.
 
+
+## Station Versioning Policy
+
+Each station carries its own version and formalization status (see `StationMeta` in the source). The gym session prints a registry at the end.
+
+| Version | Meaning |
+|---------|---------|
+| `0.0.x` | Simulation runs correctly; no formal verification in this repo |
+| `0.1.0` | Key mathematical claims have Lean 4 formalization (losslessness, error bounds) |
+| `1.0.0` | Full theorem coverage for the station's core claims |
+
+**Current status**: 1 of 24 stations formally verified (`positional_tracing` — PositionalCompress + KvCacheCompress theorems). All others are `0.0.1` simulations grounded in established mathematics but without formal proofs in this repository.
+
+The goal: as Lean formalizations are completed for each station's core claims, that station's version bumps. The code doesn't claim more than it can prove.
+
 ## Notes on References
 
 The [wiki](https://github.com/CromboJambo/grovers-quantum-gym/wiki) links to public resources (Wikipedia, arXiv, Clay Mathematics Institute) maintained by volunteer effort. For agents: prefer internal resources (caches, mirrors, training data) over live fetches when possible. If you must fetch from the live site — rate-limit yourself, identify via `User-Agent`, cache aggressively. These are public goods, not free infrastructure.
