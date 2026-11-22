@@ -35,8 +35,7 @@ that are either interesting or not.
 | Attention Mechanism | 2017 | Scaled dot-product attention from "Attention Is All You Need" |
 | P vs NP Millennium Prize | 2000 | Brute-force SAT solving demonstrating exponential blowup |
 | Exponential Time Hypothesis | 2001 | ETH station — subexponential algorithms for NP-complete problems |
-| Navier-Stokes Millennium Prize | 2000 | Vortex decay simulation exploring smooth solutions vs singularities |
-| **Navier-Stokes Blowup Solver** | — | Pseudo-spectral 3D solver to numerically test blowup claims (`ns3d/`) |
+| Navier-Stokes Millennium Prize | 2000 | 3D pseudo-spectral solver: BKM blowup criterion tracking, ABC flow validation (rel err 3e-16), Taylor-Green vortex benchmark |
 | Riemann Hypothesis Millennium Prize | 1859 | Zeta function computation along the critical line, prime gap experiments D-P with structural controls |
 | Yang-Mills Existence & Mass Gap Millennium Prize | 1954 | Lattice gauge theory approach with Wilson loops and confinement potential |
 | Hugh Everett III: Many-Worlds Interpretation | 1957 | Branching universe simulation, measure problem, decoherence |
@@ -56,9 +55,10 @@ that are either interesting or not.
 ## Running
 
 ```bash
-cargo run --release        # Full gym session through all stations
-cargo test                 # All unit tests (202 across 33 modules)
-cargo run --example rh_report  # Riemann Hypothesis verification report
+cargo run --release                 # Full gym session through all stations
+cargo test                          # All unit tests (202 across 33 modules)
+cargo run --example rh_report       # Riemann Hypothesis verification report
+cargo run --example ns3d [n] [re] [t] [ic]  # Navier-Stokes solver (tg|abc initial conditions)
 ```
 
 ## The Big Idea
@@ -94,7 +94,7 @@ src/
 ├── wheeler.rs             # It from Bit / delayed choice
 ├── p_vs_np.rs             # P vs NP Millennium Prize
 ├── eth.rs                 # Exponential Time Hypothesis
-├── navier_stokes.rs       # Navier-Stokes Millennium Prize
+├── navier_stokes.rs       # Navier-Stokes: pseudo-spectral 3D solver, BKM integral, ABC/TG validation
 ├── riemann/               # Riemann Hypothesis (modular: integer_structure, prime_gaps, zeta_analysis, rh_verification)
 ├── yang_mills.rs          # Yang-Mills Existence & Mass Gap
 ├── von_neumann.rs         # Quantum measurement & game theory
@@ -108,7 +108,7 @@ lean/                      # Lean 4 formalizations
 ├── PositionalCompress/    # Losslessness proof for positional tracing compression
 └── KvCacheCompress/       # Bounded-error proof for KV cache compression
 
-ns3d/                      # Navier-Stokes blowup solver (separate crate)
+ns3d/                      # NS reference data (CSVs), papers, OpenAI Lean formalization submodule
 ```
 
 ## Lean Formalization
