@@ -605,6 +605,18 @@ theorem decodeFormulaCore_var_tag (n : Nat) (h_small : n ≤ 3) :
   -- then decNat to get n. This is a finite computation for small n.
   sorry
 
+/-- **Lemma:** When `decodeFormulaCore` encounters a `[F,F,T]` tag followed by a
+    formula encoding, it decodes to `(not f, [])`. -/
+theorem decodeFormulaCore_not_tag (f : BoolFormula)
+    (h_rt : decodeFormula (encodeFormula f) = some f) :
+    decodeFormulaCore ([false, false, true] ++ encodeFormula f)
+      ([false, false, true] ++ encodeFormula f).length =
+      some (BoolFormula.not f, []) := by
+  -- The decoder reads tag [F,F,T], then recursively decodes the subformula.
+  -- By the induction hypothesis, decodeFormula (encodeFormula f) = some f,
+  -- which means decodeFormulaCore returns some (f, []).
+  sorry
+
 /-- **Theorem:** Formula encoding/decoding round-trips.
     For any formula φ, decoding its encoding recovers φ exactly.
     This is the key losslessness property needed for Cook-Levin:
