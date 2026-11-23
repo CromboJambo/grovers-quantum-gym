@@ -617,6 +617,30 @@ theorem decodeFormulaCore_not_tag (f : BoolFormula)
   -- which means decodeFormulaCore returns some (f, []).
   sorry
 
+/-- **Lemma:** When `decodeFormulaCore` encounters a `[F,T,F]` tag followed by
+    two length-prefixed formula encodings, it decodes to `(and f g, [])`. -/
+theorem decodeFormulaCore_and_tag (f g : BoolFormula)
+    (h_rt_f : decodeFormula (encodeFormula f) = some f)
+    (h_rt_g : decodeFormula (encodeFormula g) = some g) :
+    decodeFormulaCore ([false, true, false] ++ encodeLenPref (encodeFormula f) ++ encodeLenPref (encodeFormula g))
+      ([false, true, false] ++ encodeLenPref (encodeFormula f) ++ encodeLenPref (encodeFormula g)).length =
+      some (BoolFormula.and f g, []) := by
+  -- The decoder reads tag [F,T,F], then readLenPref for first subformula,
+  -- recursively decodes it, then readLenPref for second subformula,
+  -- recursively decodes it.
+  sorry
+
+/-- **Lemma:** When `decodeFormulaCore` encounters a `[F,T,T]` tag followed by
+    two length-prefixed formula encodings, it decodes to `(or f g, [])`. -/
+theorem decodeFormulaCore_or_tag (f g : BoolFormula)
+    (h_rt_f : decodeFormula (encodeFormula f) = some f)
+    (h_rt_g : decodeFormula (encodeFormula g) = some g) :
+    decodeFormulaCore ([false, true, true] ++ encodeLenPref (encodeFormula f) ++ encodeLenPref (encodeFormula g))
+      ([false, true, true] ++ encodeLenPref (encodeFormula f) ++ encodeLenPref (encodeFormula g)).length =
+      some (BoolFormula.or f g, []) := by
+  -- Same structure as and_tag but with [F,T,T] tag and or constructor.
+  sorry
+
 /-- **Theorem:** Formula encoding/decoding round-trips.
     For any formula φ, decoding its encoding recovers φ exactly.
     This is the key losslessness property needed for Cook-Levin:
