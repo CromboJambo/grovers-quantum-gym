@@ -594,7 +594,40 @@ theorem decodeEncode_constants :
   constructor <;>
   simp [decodeFormula, encodeFormula, decodeFormulaCore]
 
-theorem encodeDecode_roundTrip (f : BoolFormula) :
+/-- **Theorem:** Formula encoding/decoding round-trips.
+    For any formula φ, decoding its encoding recovers φ exactly.
+    This is the key losslessness property needed for Cook-Levin:
+    SAT instances can be faithfully represented as bit strings. -/
+theorem decodeEncode_formula (f : BoolFormula) :
     decodeFormula (encodeFormula f) = some f := by
-  sorry
+  -- Use structural induction on the formula
+  cases f with
+  | var n =>
+    -- Encoding: [F,F,F] ++ encodeLenPref (encNat n)
+    -- Decoding reads tag, then readLenPref to get encNat n, then decNat
+    have h_small : n ≤ 3 := by sorry -- TODO: generalize or restrict
+    simp [decodeFormula, decodeFormulaCore, encodeFormula]
+    -- After unfolding, we need to show the decoding succeeds
+    sorry
+  | not f =>
+    -- Encoding: [F,F,T] ++ encodeFormula f
+    -- Decoding reads tag, then recursively decodes f
+    have ih : decodeFormula (encodeFormula f) = some f := decodeEncode_formula f
+    simp [decodeFormula, decodeFormulaCore, encodeFormula, ih]
+    sorry
+  | and f g =>
+    -- Encoding: [F,T,F] ++ encodeLenPref (encodeFormula f) ++ encodeLenPref (encodeFormula g)
+    have ih_f : decodeFormula (encodeFormula f) = some f := decodeEncode_formula f
+    have ih_g : decodeFormula (encodeFormula g) = some g := decodeEncode_formula g
+    simp [decodeFormula, decodeFormulaCore, encodeFormula, ih_f, ih_g]
+    sorry
+  | or f g =>
+    -- Encoding: [F,T,T] ++ encodeLenPref (encodeFormula f) ++ encodeLenPref (encodeFormula g)
+    have ih_f : decodeFormula (encodeFormula f) = some f := decodeEncode_formula f
+    have ih_g : decodeFormula (encodeFormula g) = some g := decodeEncode_formula g
+    simp [decodeFormula, decodeFormulaCore, encodeFormula, ih_f, ih_g]
+    sorry
+  | tt => simp [decodeFormula, decodeFormulaCore, encodeFormula]
+  | ff => simp [decodeFormula, decodeFormulaCore, encodeFormula]
+
 
