@@ -318,6 +318,36 @@ theorem compress_reconstruct_aux_lossless
   | nil =>
     simp [compress_aux, reconstruct_aux, elems]
   | cons a rest ih =>
+    -- PROOF STRATEGY (next iteration):
+    --
+    -- Goal: reconstruct_aux (compress_aux (a::rest) prev anchors k []) prev anchors [] = some (a::rest)
+    --
+    -- Step 1: Prove compression split property
+    --   compress_aux (a::rest) prev anchors k [] = [e_a] ++ compress_aux rest (some a) anchors k []
+    --   where e_a is the EncodedElement for a. This follows from the accumulator structure:
+    --   compress_aux computes e_a, then recurses with acc=[e_a], and the final .reverse
+    --   puts e_a at the front.
+    --
+    -- Step 2: Decode e_a to recover a
+    --   Case analysis on choose_repr a prev anchors k:
+    --   - raw: payload = a, decode returns a directly
+    --   - delta: need prev=some p (from h_inv + sortedness), payload = a-p, decode returns p+(a-p)=a
+    --   - anchor: need nearest_anchor_offset_def lemma (fold invariant) + pack/unpack roundtrip
+    --
+    -- Step 3: Apply IH to the rest
+    --   IH gives: reconstruct_aux (compress_aux rest (some a) anchors k []) (some a) anchors [] = some rest
+    --
+    -- Step 4: Prove reconstruction accumulator relation
+    --   If reconstruct_aux elems_rest (some a) anchors [] = some rest,
+    --   then reconstruct_aux elems_rest (some a) anchors [a] = some ([a] ++ rest)
+    --   This works because each decoded value is prepended to acc, and final result is acc.reverse.
+    --   Extra initial elements in acc end up at the front of the final result.
+    --
+    -- Required helper lemmas (to be proven separately):
+    --   1. compress_aux_split: compression of cons = [first_elem] ++ compression_of_rest
+    --   2. reconstruct_aux_acc_concat: extending initial acc by [x] prepends x to result
+    --   3. nearest_anchor_offset_def: offset in nearest_anchor result = v - anchors[idx]
+    --      (requires proving fold invariant over the anchor list)
     sorry
 
 /-! ## Main Theorem -/
