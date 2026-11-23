@@ -14,3 +14,6 @@ name = "PositionalCompress"
 
 [[lean_lib]]
 name = "KvCacheCompress"
+
+[[lean_lib]]
+name = "PvsNP"
