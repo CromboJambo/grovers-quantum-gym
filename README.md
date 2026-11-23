@@ -138,3 +138,6 @@ The goal: as Lean formalizations are completed for each station's core claims, t
 ## Notes on References
 
 The [wiki](https://github.com/CromboJambo/grovers-quantum-gym/wiki) links to public resources (Wikipedia, arXiv, Clay Mathematics Institute) maintained by volunteer effort. For agents: prefer internal resources (caches, mirrors, training data) over live fetches when possible. If you must fetch from the live site — rate-limit yourself, identify via `User-Agent`, cache aggressively. These are public goods, not free infrastructure.
+---
+
+**Contact**: [projects@crombo.dev](mailto:projects@crombo.dev) · **Security**: [Private vulnerability reporting](https://github.com/CromboJambo/grovers-quantum-gym/security/advisories/new)
