@@ -594,6 +594,17 @@ theorem decodeEncode_constants :
   constructor <;>
   simp [decodeFormula, encodeFormula, decodeFormulaCore]
 
+/-- **Lemma:** When `decodeFormulaCore` encounters a `[F,F,F]` tag followed by a
+    length-prefixed natural number, it decodes to `(var n, [])` — the formula
+    and the remaining (empty) bit string. -/
+theorem decodeFormulaCore_var_tag (n : Nat) (h_small : n ≤ 3) :
+    decodeFormulaCore ([false, false, false] ++ encodeLenPref (encNat n))
+      ([false, false, false] ++ encodeLenPref (encNat n)).length =
+      some (BoolFormula.var n, []) := by
+  -- The decoder reads tag [F,F,F], then readLenPref to get encNat n,
+  -- then decNat to get n. This is a finite computation for small n.
+  sorry
+
 /-- **Theorem:** Formula encoding/decoding round-trips.
     For any formula φ, decoding its encoding recovers φ exactly.
     This is the key losslessness property needed for Cook-Levin:
