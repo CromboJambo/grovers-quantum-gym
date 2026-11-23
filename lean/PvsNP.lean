@@ -604,10 +604,15 @@ theorem decodeEncode_formula (f : BoolFormula) :
   cases f with
   | var n =>
     -- Encoding: [F,F,F] ++ encodeLenPref (encNat n)
-    -- Decoding reads tag, then readLenPref to get encNat n, then decNat
-    have h_small : n ≤ 3 := by sorry -- TODO: generalize or restrict
-    simp [decodeFormula, decodeFormulaCore, encodeFormula]
-    -- After unfolding, we need to show the decoding succeeds
+    -- For now, use the small-case round-trip for n ≤ 3
+    have h_small : n ≤ 3 := by sorry
+    have h_nat_rt : decNat (encNat n) = some n := decNat_encNat_small n h_small
+    -- The decoding process reads tag [F,F,F], then length prefix, then bits
+    simp only [decodeFormula]
+    -- Now unfold decodeFormulaCore to see the recursive structure
+    -- For a var encoding starting with [F,F,F], it should match the first branch
+    rw [encodeFormula]
+    -- Goal now involves decodeFormulaCore ([F,F,F] ++ encodeLenPref (encNat n)) (...) 
     sorry
   | not f =>
     -- Encoding: [F,F,T] ++ encodeFormula f
