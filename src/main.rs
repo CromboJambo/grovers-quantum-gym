@@ -176,6 +176,12 @@ fn main() {
     println!("\n--- JOHN VON NEUMANN: QUANTUM MEASUREMENT & GAME THEORY (1932, 1944) ---");
     shor_grover_exploration::von_neumann::show_von_neumann_station();
 
+    println!("\n--- ALBERT EINSTEIN & RELATIVITY (1905/1915) ---");
+    shor_grover_exploration::relativity::show_relativity_station();
+
+    println!("\n--- CARLO ROVELLI & RELATIONAL QUANTUM MECHANICS (1996) ---");
+    shor_grover_exploration::rovelli::show_rovelli_station();
+
     println!("\n--- KRIPKE-PLATEK SET THEORY: TYPE-THEORETIC GROUNDING (1960s) ---");
     shor_grover_exploration::kripke_platek::show_kripke_platek_station();
 
@@ -218,6 +224,8 @@ fn main() {
         (&shor_grover_exploration::navier_stokes::STATION),
         (&shor_grover_exploration::riemann::STATION),
         (&shor_grover_exploration::yang_mills::STATION),
+        (&shor_grover_exploration::relativity::STATION),
+        (&shor_grover_exploration::rovelli::STATION),
     ];
     for meta in stations {
         println!("  {}", meta.display());

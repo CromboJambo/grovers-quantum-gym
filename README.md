@@ -48,6 +48,8 @@ that are either interesting or not.
 | Kripke-Platek Set Theory | 1960s | Type-theoretic grounding of sets, hereditarily finite sets, PEG grammars as KP objects |
 | Gregory Chaitin: Algorithmic Information Theory | 1970s | Kolmogorov complexity, halting probability Ω, Gödel's theorems for programs |
 | John Archibald Wheeler: It from Bit | 1967-2008 | Delayed-choice experiments, participation theory, reality emerges from information |
+| Albert Einstein: Relativity | 1905/1915 | Special & general relativity: time dilation (Hafele-Keating 1971), proper time, Doppler shift, gravitational redshift, twin paradox |
+| Carlo Rovelli: Relational Quantum Mechanics | 1996 | Properties as interactions — no observer-independent state; quantum Zeno effect, double-slit disturbance (mechanical vs relational), von Neumann chain resolution |
 | Claude Shannon: Information Theory | 1948 | Entropy computation, Huffman coding, compression limits |
 | Lempel-Ziv Compression | 1977 | LZ77/LZ78 dictionary-based compression, offset analysis for period detection |
 | Positional Tracing | 2026 | Third compression level: structural relationships → displacement/references (stores HOW) |
@@ -101,6 +103,8 @@ src/
 ├── kripke_platek.rs       # Kripke-Platek Set Theory
 ├── shannon.rs             # Information Theory & Huffman Coding
 ├── lemper_ziv.rs          # Lempel-Ziv Compression
+├── relativity.rs          # Einstein: special & general relativity, Hafele-Keating, twin paradox
+├── rovelli.rs             # Rovelli: relational quantum mechanics, quantum Zeno, double-slit disturbance
 ├── positional_tracing.rs  # Positional Tracing (third compression level)
 └── bin/                   # Standalone experiment binaries (exp_q, exp_r)
 
@@ -131,7 +135,7 @@ Each station carries its own version and formalization status (see `StationMeta`
 | `0.1.0` | Key mathematical claims have Lean 4 formalization (losslessness, error bounds) |
 | `1.0.0` | Full theorem coverage for the station's core claims |
 
-**Current status**: 1 of 24 stations formally verified (`positional_tracing` — PositionalCompress + KvCacheCompress theorems). All others are `0.0.1` simulations grounded in established mathematics but without formal proofs in this repository.
+**Current status**: 1 of 26 stations formally verified (`positional_tracing` — PositionalCompress + KvCacheCompress theorems). All others are `0.0.1` simulations grounded in established mathematics but without formal proofs in this repository.
 
 The goal: as Lean formalizations are completed for each station's core claims, that station's version bumps. The code doesn't claim more than it can prove.
 
