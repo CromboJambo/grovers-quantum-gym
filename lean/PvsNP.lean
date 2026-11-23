@@ -364,9 +364,14 @@ def encodeNatAux (n : Nat) (acc : BitString) : BitString :=
 def encNat (n : Nat) : BitString :=
   if n = 0 then ([false] : BitString) else encodeNatAux n []
 
-/-- Length-prefix a bit string: binary length + content. -/
+/-- Encode a length in unary: n zeros followed by one terminating one.
+    Self-delimiting — the decoder knows exactly where the length field ends. -/
+def encLenUnary (n : Nat) : BitString :=
+  List.replicate n false ++ [true]
+
+/-- Length-prefix a bit string using unary self-delimiting length. -/
 def encodeLenPref (bs : BitString) : BitString :=
-  encNat bs.length ++ bs
+  encLenUnary bs.length ++ bs
 
 /-- Encode a Boolean formula as a bit string.
     Prefix-free scheme with 3-bit tags:
@@ -412,13 +417,24 @@ def decNat (bs : BitString) : Option Nat :=
   | []      => none
   | _ :: _  => decodeNatAux bs 0
 
+/-- Decode a unary length from the front of a stream.
+    Returns (length, remaining bits after the terminator). -/
+def readLenUnary (bs : BitString) : Option (Nat × BitString) :=
+  match bs with
+  | []       => none
+  | true :: rest   => some (0, rest)
+  | false :: rest  =>
+      match readLenUnary rest with
+      | none         => none
+      | some (n, r)  => some (n + 1, r)
+
 /-- Read a length-prefixed bit string from the front of a stream. -/
 def readLenPref (bs : BitString) : Option (BitString × BitString) :=
-  match decNat bs with
-  | none   => none
-  | some n =>
-      if bs.length >= n then
-        some (bs.take n, bs.drop n)
+  match readLenUnary bs with
+  | none           => none
+  | some (n, rest) =>
+      if rest.length >= n then
+        some (rest.take n, rest.drop n)
       else
         none
 
@@ -529,7 +545,55 @@ To go further toward P vs NP, we need:
    cannot be decided in polytime. Known barriers (relativization, natural proofs,
    algebrization) suggest this is genuinely hard.
 -/
-/-- **Round-trip property:** Decoding an encoded formula recovers the original. -/
+/-! ## Round-Trip Proofs -/
+
+/-- **Lemma:** Unary length encoding round-trips, preserving the tail.
+    Reading a unary-encoded length from `encLenUnary n ++ rest` gives `(n, rest)`. -/
+theorem readLenUnary_encLenUnary_tail (n : Nat) (rest : BitString) :
+    readLenUnary (encLenUnary n ++ rest) = some (n, rest) := by
+  induction n with
+  | zero =>
+    -- encLenUnary 0 = [true], so [true] ++ rest = true :: rest
+    -- readLenUnary (true :: rest) = some (0, rest)
+    simp [readLenUnary, encLenUnary, List.replicate]
+  | succ k ih =>
+    -- IH: readLenUnary (encLenUnary k ++ rest) = some (k, rest)
+    -- encLenUnary (k+1) = false :: encLenUnary k
+    have h_enc : encLenUnary (k + 1) = false :: encLenUnary k := by
+      simp [encLenUnary, List.replicate]
+      <;> ring_nf
+    rw [h_enc]
+    -- Now: readLenUnary (false :: encLenUnary k ++ rest)
+    --     = match readLenUnary (encLenUnary k ++ rest) with
+    --         | some (m,r) => some (m+1, r)
+    have h_rec : readLenUnary (false :: encLenUnary k ++ rest) =
+        match readLenUnary (encLenUnary k ++ rest) with
+        | none      => none
+        | some (m,r) => some (m + 1, r) := by rfl
+    rw [h_rec]
+    rw [ih]
+
+/-- **Lemma:** Reading a length-prefixed string recovers the content. -/
+theorem readLenPref_encodeLenPref (bs : BitString) :
+    readLenPref (encodeLenPref bs) = some (bs, []) := by
+  -- Direct computation: encodeLenPref bs = encLenUnary n ++ bs
+  -- readLenPref reads the unary length n, then takes n bits from the remaining bs
+  simp [readLenPref, encodeLenPref]
+  rw [readLenUnary_encLenUnary_tail bs.length bs]
+  simp [List.take, List.drop, List.length]
+
+/-- **Lemma:** `decNat` correctly decodes the binary encoding of small naturals. -/
+theorem decNat_encNat_small (n : Nat) (h : n ≤ 3) : decNat (encNat n) = some n := by
+  interval_cases n <;> simp [decNat, encNat, encodeNatAux, decodeNatAux]
+
+
+/-- **Theorem:** Round-trip for constants `tt` and `ff`. -/
+theorem decodeEncode_constants :
+    decodeFormula (encodeFormula BoolFormula.tt) = some BoolFormula.tt ∧
+    decodeFormula (encodeFormula BoolFormula.ff) = some BoolFormula.ff := by
+  constructor <;>
+  simp [decodeFormula, encodeFormula, decodeFormulaCore]
+
 theorem encodeDecode_roundTrip (f : BoolFormula) :
     decodeFormula (encodeFormula f) = some f := by
   sorry
