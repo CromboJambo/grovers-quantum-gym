@@ -2,7 +2,7 @@
 
 All notable changes to shor-grover-exploration are documented here.
 
-## [0.2.0] - 2026-11-23
+## [0.1.1] - 2026-11-23
 
 ### Added
 
@@ -76,7 +76,7 @@ All notable changes to shor-grover-exploration are documented here.
 - Experiment runners (`experiment_q.rs`, `experiment_r.rs`, `explore.rs`)
 - Positional tracing compression implementation (`positional_tracing.rs`)
 
-## Unreleased (next: 0.3.0)
+## Unreleased (next: 0.1.2)
 
 Planned:
 - Complete the Lean formalization proof (eliminate remaining `sorry` in `compress_reconstruct_aux_lossless`)

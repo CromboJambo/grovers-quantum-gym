@@ -1,6 +1,6 @@
 [package]
 name = "shor-grover-exploration"
-version = "0.2.0"
+version = "0.1.1"
 edition = "2024"
 description = "Grover's Quantum Gym — classical simulations of quantum algorithms and mathematical structures"
 authors = ["CromboJambo"]
