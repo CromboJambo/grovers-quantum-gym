@@ -663,20 +663,26 @@ theorem decodeEncode_formula (f : BoolFormula) :
     -- Encoding: [F,F,T] ++ encodeFormula f
     -- Decoding reads tag, then recursively decodes f
     have ih : decodeFormula (encodeFormula f) = some f := decodeEncode_formula f
-    simp [decodeFormula, decodeFormulaCore, encodeFormula, ih]
-    sorry
+    simp only [decodeFormula]
+    rw [encodeFormula]
+    rw [decodeFormulaCore_not_tag f ih]
+    simp
   | and f g =>
     -- Encoding: [F,T,F] ++ encodeLenPref (encodeFormula f) ++ encodeLenPref (encodeFormula g)
     have ih_f : decodeFormula (encodeFormula f) = some f := decodeEncode_formula f
     have ih_g : decodeFormula (encodeFormula g) = some g := decodeEncode_formula g
-    simp [decodeFormula, decodeFormulaCore, encodeFormula, ih_f, ih_g]
-    sorry
+    simp only [decodeFormula]
+    rw [encodeFormula]
+    rw [decodeFormulaCore_and_tag f g ih_f ih_g]
+    simp
   | or f g =>
     -- Encoding: [F,T,T] ++ encodeLenPref (encodeFormula f) ++ encodeLenPref (encodeFormula g)
     have ih_f : decodeFormula (encodeFormula f) = some f := decodeEncode_formula f
     have ih_g : decodeFormula (encodeFormula g) = some g := decodeEncode_formula g
-    simp [decodeFormula, decodeFormulaCore, encodeFormula, ih_f, ih_g]
-    sorry
+    simp only [decodeFormula]
+    rw [encodeFormula]
+    rw [decodeFormulaCore_or_tag f g ih_f ih_g]
+    simp
   | tt => simp [decodeFormula, decodeFormulaCore, encodeFormula]
   | ff => simp [decodeFormula, decodeFormulaCore, encodeFormula]
 
