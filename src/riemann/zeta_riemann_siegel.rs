@@ -514,6 +514,255 @@ mod known_zeros_tests {
     }
 }
 
+
+/// === Three-Measurement Architecture ===
+/// 
+/// The three layers do different jobs:
+/// 1. N_smooth(T): large-scale density model
+/// 2. S(T): cumulative, oscillating discrepancy (NOT local clustering)
+/// 3. Normalized spacings: local arrangement relative to expected density
+
+/// Expected local zero density at height t.
+/// 
+/// This is the derivative of N_smooth(t): how many zeros we expect per unit t.
+///     ρ(t) = d/dt [(t/2π)ln(t/2π) - t/2π + 7/8] = ln(t/2π) / (2π)
+pub fn smooth_density(t: f64) -> f64 {
+    if t <= 0.0 {
+        return 0.0;
+    }
+    let two_pi = 2.0 * std::f64::consts::PI;
+    (t / two_pi).ln() / two_pi
+}
+
+/// Expected number of zeros in interval [a, b] based on smooth density.
+pub fn expected_zeros_in_interval(a: f64, b: f64) -> f64 {
+    if b <= a || a <= 0.0 {
+        return 0.0;
+    }
+    let two_pi = 2.0 * std::f64::consts::PI;
+    // Integrate ρ(t) from a to b
+    let f = |t: f64| (t / two_pi) * ((t / two_pi).ln() - 1.0);
+    f(b) - f(a)
+}
+
+/// Raw zero spacing between consecutive zeros.
+pub fn raw_spacing(gamma_n: f64, gamma_next: f64) -> f64 {
+    gamma_next - gamma_n
+}
+
+/// Normalized zero spacing — the key quantity for GUE comparison.
+/// 
+/// `s_n = Δγ · ln(γ_n/2π) / (2π)`
+/// 
+/// Under GUE prediction, normalized spacings have mean ≈ 1 and follow
+/// the Wigner-Dyson distribution: `P(s) = (32/π²)s²exp(-4s²/π)`
+/// 
+/// Note: GUE is a statistical prediction supported by numerical evidence,
+/// NOT a consequence of RH alone.
+pub fn normalized_spacing(gamma_n: f64, gamma_next: f64) -> f64 {
+    let two_pi = 2.0 * std::f64::consts::PI;
+    if gamma_n <= 0.0 {
+        return 0.0;
+    }
+    let raw = raw_spacing(gamma_n, gamma_next);
+    let density_at_n = (gamma_n / two_pi).ln() / two_pi;
+    raw * density_at_n
+}
+
+/// Wigner-Dyson distribution for GUE normalized spacings.
+/// P(s) = (32/π²)·s²·exp(-4s²/π)
+pub fn gue_spacing_pdf(s: f64) -> f64 {
+    if s < 0.0 {
+        return 0.0;
+    }
+    let pi = std::f64::consts::PI;
+    (32.0 / (pi * pi)) * s * s * (-4.0 * s * s / pi).exp()
+}
+
+/// Compute all normalized spacings from known zeros in a range.
+pub fn normalized_spacings_in_range(t_min: f64, t_max: f64) -> Vec<f64> {
+    let zeros: Vec<f64> = KNOWN_ZERO_ORDINATES.iter()
+        .filter(|&&g| g >= t_min && g <= t_max)
+        .copied()
+        .collect();
+    
+    let mut spacings = Vec::new();
+    for i in 1..zeros.len() {
+        spacings.push(normalized_spacing(zeros[i - 1], zeros[i]));
+    }
+    spacings
+}
+
+/// Statistics for normalized spacings.
+pub struct SpacingStats {
+    pub count: usize,
+    pub mean: f64,
+    pub variance: f64,
+    pub min: f64,
+    pub max: f64,
+    pub std_dev: f64,
+}
+
+impl SpacingStats {
+    fn from(spacings: &[f64]) -> Option<Self> {
+        if spacings.is_empty() {
+            return None;
+        }
+        let n = spacings.len() as f64;
+        let mean = spacings.iter().sum::<f64>() / n;
+        let variance = spacings.iter().map(|s| (s - mean).powi(2)).sum::<f64>() / n;
+        Some(Self {
+            count: spacings.len(),
+            mean,
+            variance,
+            min: *spacings.iter().min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap(),
+            max: *spacings.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap(),
+            std_dev: variance.sqrt(),
+        })
+    }
+}
+
+/// Three-measurement report for an interval.
+/// 
+/// Separates: smooth density (expected), raw spacing (actual), 
+/// normalized spacing (relative to expected density).
+pub fn three_measurement_report(t_min: f64, t_max: f64) -> String {
+    let mut report = String::new();
+    report.push_str(&format!("=== Three-Measurement Report: [{:.0}, {:.0}] ===\n\n", t_min, t_max));
+    
+    // 1. Smooth density measurement
+    report.push_str("1. SMOOTH DENSITY (expected local population):\n");
+    for &t in &[t_min, (t_min + t_max) / 2.0, t_max] {
+        let rho = smooth_density(t);
+        report.push_str(&format!("   ρ({:.0}) = {:.6} zeros/unit-t\n", t, rho));
+    }
+    let expected = expected_zeros_in_interval(t_min, t_max);
+    report.push_str(&format!("   Expected zeros in [{:.0}, {:.0}]: {:.2}\n\n", t_min, t_max, expected));
+    
+    // 2. Raw zero spacings (actual local arrangement)
+    let zeros: Vec<f64> = KNOWN_ZERO_ORDINATES.iter()
+        .filter(|&&g| g >= t_min && g <= t_max)
+        .copied()
+        .collect();
+    
+    report.push_str("2. RAW ZERO SPACINGS (actual local arrangement):\n");
+    for i in 1..zeros.len() {
+        let raw = raw_spacing(zeros[i - 1], zeros[i]);
+        report.push_str(&format!("   γ{}={:.9} → γ{}={:.9}: Δγ={:.6}\n", 
+                                 i, zeros[i-1], i+1, zeros[i], raw));
+    }
+    
+    // 3. Normalized spacings (relative to expected density)
+    let norm_spacings = normalized_spacings_in_range(t_min, t_max);
+    report.push_str("\n3. NORMALIZED SPACINGS s_n = Δγ · ρ(γ_n):\n");
+    for i in 0..norm_spacings.len() {
+        let s = norm_spacings[i];
+        let gue_p = gue_spacing_pdf(s);
+        report.push_str(&format!("   s_{}={:.6}  (GUE P(s)={:.6})\n", i + 1, s, gue_p));
+    }
+    
+    // Statistics
+    if let Some(stats) = SpacingStats::from(&norm_spacings) {
+        report.push_str("\nNormalized spacing statistics:\n");
+        report.push_str(&format!("   Count:  {}\n", stats.count));
+        report.push_str(&format!("   Mean:   {:.6}  (GUE predicts ≈ 1.0)\n", stats.mean));
+        report.push_str(&format!("   StdDev: {:.6}\n", stats.std_dev));
+        report.push_str(&format!("   Min:    {:.6}\n", stats.min));
+        report.push_str(&format!("   Max:    {:.6}\n", stats.max));
+    }
+    
+    // The distinction the user emphasized
+    report.push_str("\n--- Distinctions preserved ---\n");
+    report.push_str("S(T) is CUMULATIVE discrepancy, not local clustering.\n");
+    report.push_str("Positive S(T): actual count exceeds smooth prediction.\n");
+    report.push_str("Negative S(T): actual count falls below smooth prediction.\n");
+    report.push_str("GUE comparison uses NORMALIZED spacings, not raw ones.\n");
+    report.push_str("GUE is a statistical prediction (numerical evidence),\n");
+    report.push_str("NOT a consequence of RH alone.\n");
+    
+    report
+}
+
+/// Report with alternative calibration constants (7/8 vs 2/3).
+/// 
+/// Shows that the choice of constant shifts the baseline but doesn't
+/// change the underlying data — S(T) absorbs the difference.
+pub fn calibration_comparison_report(t_values: &[f64]) -> String {
+    let mut report = String::new();
+    report.push_str("=== Calibration Constant Comparison ===\n\n");
+    report.push_str("N(T) = (T/2π)ln(T/2π) - T/2π + C + S(T)\n\n");
+    report.push_str("  t     N_smooth(7/8)   N_smooth(2/3)   ΔC      S(t)|7/8    S(t)|2/3\n");
+    report.push_str("  ----  -------------   -------------   ------  ----------  ---------\n");
+    
+    let two_pi = 2.0 * std::f64::consts::PI;
+    for &t in t_values {
+        let smooth_78 = (t / two_pi) * ((t / two_pi).ln() - 1.0) + 7.0 / 8.0;
+        let smooth_23 = (t / two_pi) * ((t / two_pi).ln() - 1.0) + 2.0 / 3.0;
+        let actual_n = KNOWN_ZERO_ORDINATES.iter().filter(|&&g| g <= t).count() as f64;
+        let s_78 = actual_n - smooth_78;
+        let s_23 = actual_n - smooth_23;
+        
+        report.push_str(&format!("  {:.0}   {:>12.2}    {:>12.2}   {:+.4}  {:>+10.3}  {:>+9.3}\n",
+                                 t, smooth_78, smooth_23, 2.0/3.0 - 7.0/8.0, s_78, s_23));
+    }
+    
+    report.push_str("\nThe constant shifts the baseline; S(T) absorbs the difference.\n");
+    report.push_str("The underlying zero data is unchanged — only our representation shifts.\n");
+    report.push_str("Keep 7/8 as calibrated baseline, 2/3 as experimental alternative.\n");
+    
+    report
+}
+
+#[cfg(test)]
+mod three_measurement_tests {
+    use super::*;
+    
+    #[test]
+    fn test_smooth_density_positive() {
+        for &t in &[50.0, 100.0, 500.0] {
+            assert!(smooth_density(t) > 0.0);
+        }
+    }
+    
+    #[test]
+    fn test_normalized_spacing_mean_near_one() {
+        let spacings = normalized_spacings_in_range(50.0, 130.0);
+        if !spacings.is_empty() {
+            let mean = spacings.iter().sum::<f64>() / spacings.len() as f64;
+            // GUE predicts mean ≈ 1.0; allow generous tolerance for small sample
+            assert!((mean - 1.0).abs() < 1.5, "Mean normalized spacing {} should be near 1.0", mean);
+        }
+    }
+    
+    #[test]
+    fn test_gue_pdf_integrates_to_one_approx() {
+        // Numerically integrate GUE PDF from 0 to 10 (should be ≈ 1)
+        let mut integral = 0.0;
+        let step = 0.001;
+        let mut s = 0.0;
+        while s < 10.0 {
+            integral += gue_spacing_pdf(s) * step;
+            s += step;
+        }
+        assert!((integral - 1.0).abs() < 0.05, "GUE PDF should integrate to ~1, got {}", integral);
+    }
+    
+    #[test]
+    fn test_calibration_constants_differ() {
+        // S(t) with 7/8 and 2/3 should differ by exactly 7/8 - 2/3 = 5/24
+        let t = 100.0;
+        let s_78 = s_function_known_zeros(t);
+        let two_pi = 2.0 * std::f64::consts::PI;
+        let smooth_23 = (t / two_pi) * ((t / two_pi).ln() - 1.0) + 2.0 / 3.0;
+        let actual_n = KNOWN_ZERO_ORDINATES.iter().filter(|&&g| g <= t).count() as f64;
+        let s_23 = actual_n - smooth_23;
+        
+        let diff = s_78 - s_23;
+        assert!((diff - (2.0/3.0 - 7.0/8.0)).abs() < 1e-10, 
+                "S(t) difference should be -5/24 = {}, got {}", 2.0/3.0 - 7.0/8.0, diff);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
