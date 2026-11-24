@@ -2,6 +2,14 @@
 
 All notable changes to shor-grover-exploration are documented here.
 
+## [Unreleased]
+
+### Added
+
+**Reference material:**
+- `papers/vp_vnp/` — reference copy of *VP != VNP over every field* (Claude / Anthropic, 2026): paper PDF + extracted text + attribution/verification note. Proofs written by Claude (model), provider Anthropic; source `anthropics/formal-math` (PR #51).
+- `src/p_vs_np.rs` station output now cites the paper with model/provider credit.
+
 ## [0.1.1] - 2026-11-23
 
 ### Added

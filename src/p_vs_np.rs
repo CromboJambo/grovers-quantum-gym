@@ -174,6 +174,16 @@ pub fn show_p_vs_np_station() {
     println!("  - Some problems are inherently hard to solve (but easy to check)");
     println!("  - We must accept approximation algorithms for NP-hard problems\n");
 
+    println!("\n--- RELATED WORK: ALGEBRAIC COMPLEXITY ---\n");
+    println!("VP != VNP over every field (2026): a superpolynomial lower bound for");
+    println!("general arithmetic circuits computing the permanent (char != 2) and the");
+    println!("unsigned Hamiltonian-cycle polynomial (all fields). Formalized in Lean 4.");
+    println!("  Paper:   papers/vp_vnp/paper.pdf");
+    println!("  Proofs:  written by Claude (model), Anthropic (provider)");
+    println!("  Source:  https://github.com/anthropics/formal-math/tree/main/vp-vnp");
+    println!("  Status:  kernel-checked, no sorry outside the challenge file;");
+    println!("           quasi-polynomial bound; does NOT settle P vs NP\n");
+
     println!("=== P VS NP STATION COMPLETE ===");
 }
 

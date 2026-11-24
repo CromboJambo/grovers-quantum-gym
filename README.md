@@ -33,7 +33,7 @@ that are either interesting or not.
 | RSA Encryption | 1977 | Public-key cryptography, mod_pow, extended Euclidean inverse — threatened by Shor's algorithm |
 | Sorting Lower Bounds | — | Decision tree model proving Ω(n log n) lower bound for comparison-based sorting |
 | Attention Mechanism | 2017 | Scaled dot-product attention from "Attention Is All You Need" |
-| P vs NP Millennium Prize | 2000 | Brute-force SAT solving demonstrating exponential blowup |
+| P vs NP Millennium Prize | 2000 | Brute-force SAT solving demonstrating exponential blowup; includes reference copy of VP != VNP over every field (papers/vp_vnp/) |
 | Exponential Time Hypothesis | 2001 | ETH station — subexponential algorithms for NP-complete problems |
 | Navier-Stokes Millennium Prize | 2000 | 3D pseudo-spectral solver: BKM blowup criterion tracking, ABC flow validation (rel err 3e-16), Taylor-Green vortex benchmark |
 | Riemann Hypothesis Millennium Prize | 1859 | Zeta function computation along the critical line, prime gap experiments D-P with structural controls |
@@ -113,6 +113,8 @@ lean/                      # Lean 4 formalizations
 └── KvCacheCompress/       # Bounded-error proof for KV cache compression
 
 ns3d/                      # NS reference data (CSVs), papers, OpenAI Lean formalization submodule
+
+papers/                     # Reference papers: vp_vnp/ (VP != VNP over every field, Claude/Anthropic)
 ```
 
 ## Lean Formalization
