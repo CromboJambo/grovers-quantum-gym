@@ -763,6 +763,339 @@ mod three_measurement_tests {
     }
 }
 
+
+/// === Spacing Structure Analysis ===
+/// 
+/// Mean normalized spacing validates the unfolding, NOT GUE.
+/// Both Poisson and GUE give mean ≈ 1 after normalization.
+/// The real test is in distribution shape and higher-order structure.
+
+/// Wigner-Dyson CDF for GUE nearest-neighbor spacings (numerically integrated).
+/// F_GUE(s) = ∫₀ˢ P(t) dt where P(t) = (32/π²)t²exp(-4t²/π)
+/// 
+/// Key property: F_GUE(0) = 0 — level repulsion suppresses small spacings.
+pub fn gue_spacing_cdf(s: f64) -> f64 {
+    if s < 0.0 {
+        return 0.0;
+    }
+    // Numerically integrate P(t) from 0 to s using Simpson's rule
+    if s <= 0.0 { return 0.0; }
+    let n = 1000usize;
+    let h = s / n as f64;
+    let mut sum = gue_spacing_pdf(0.0) + gue_spacing_pdf(s);
+    for i in 1..n {
+        let t = i as f64 * h;
+        sum += if i % 2 == 0 { 2.0 * gue_spacing_pdf(t) } else { 4.0 * gue_spacing_pdf(t) };
+    }
+    (h / 3.0) * sum
+}
+
+/// Poisson CDF for comparison — no level repulsion.
+/// F_Poisson(s) = 1 - exp(-s)
+/// 
+/// Key property: F_Poisson(0) = 0 but P'(0) > 0 — small spacings allowed.
+pub fn poisson_spacing_cdf(s: f64) -> f64 {
+    if s < 0.0 {
+        return 0.0;
+    }
+    1.0 - (-s).exp()
+}
+
+/// Poisson PDF for comparison.
+pub fn poisson_spacing_pdf(s: f64) -> f64 {
+    if s < 0.0 {
+        return 0.0;
+    }
+    (-s).exp()
+}
+
+/// Kolmogorov-Smirnov statistic between empirical CDF and theoretical CDF.
+/// 
+/// D = max_s |F_empirical(s) - F_theoretical(s)|
+/// Larger D means worse fit.
+pub fn kolmogorov_smirnov(spacings: &[f64], theoretical_cdf: fn(f64) -> f64) -> f64 {
+    if spacings.is_empty() {
+        return 0.0;
+    }
+    let mut sorted = spacings.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    
+    let n = sorted.len() as f64;
+    let mut d_max: f64 = 0.0;
+    
+    for (i, &s) in sorted.iter().enumerate() {
+        let cdf_theory = theoretical_cdf(s);
+        // Check both F_emp(s-) and F_emp(s+) against theory
+        let f_emp_below = i as f64 / n;
+        let f_emp_above = (i + 1) as f64 / n;
+        
+        d_max = d_max.max((f_emp_below - cdf_theory).abs());
+        d_max = d_max.max((f_emp_above - cdf_theory).abs());
+    }
+    
+    d_max
+}
+
+/// Nearest-neighbor distribution test.
+/// 
+/// Compares empirical spacing distribution against GUE and Poisson.
+/// Returns KS statistics for both — smaller is better fit.
+pub fn nearest_neighbor_test(spacings: &[f64]) -> String {
+    let mut report = String::new();
+    report.push_str("=== Nearest-Neighbor Distribution Test ===\n\n");
+    report.push_str(&format!("Sample size: {} normalized spacings\n\n", spacings.len()));
+    
+    // KS statistics
+    let ks_gue = kolmogorov_smirnov(spacings, gue_spacing_cdf);
+    let ks_poisson = kolmogorov_smirnov(spacings, poisson_spacing_cdf);
+    
+    report.push_str("Kolmogorov-Smirnov distance (smaller = better fit):\n");
+    report.push_str(&format!("  vs GUE (Wigner-Dyson):   D = {:.4}\n", ks_gue));
+    report.push_str(&format!("  vs Poisson:              D = {:.4}\n\n", ks_poisson));
+    
+    // Level repulsion check — fraction of spacings below 0.25
+    let small_count = spacings.iter().filter(|&&s| s < 0.25).count();
+    let small_frac = small_count as f64 / spacings.len() as f64;
+    let gue_small = gue_spacing_cdf(0.25);
+    let poisson_small = poisson_spacing_cdf(0.25);
+    
+    report.push_str("Level repulsion check (spacings < 0.25):\n");
+    report.push_str(&format!("  Observed fraction: {:.3}\n", small_frac));
+    report.push_str(&format!("  GUE predicts:      {:.3}\n", gue_small));
+    report.push_str(&format!("  Poisson predicts:  {:.3}\n\n", poisson_small));
+    
+    // CDF comparison at key points
+    report.push_str("CDF comparison:\n");
+    report.push_str("  s       Empirical   GUE       Poisson\n");
+    report.push_str("  ------  ----------  --------  --------\n");
+    let mut sorted = spacings.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    for &s in &[0.25, 0.5, 1.0, 1.5, 2.0] {
+        let emp_cdf = (sorted.iter().filter(|&&x| x <= s).count() as f64) / sorted.len() as f64;
+        report.push_str(&format!("  {:.2}    {:>9.3}   {:>8.3}   {:>8.3}\n", 
+                                 s, emp_cdf, gue_spacing_cdf(s), poisson_spacing_cdf(s)));
+    }
+    
+    // Verdict (cautious — small samples!)
+    report.push_str("\n--- Interpretation ---\n");
+    if ks_gue < ks_poisson {
+        report.push_str("GUE fits better than Poisson for this sample.\n");
+    } else {
+        report.push_str("Poisson fits better than GUE for this sample.\n");
+    }
+    report.push_str(&format!("NOTE: {} observations is a small sample.\n", spacings.len()));
+    report.push_str("KS test has low power at this size. This is exploratory,\n");
+    report.push_str("not a statistical validation. Need 100+ spacings for meaningful tests.\n");
+    
+    report
+}
+
+/// Pair correlation analysis — relationships between non-adjacent zeros.
+/// 
+/// For each pair of spacings (s_i, s_j) with i < j, compute the "gap"
+/// in terms of how many zeros separate them. This goes beyond nearest-neighbor.
+/// 
+/// Simple version: count pairs within normalized distance r.
+pub fn pair_correlation(spacings: &[f64], r_max: f64, bins: usize) -> Vec<(f64, f64)> {
+    let mut result = Vec::new();
+    let step = r_max / bins as f64;
+    
+    for b in 0..bins {
+        let r = (b as f64 + 0.5) * step;
+        let mut count = 0.0;
+        
+        for i in 0..spacings.len() {
+            for j in (i + 1)..spacings.len() {
+                // "Distance" between spacings in the sequence
+                let seq_dist = (j - i) as f64;
+                if seq_dist <= r * 5.0 { // scale factor
+                    count += 1.0;
+                }
+            }
+        }
+        
+        result.push((r, count));
+    }
+    
+    result
+}
+
+/// Consecutive spacing pairs — look at (s_i, s_{i+1}) relationships.
+/// 
+/// This tests whether small spacings tend to cluster together or repel.
+/// Under GUE, we expect anti-correlation: after a small gap, the next
+/// gap tends to be larger (and vice versa).
+pub fn consecutive_spacing_correlation(spacings: &[f64]) -> f64 {
+    if spacings.len() < 3 {
+        return 0.0;
+    }
+    
+    let n = spacings.len() as f64 - 1.0;
+    let mean = spacings.iter().sum::<f64>() / spacings.len() as f64;
+    
+    let mut cov = 0.0;
+    for i in 0..(spacings.len() - 1) {
+        cov += (spacings[i] - mean) * (spacings[i + 1] - mean);
+    }
+    cov /= n;
+    
+    let variance = spacings.iter().map(|s| (s - mean).powi(2)).sum::<f64>() / spacings.len() as f64;
+    
+    if variance == 0.0 {
+        return 0.0;
+    }
+    
+    cov / variance // Pearson correlation coefficient
+}
+
+/// Spacing sequence structure — the "what do the pixels look like" layer.
+/// 
+/// Examines what survives after mean and individual distribution are accounted for:
+/// - Consecutive spacing correlations (local arrangement)
+/// - Spacing triplets (s_i, s_{i+1}, s_{i+2}) patterns
+/// - Overlapping window statistics
+pub fn spacing_structure(spacings: &[f64]) -> String {
+    let mut report = String::new();
+    report.push_str("=== Spacing Structure Analysis ===\n\n");
+    report.push_str("What survives after mean and individual distribution?\n\n");
+    
+    if spacings.len() < 3 {
+        report.push_str("Need at least 3 spacings for structure analysis.\n");
+        return report;
+    }
+    
+    // 1. Consecutive correlation
+    let corr = consecutive_spacing_correlation(spacings);
+    report.push_str("Consecutive spacing correlation (Pearson r):\n");
+    report.push_str(&format!("  r = {:.4}\n", corr));
+    if corr < -0.2 {
+        report.push_str("  → Negative: small gaps tend to follow large gaps (level repulsion)\n");
+    } else if corr > 0.2 {
+        report.push_str("  → Positive: gaps cluster together\n");
+    } else {
+        report.push_str("  → Near zero: no strong local correlation\n");
+    }
+    
+    // 2. Spacing triplets — look at (s_i, s_{i+1}, s_{i+2}) patterns
+    report.push_str("\nSpacing triplets (s_i, s_{i+1}, s_{i+2}):\n");
+    for i in 0..(spacings.len().saturating_sub(2)).min(6) {
+        report.push_str(&format!("  ({:.3}, {:.3}, {:.3})\n", 
+                                 spacings[i], spacings[i+1], spacings[i+2]));
+    }
+    
+    // 3. Overlapping window means — sliding window of size 3
+    report.push_str("\nSliding window means (window=3):\n");
+    for i in 0..(spacings.len().saturating_sub(2)) {
+        let w_mean = (spacings[i] + spacings[i+1] + spacings[i+2]) / 3.0;
+        report.push_str(&format!("  window@{}: {:.4}\n", i, w_mean));
+    }
+    
+    // 4. The key question
+    report.push_str("\n--- The Packing Question ---\n");
+    report.push_str("Same density? Same individual spacing distribution?\n");
+    report.push_str("Do the ARRANGEMENTS differ?\n\n");
+    report.push_str("If two sequences have identical nearest-neighbor statistics\n");
+    report.push_str("but different consecutive correlations or triplet patterns,\n");
+    report.push_str("then the arrangement carries information beyond counting.\n\n");
+    report.push_str("This is where 'how many fit' becomes 'how they're packed.'\n");
+    
+    report
+}
+
+/// Full spacing analysis — all layers from raw to structural.
+pub fn full_spacing_analysis(t_min: f64, t_max: f64) -> String {
+    let mut report = String::new();
+    report.push_str(&format!("=== Full Spacing Analysis: [{:.0}, {:.0}] ===\n\n", t_min, t_max));
+    
+    // Preserve raw data first (engineering principle!)
+    let zeros: Vec<f64> = KNOWN_ZERO_ORDINATES.iter()
+        .filter(|&&g| g >= t_min && g <= t_max)
+        .copied()
+        .collect();
+    
+    report.push_str("RAW ZERO ORDINATES (preserved):\n");
+    for &g in &zeros {
+        report.push_str(&format!("  {:.9}\n", g));
+    }
+    
+    let raw_spacings: Vec<f64> = zeros.windows(2)
+        .map(|w| w[1] - w[0])
+        .collect();
+    
+    report.push_str("\nRAW SPACINGS (preserved):\n");
+    for &s in &raw_spacings {
+        report.push_str(&format!("  {:.6}\n", s));
+    }
+    
+    let norm_spacings = normalized_spacings_in_range(t_min, t_max);
+    
+    report.push_str("\nNORMALIZED SPACINGS:\n");
+    for &s in &norm_spacings {
+        report.push_str(&format!("  {:.6}\n", s));
+    }
+    
+    // Layer 1: Mean (validates unfolding)
+    if !norm_spacings.is_empty() {
+        let mean = norm_spacings.iter().sum::<f64>() / norm_spacings.len() as f64;
+        report.push_str(&format!("\nLayer 1 — Mean normalized spacing: {:.6} (validates unfolding)\n", mean));
+    }
+    
+    // Layer 2: Nearest-neighbor distribution (tests shape)
+    if !norm_spacings.is_empty() {
+        report.push_str(&format!("\n{}", nearest_neighbor_test(&norm_spacings)));
+    }
+    
+    // Layer 3: Spacing structure (tests arrangement)
+    if norm_spacings.len() >= 3 {
+        report.push_str(&format!("\n{}", spacing_structure(&norm_spacings)));
+    }
+    
+    report
+}
+
+#[cfg(test)]
+mod spacing_structure_tests {
+    use super::*;
+    
+    #[test]
+    fn test_gue_cdf_properties() {
+        // F(0) = 0 (level repulsion)
+        assert!((gue_spacing_cdf(0.0)).abs() < 1e-10);
+        // F(∞) → 1
+        assert!(gue_spacing_cdf(10.0) > 0.999);
+        // Monotonic
+        assert!(gue_spacing_cdf(0.5) < gue_spacing_cdf(1.0));
+    }
+    
+    #[test]
+    fn test_poisson_cdf_properties() {
+        assert!((poisson_spacing_cdf(0.0)).abs() < 1e-10);
+        assert!(poisson_spacing_cdf(10.0) > 0.999);
+        // Poisson allows small spacings more than GUE
+        assert!(poisson_spacing_cdf(0.25) > gue_spacing_cdf(0.25));
+    }
+    
+    #[test]
+    fn test_ks_statistic_nonnegative() {
+        let spacings = vec![0.8, 1.2, 0.9, 1.1, 1.0];
+        assert!(kolmogorov_smirnov(&spacings, gue_spacing_cdf) >= 0.0);
+    }
+    
+    #[test]
+    fn test_consecutive_correlation_range() {
+        let spacings = vec![0.5, 1.5, 0.5, 1.5, 0.5];
+        let corr = consecutive_spacing_correlation(&spacings);
+        assert!(corr >= -1.0 && corr <= 1.0);
+    }
+    
+    #[test]
+    fn test_full_analysis_runs() {
+        let report = full_spacing_analysis(50.0, 100.0);
+        assert!(report.contains("RAW ZERO ORDINATES"));
+        assert!(report.contains("NORMALIZED SPACINGS"));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
