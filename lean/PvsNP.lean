@@ -284,14 +284,7 @@ theorem Cook_Levin : NPComplete SAT := by
   sorry
 
 
-/-- Size of a formula (number of nodes in the syntax tree). -/
-def formulaSize : BoolFormula → ℕ
-  | BoolFormula.var n    => 1
-  | BoolFormula.not f    => 1 + formulaSize f
-  | BoolFormula.and f g  => 1 + formulaSize f + formulaSize g
-  | BoolFormula.or f g   => 1 + formulaSize f + formulaSize g
-  | BoolFormula.tt       => 1
-  | BoolFormula.ff       => 1
+
 
 /-- **Lemma:** Evaluating a formula under any assignment takes at most
     `formulaSize f` steps. This is the key to showing SAT ∈ NP: the
@@ -391,10 +384,38 @@ def encodeFormula : BoolFormula -> BitString
        Then: SAT_problem bs = match decodeFormula bs with | some f => SAT f | none => false -/
 
 
+/-- Size of a formula, weighted to reflect its encoded length. Variables are
+    weighted by their `encNat` bit-length (so large indices cost more), and
+    `and`/`or` double their children's sizes to account for the length-prefix
+    overhead in `encodeFormula`. This measure bounds the actual encoding size. -/
+def formulaSize : BoolFormula → ℕ
+  | BoolFormula.var n    => 1 + (encNat n).length
+  | BoolFormula.not f    => 1 + formulaSize f
+  | BoolFormula.and f g  => 1 + 2 * formulaSize f + 2 * formulaSize g
+  | BoolFormula.or f g   => 1 + 2 * formulaSize f + 2 * formulaSize g
+  | BoolFormula.tt       => 1
+  | BoolFormula.ff       => 1
+
 /-- The encoding is length-bounded: the encoded size is polynomial in formula size. -/
 theorem encodeFormula_size_bound (f : BoolFormula) :
     (encodeFormula f).length <= 20 * formulaSize f := by
-  sorry
+  induction f with
+  | var n =>
+      simp [encodeFormula, formulaSize, encodeLenPref, encLenUnary]
+      omega
+  | not f ih =>
+      simp [encodeFormula, formulaSize]
+      omega
+  | and f g ihf ihg =>
+      simp [encodeFormula, formulaSize, encodeLenPref, encLenUnary]
+      omega
+  | or f g ihf ihg =>
+      simp [encodeFormula, formulaSize, encodeLenPref, encLenUnary]
+      omega
+  | tt =>
+      simp [encodeFormula, formulaSize]
+  | ff =>
+      simp [encodeFormula, formulaSize]
 
 /-- SAT is decidable in exponential time (brute force over all assignments). -/
 theorem SAT_in_EXPTIME : True := by
