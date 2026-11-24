@@ -22,7 +22,7 @@ import Mathlib.Data.List.Basic
 import Mathlib.Data.List.Lemmas
 import Mathlib.Tactic
 
-open Computability Turing Polynomial List Nat
+open Computability Turing Polynomial List Nat Classical
 
 /-! ## Setup -/
 
@@ -232,17 +232,22 @@ def evalFormula : BoolFormula -> Assignment -> Bool
   | BoolFormula.tt,       a => true
   | BoolFormula.ff,       a => false
 
-/-- The SAT decision problem: is there an assignment satisfying φ?
-    We encode formulas as bit strings via their inductive structure. -/
-def SAT (w : BitString) : Bool :=
-  -- In a full formalization, w would decode to a BoolFormula.
-  -- For now, we work with formulas directly and note the encoding exists.
-  sorry
+/-- List of variable indices appearing in a formula (with duplicates). -/
+def varsIn : BoolFormula → List ℕ
+  | BoolFormula.var n    => [n]
+  | BoolFormula.not f    => varsIn f
+  | BoolFormula.and f g  => varsIn f ++ varsIn g
+  | BoolFormula.or f g   => varsIn f ++ varsIn g
+  | BoolFormula.tt       => []
+  | BoolFormula.ff       => []
 
-/-- **SAT is in NP.** Certificate: a satisfying assignment.
-    Verifier checks the formula under the given assignment. -/
-theorem SAT_in_NP : InNP (fun w => SAT w) := by
-  sorry
+/-- Find the first index of n in l, if present. -/
+def findFirstIdx (n : ℕ) (l : List ℕ) : Option ℕ :=
+  match l with
+  | [] => none
+  | x :: xs => if x = n then some 0 else (findFirstIdx n xs).map Nat.succ
+
+
 
 /-! ## Polynomial-Time Many-One Reductions -/
 
@@ -519,12 +524,98 @@ def decodeFormula (bs : BitString) : Option BoolFormula :=
   | none           => none
   | some (f, rem)  => if rem.isEmpty then some f else none
 
-/-- **Lemma:** The Tseitin transformation for conjunction preserves satisfiability.
-    Given formulas f and g, the statement "there exists an assignment making
-    both f and g true" is equivalent to "there exists an assignment and a
-    Boolean x such that f=a=x, g=a=x, and x=true". -/
-lemma and_eq_true_iff (b₁ b₂ : Bool) : b₁ && b₂ = true <-> b₁ = true /\ b₂ = true := by
-  cases b₁ <;> cases b₂ <;> simp
+/-- Safe list indexing with default value. -/
+def getBitAt (l : List Bool) (i : ℕ) : Bool :=
+  match l, i with
+  | [], _ => false
+  | b :: _, 0 => b
+  | _ :: xs, n+1 => getBitAt xs n
+
+/-- The SAT decision problem: is the formula encoded by w satisfiable? -/
+noncomputable def SAT (w : BitString) : Bool :=
+  match decodeFormula w with
+  | none => false
+  | some f => if ∃ a : Assignment, evalFormula f a then true else false
+
+/-- SAT verifier: c encodes an assignment to `varsIn f` (one bit per occurrence).
+    Returns true iff w decodes to a formula f and the assignment from c satisfies it. -/
+def SAT_verify (w c : BitString) : Bool :=
+  match decodeFormula w with
+  | none => false
+  | some f =>
+      let vs := varsIn f
+      if c.length = vs.length then
+        evalFormula f (fun n =>
+          match findFirstIdx n vs with
+          | some i => getBitAt c i
+          | none => false)
+      else
+        false
+
+/-- If two assignments agree on all variables in f, they evaluate f identically. -/
+lemma evalFormula_agree_on_vars (f : BoolFormula) (a b : Assignment) 
+    (h : ∀ n, n ∈ varsIn f → a n = b n) : 
+    evalFormula f a = evalFormula f b := by
+  induction f with
+  | var k =>
+      exact h k (by simp [varsIn])
+  | not f' ih =>
+      apply congrArg (fun x : Bool => !x)
+      exact ih h
+  | and f' g' ihf ihg =>
+      have hf : evalFormula f' a = evalFormula f' b := by
+        apply ihf
+        intro n hn
+        refine h n ?_
+        simp [varsIn]
+        aesop
+      have hg : evalFormula g' a = evalFormula g' b := by
+        apply ihg
+        intro n hn
+        refine h n ?_
+        simp [varsIn]
+        aesop
+      simp [evalFormula]
+      rw [hf, hg]
+  | or f' g' ihf ihg =>
+      have hf : evalFormula f' a = evalFormula f' b := by
+        apply ihf
+        intro n hn
+        refine h n ?_
+        simp [varsIn]
+        aesop
+      have hg : evalFormula g' a = evalFormula g' b := by
+        apply ihg
+        intro n hn
+        refine h n ?_
+        simp [varsIn]
+        aesop
+      simp [evalFormula]
+      rw [hf, hg]
+  | tt => rfl
+  | ff => rfl
+
+/-- Soundness: if SAT_verify accepts (w,c), then w encodes a satisfiable formula. -/
+lemma SAT_verify_sound (w c : BitString) : SAT_verify w c → SAT w := by
+  intro hv
+  cases decodeFormula w with
+  | none =>
+      simp [SAT_verify, SAT] at hv ⊢
+      aesop
+  | some f =>
+      let vs := varsIn f
+      let a' : Assignment := fun n => match findFirstIdx n vs with | some i => getBitAt c i | none => false
+      simp [SAT_verify, SAT] at hv ⊢
+      aesop (add norm [a'])
+
+/-- **SAT is in NP.** Certificate: a satisfying assignment to the formula's variables. -/
+theorem SAT_in_NP : InNP (fun w => SAT w) := by
+  classical
+  refine ⟨⟨SAT_verify, Polynomial.X, Polynomial.C 2 * Polynomial.X, ?sound, ?complete⟩, trivial⟩
+  · -- sound: SAT_verify w c → SAT w
+    exact SAT_verify_sound
+  · -- complete: SAT w → ∃ short certificate c with SAT_verify w c
+    sorry
 
 theorem tseitin_conj_satisfiability_preserving
     (f g : BoolFormula)
@@ -532,20 +623,14 @@ theorem tseitin_conj_satisfiability_preserving
     (exists a, evalFormula (BoolFormula.and f g) a = true) <->
     (exists (a : Assignment), evalFormula f a = true /\ evalFormula g a = true) := by
   constructor
-  . -- Forward
+  . -- Forward: (f ∧ g) satisfiable → both f and g satisfiable under same assignment
     rintro ⟨a, ha⟩
-    have h : evalFormula f a && evalFormula g a = true := by
-      dsimp [evalFormula] at ha ⊢
-      exact ha
-    rw [and_eq_true_iff] at h
-    exact ⟨a, h⟩
-  . -- Backward
+    simp [evalFormula] at ha ⊢
+    aesop
+  . -- Backward: f and g both satisfiable under same a → (f ∧ g) satisfiable
     rintro ⟨a, ⟨hf, hg⟩⟩
-    have h : evalFormula f a && evalFormula g a = true := by
-      rw [and_eq_true_iff]
-      exact ⟨hf, hg⟩
-    dsimp [evalFormula]
-    exact ⟨a, h⟩
+    simp [evalFormula]
+    aesop
 
 
 /-! ## Notes on What's Missing -/
