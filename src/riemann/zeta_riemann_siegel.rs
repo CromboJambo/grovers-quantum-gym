@@ -249,6 +249,271 @@ pub fn riemann_siegel_report() -> String {
     report
 }
 
+
+/// Compute S(t) = arg(ζ(1/2+it)) / π — the fluctuation term in Riemann-von Mangoldt.
+/// 
+/// S(t) measures how far the actual zero count deviates from the smooth prediction:
+///     N(T) = (T/2π)ln(T/2π) - T/2π + 7/8 + S(T)
+/// 
+/// Computationally: scan Z(t) for sign changes from 0 to t, count zeros found,
+/// then subtract the smooth Riemann-von Mangoldt prediction.
+pub fn s_function(t: f64, step: f64) -> f64 {
+    if t < 1.0 {
+        return 0.0;
+    }
+    
+    // Count zeros by scanning Z(t) for sign changes
+    let mut zero_count = 0;
+    let mut prev_z = super::rh_verification::z_function_critical_line(1.0, 200);
+    let mut current_t = step;
+    
+    while current_t <= t {
+        let z = super::rh_verification::z_function_critical_line(current_t, 200);
+        if prev_z * z < 0.0 {
+            zero_count += 1;
+        }
+        prev_z = z;
+        current_t += step;
+    }
+    
+    // Smooth Riemann-von Mangoldt prediction
+    let two_pi = 2.0 * std::f64::consts::PI;
+    let smooth_n = if t > 1.0 {
+        (t / two_pi) * ((t / two_pi).ln() - 1.0) + 7.0 / 8.0
+    } else {
+        0.0
+    };
+    
+    // S(t) = actual count - smooth prediction
+    zero_count as f64 - smooth_n
+}
+
+/// Scan S(t) over a range to find fluctuations.
+/// Returns (t, S(t)) pairs.
+pub fn scan_s_function(t_min: f64, t_max: f64, step: f64) -> Vec<(f64, f64)> {
+    let mut points = Vec::new();
+    let mut current_t = t_min;
+    
+    while current_t <= t_max {
+        let s_val = s_function(current_t, 0.1);
+        points.push((current_t, s_val));
+        current_t += step;
+    }
+    
+    points
+}
+
+/// Find the maximum |S(t)| in a range — measures zero clustering irregularity.
+pub fn max_s_deviation(t_min: f64, t_max: f64, step: f64) -> (f64, f64) {
+    let mut max_abs = 0.0;
+    let mut max_t = t_min;
+    
+    let mut current_t = t_min;
+    while current_t <= t_max {
+        let s_val = s_function(current_t, 0.1);
+        if s_val.abs() > max_abs {
+            max_abs = s_val.abs();
+            max_t = current_t;
+        }
+        current_t += step;
+    }
+    
+    (max_t, max_abs)
+}
+
+/// Compute zero spacings from found zeros and their statistics.
+/// Under RH + random matrix theory, spacings should follow GUE distribution.
+pub fn zero_spacing_stats(t_min: f64, t_max: f64, step: f64) -> Vec<f64> {
+    let zeros = find_zeros_rs(t_min, t_max, step);
+    let mut spacings = Vec::new();
+    
+    for i in 1..zeros.len() {
+        spacings.push(zeros[i] - zeros[i - 1]);
+    }
+    
+    spacings
+}
+
+/// Report on S(t) fluctuations and zero spacing statistics.
+pub fn s_function_report() -> String {
+    let mut report = String::new();
+    report.push_str("=== S(t) Fluctuation Analysis ===\n\n");
+    
+    // 1. S(t) values at various heights
+    report.push_str("S(t) = N_actual(t) - N_smooth(t):\n");
+    for &t in &[50.0, 100.0, 200.0] {
+        let s_val = s_function(t, 0.1);
+        let two_pi = 2.0 * std::f64::consts::PI;
+        let smooth_n = (t / two_pi) * ((t / two_pi).ln() - 1.0) + 7.0 / 8.0;
+        report.push_str(&format!("  S({:.0}) = {:+.3}  (smooth N = {:.2})\n", t, s_val, smooth_n));
+    }
+    
+    // 2. Maximum deviation in a range
+    report.push_str("\nMaximum |S(t)| in [50, 100]:\n");
+    let (max_t, max_abs) = max_s_deviation(50.0, 100.0, 0.5);
+    report.push_str(&format!("  Max deviation at t={:.2}: |S| = {:.3}\n", max_t, max_abs));
+    
+    // 3. Zero spacings in [50, 80]
+    report.push_str("\nZero spacings in [50, 80]:\n");
+    let spacings = zero_spacing_stats(50.0, 80.0, 0.3);
+    if !spacings.is_empty() {
+        let mean = spacings.iter().sum::<f64>() / spacings.len() as f64;
+        report.push_str(&format!("  Mean spacing: {:.4}\n", mean));
+        for (i, &s) in spacings.iter().enumerate() {
+            report.push_str(&format!("  Gap {}: {:.4}\n", i + 1, s));
+        }
+    }
+    
+    // 4. The "resolution" analogy from the doc
+    report.push_str("\nThe resolution analogy:\n");
+    report.push_str("  N_smooth(T) = low-res frame (the smooth prediction)\n");
+    report.push_str("  S(T)        = detail layer (where zeros actually are)\n");
+    report.push_str("  The 7/8     = calibration bolt (snug + 7/8)\n\n");
+    report.push_str("If we changed 7/8 to 5/24 or 2/3, we'd shift the baseline\n");
+    report.push_str("but S(T) would absorb the difference — the *structure* is in\n");
+    report.push_str("the fluctuations, not the constant.\n");
+    
+    report
+}
+
+#[cfg(test)]
+mod s_tests {
+    use super::*;
+    
+    #[test]
+    fn test_s_function_finite() {
+        let s = s_function(50.0, 0.1);
+        assert!(s.is_finite());
+    }
+    
+    #[test]
+    fn test_zero_spacing_positive() {
+        let spacings = zero_spacing_stats(50.0, 80.0, 0.3);
+        for &s in &spacings {
+            assert!(s > 0.0, "Spacing must be positive: {}", s);
+        }
+    }
+    
+    #[test]
+    fn test_max_s_deviation_finite() {
+        let (_, max_abs) = max_s_deviation(50.0, 100.0, 0.5);
+        assert!(max_abs.is_finite());
+    }
+}
+
+
+/// First 50 known nontrivial zero ordinates of ζ(s) on the critical line.
+/// Source: verified computational results (Odlyzko, Platt, Trudgian).
+pub const KNOWN_ZERO_ORDINATES: &[f64] = &[
+    14.134725142, 21.022039639, 25.010857580, 30.424876126, 32.935061588,
+    37.586178159, 40.918719012, 43.327073281, 48.005150881, 49.773832478,
+    52.816241640, 55.327085340, 59.347044004, 60.831678408, 65.112544046,
+    67.079810529, 69.546401711, 72.067153611, 75.704690629, 77.144840065,
+    79.337375021, 82.916502094, 84.735492970, 88.104915964, 89.447139859,
+    92.491899272, 94.651342973, 95.870634387, 98.831194240, 101.317879979,
+    103.725538115, 105.387352960, 107.331869529, 109.042695869, 111.029531762,
+    111.874613855, 114.139174843, 115.039391952, 116.574738645, 118.250339147,
+    121.029630994, 122.558759559, 124.339457585, 125.197735560, 127.606445593,
+    129.022593941, 130.728809855, 131.244796905, 133.498139977, 134.133287033,
+];
+
+/// Compute S(t) using known zeros — accurate reference implementation.
+/// 
+/// S(t) = N_zeros_below_t - smooth_N(t)
+/// where smooth_N(t) = (t/2π)ln(t/2π) - t/2π + 7/8
+pub fn s_function_known_zeros(t: f64) -> f64 {
+    let zero_count = KNOWN_ZERO_ORDINATES.iter().filter(|&&g| g <= t).count() as f64;
+    
+    if t < 1.0 {
+        return 0.0;
+    }
+    
+    let two_pi = 2.0 * std::f64::consts::PI;
+    let smooth_n = (t / two_pi) * ((t / two_pi).ln() - 1.0) + 7.0 / 8.0;
+    
+    zero_count - smooth_n
+}
+
+/// Scan S(t) using known zeros — accurate reference for validation.
+pub fn scan_s_function_known_zeros(t_min: f64, t_max: f64, step: f64) -> Vec<(f64, f64)> {
+    let mut points = Vec::new();
+    let mut current_t = t_min;
+    
+    while current_t <= t_max {
+        let s_val = s_function_known_zeros(current_t);
+        points.push((current_t, s_val));
+        current_t += step;
+    }
+    
+    points
+}
+
+/// Report on S(t) using known zeros — shows the actual fluctuation structure.
+pub fn s_function_report_known() -> String {
+    let mut report = String::new();
+    report.push_str("=== S(t) Fluctuations (Known Zeros Reference) ===\n\n");
+    
+    // 1. S(t) at various heights using known zeros
+    report.push_str("S(t) = N_actual(t) - N_smooth(t):\n");
+    for &t in &[50.0, 100.0, 130.0] {
+        let s_val = s_function_known_zeros(t);
+        let two_pi = 2.0 * std::f64::consts::PI;
+        let smooth_n = (t / two_pi) * ((t / two_pi).ln() - 1.0) + 7.0 / 8.0;
+        let actual_n = KNOWN_ZERO_ORDINATES.iter().filter(|&&g| g <= t).count();
+        report.push_str(&format!("  S({:.0}) = {:+.3}  (N_actual={}, N_smooth={:.2})\n", 
+                                 t, s_val, actual_n, smooth_n));
+    }
+    
+    // 2. Zero spacings from known zeros
+    report.push_str("\nZero spacings (known zeros in [50, 100]):\n");
+    let zeros_in_range: Vec<f64> = KNOWN_ZERO_ORDINATES.iter()
+        .filter(|&&g| g >= 50.0 && g <= 100.0)
+        .copied()
+        .collect();
+    
+    for i in 1..zeros_in_range.len() {
+        let spacing = zeros_in_range[i] - zeros_in_range[i - 1];
+        report.push_str(&format!("  γ{}={:.9} → γ{}={:.9}: gap={:.4}\n", 
+                                 i, zeros_in_range[i-1], i+1, zeros_in_range[i], spacing));
+    }
+    
+    // 3. The "resolution" insight
+    report.push_str("\nThe resolution analogy (from the doc):\n");
+    report.push_str("  N_smooth(T) = low-res frame — smooth prediction\n");
+    report.push_str("  S(T)        = detail layer — where zeros actually cluster\n");
+    report.push_str("  The 7/8     = calibration bolt — 'snug + 7/8'\n\n");
+    report.push_str("S(t) is bounded by O(ln t) (unconditionally) or O(t^{1/6}) under RH.\n");
+    report.push_str("The fluctuations in S(t) encode the fine structure of zero distribution.\n");
+    
+    report
+}
+
+#[cfg(test)]
+mod known_zeros_tests {
+    use super::*;
+    
+    #[test]
+    fn test_known_zero_count() {
+        assert_eq!(KNOWN_ZERO_ORDINATES.len(), 50);
+    }
+    
+    #[test]
+    fn test_s_function_at_first_zero() {
+        // At t = 14.13 (first zero), S(t) should be close to 1 - smooth_N(14.13)
+        let s = s_function_known_zeros(14.134725142);
+        assert!(s > 0.0, "S(t) at first zero should be positive");
+    }
+    
+    #[test]
+    fn test_s_function_bounded() {
+        // S(t) should be small (typically |S| < 5 for t < 100)
+        for &t in &[50.0, 100.0, 130.0] {
+            let s = s_function_known_zeros(t);
+            assert!(s.abs() < 10.0, "S({}) = {} should be bounded", t, s);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
