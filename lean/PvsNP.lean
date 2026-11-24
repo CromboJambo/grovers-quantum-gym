@@ -586,6 +586,222 @@ theorem readLenPref_encodeLenPref (bs : BitString) :
 theorem decNat_encNat_small (n : Nat) (h : n ≤ 3) : decNat (encNat n) = some n := by
   interval_cases n <;> simp [decNat, encNat, encodeNatAux, decodeNatAux]
 
+/-- **Lemma:** Appending a bit commutes with decoding, via `Option.map`. -/
+lemma decodeNatAux_append_bit (bs : BitString) (b : Bool) (acc : Nat) :
+    decodeNatAux (bs ++ [b]) acc =
+      (decodeNatAux bs acc).map (fun v => v * 2 + (if b then 1 else 0)) := by
+  induction bs generalizing acc with
+  | nil => simp [decodeNatAux]
+  | cons c cs ih =>
+      simp only [List.cons_append, List.singleton_append, decodeNatAux, Option.map]
+      rw [ih]
+      rfl
+
+/-- **Lemma:** The binary encoding accumulator never produces the empty string. -/
+lemma encodeNatAux_ne_nil : ∀ (n : Nat) (acc : BitString), encodeNatAux n acc ≠ [] := by
+  intro n
+  induction n using Nat.strong_induction_on with
+  | ind n ih =>
+    intro acc
+    match n with
+    | 0 => by_cases h : acc = [] <;> simp [h, encodeNatAux]
+    | 1 => simp [encodeNatAux]
+    | m + 2 =>
+      simp only [encodeNatAux]
+      exact ih ((m + 2) / 2) (by
+        have : 0 < m + 2 := by omega
+        exact Nat.div_lt_self (by omega) (by omega)) (((m + 2) % 2 = 1) :: acc)
+
+/-- **Lemma:** `encNat n` is never empty. -/
+lemma encNat_ne_nil (n : Nat) : encNat n ≠ [] := by
+  match n with
+  | 0 => simp [encNat]
+  | n + 1 => simp only [encNat, if_neg (Nat.succ_ne_zero n)]; exact encodeNatAux_ne_nil _ _
+
+/-- **Lemma:** Unfolding `encNat` at a nonzero argument. -/
+lemma encNat_eq_encodeNatAux (n : Nat) (h : n ≠ 0) : encNat n = encodeNatAux n [] := by
+  rw [encNat, if_neg h]
+
+/-- **Lemma:** `decNat` agrees with its accumulating auxiliary on nonempty input. -/
+lemma decNat_eq_decode (bs : BitString) (h : bs ≠ []) :
+    decNat bs = decodeNatAux bs 0 := by
+  cases bs with
+  | nil => exact absurd rfl h
+  | cons => rfl
+
+/-- **Lemma:** The accumulator splits at the top bit. -/
+lemma encodeNatAux_encNat : ∀ (n : Nat), 1 ≤ n → ∀ acc : BitString,
+    encodeNatAux n acc = encNat n ++ acc := by
+  intro n
+  induction n using Nat.strong_induction_on with
+  | ind n ih =>
+    intro hn acc
+    match n with
+    | 0 => omega
+    | 1 => simp [encodeNatAux, encNat]
+    | m + 2 =>
+      have hm : 1 ≤ (m + 2) / 2 := by omega
+      have hlt : (m + 2) / 2 < m + 2 := by
+        have : 0 < m + 2 := by omega
+        exact Nat.div_lt_self (by omega) (by omega)
+      have ih1 := ih ((m + 2) / 2) hlt hm (decide ((m + 2) % 2 = 1) :: acc)
+      have ih2 := ih ((m + 2) / 2) hlt hm [decide ((m + 2) % 2 = 1)]
+      simp only [encodeNatAux, encNat, if_neg (show m + 2 ≠ 0 by omega)]
+      rw [ih1, ih2]
+      simp [List.cons_append, List.append_assoc]
+
+/-- **Lemma:** Recursive unfolding of `encNat` at arguments ≥ 2. -/
+lemma encNat_two (n : Nat) (hn : 2 ≤ n) :
+    encNat n = encNat (n / 2) ++ [decide ((n % 2) = 1)] := by
+  obtain ⟨m, rfl⟩ : ∃ m, n = m + 2 := ⟨n - 2, by omega⟩
+  rw [encNat_eq_encodeNatAux (m + 2) (by omega),
+      encNat_eq_encodeNatAux ((m + 2) / 2) (by omega)]
+  simp only [encodeNatAux]
+  rw [encodeNatAux_encNat ((m + 2) / 2) (by omega) ([decide ((m + 2) % 2 = 1)]),
+      encodeNatAux_encNat ((m + 2) / 2) (by omega) ([])]
+  simp [List.singleton_append, List.append_nil]
+
+/-- **Theorem:** `decNat` correctly decodes every `encNat`. -/
+theorem decNat_encNat (n : Nat) : decNat (encNat n) = some n := by
+  induction n using Nat.strong_induction_on with
+  | ind n ih =>
+    match n with
+    | 0 => simp [decNat, encNat, decodeNatAux]
+    | 1 => simp [decNat, encNat, encodeNatAux, decodeNatAux]
+    | m + 2 =>
+      have hq : (m + 2) / 2 < m + 2 := by
+        have : 0 < m + 2 := by omega
+        exact Nat.div_lt_self (by omega) (by omega)
+      rw [encNat_two (m + 2) (by omega)]
+      rw [decNat_eq_decode (_ ++ [_]) (by simp)]
+      rw [decodeNatAux_append_bit]
+      have hd : decodeNatAux (encNat ((m + 2) / 2)) 0 = some ((m + 2) / 2) := by
+        rw [← decNat_eq_decode (encNat ((m + 2) / 2)) (encNat_ne_nil _)]
+        exact ih ((m + 2) / 2) hq
+      rw [hd]
+      show some (((m + 2) / 2) * 2 + (if decide ((m + 2) % 2 = 1) = true then 1 else 0)) = some (m + 2)
+      have hval : (if decide ((m + 2) % 2 = 1) = true then 1 else 0) = (m + 2) % 2 := by
+        by_cases h : (m + 2) % 2 = 1
+        · simp [h]
+        · have h0 : (m + 2) % 2 = 0 := by omega
+          simp [h, h0]
+      rw [hval, Nat.div_add_mod']
+
+/-- **Lemma:** Reading a length prefix preserves the trailing stream. -/
+theorem readLenPref_encodeLenPref_tail (bs : BitString) (rest : BitString) :
+    readLenPref (encodeLenPref bs ++ rest) = some (bs, rest) := by
+  simp only [readLenPref, encodeLenPref]
+  rw [List.append_assoc]
+  rw [readLenUnary_encLenUnary_tail bs.length (bs ++ rest)]
+  simp
+
+/-- **Lemma:** Length of the unary encoding. -/
+lemma encLenUnary_length (n : Nat) : (encLenUnary n).length = n + 1 := by
+  simp [encLenUnary, List.length_replicate]
+
+/-- **Lemma:** Length of a length-prefixed string. -/
+lemma encodeLenPref_length (bs : BitString) :
+    (encodeLenPref bs).length = 2 * bs.length + 1 := by
+  simp [encodeLenPref, encLenUnary_length, List.length_append]
+  omega
+
+/-- **Lemma:** Every formula encoding starts with its 3-bit tag. -/
+lemma encodeFormula_length_ge_3 (f : BoolFormula) : 3 ≤ (encodeFormula f).length := by
+  cases f <;> simp [encodeFormula] <;> omega
+
+/-- **Lemma:** Decoding the `var` tag with any positive budget. -/
+theorem decodeFormulaCore_var_aux (n : Nat) (k : Nat) :
+    decodeFormulaCore ([false, false, false] ++ encodeLenPref (encNat n)) (k + 1)
+      = some (BoolFormula.var n, []) := by
+  simp [decodeFormulaCore, encodeFormula, readLenPref_encodeLenPref, decNat_encNat]
+
+/-- **Lemma:** Decoding the `not` tag with any positive budget. -/
+theorem decodeFormulaCore_not_aux (f : BoolFormula) (k : Nat)
+    (h : decodeFormulaCore (encodeFormula f) k = some (f, [])) :
+    decodeFormulaCore ([false, false, true] ++ encodeFormula f) (k + 1)
+      = some (BoolFormula.not f, []) := by
+  simp [decodeFormulaCore, encodeFormula]
+  rw [h]
+
+/-- **Lemma:** Decoding the `and` tag with any positive budget. -/
+theorem decodeFormulaCore_and_aux (f g : BoolFormula) (k : Nat)
+    (hf : decodeFormulaCore (encodeFormula f) k = some (f, []))
+    (hg : decodeFormulaCore (encodeFormula g) k = some (g, [])) :
+    decodeFormulaCore
+      ([false, true, false] ++ encodeLenPref (encodeFormula f) ++ encodeLenPref (encodeFormula g))
+      (k + 1) = some (BoolFormula.and f g, []) := by
+  simp [decodeFormulaCore, encodeFormula, readLenPref_encodeLenPref_tail,
+       readLenPref_encodeLenPref]
+  rw [hf, hg]
+
+/-- **Lemma:** Decoding the `or` tag with any positive budget. -/
+theorem decodeFormulaCore_or_aux (f g : BoolFormula) (k : Nat)
+    (hf : decodeFormulaCore (encodeFormula f) k = some (f, []))
+    (hg : decodeFormulaCore (encodeFormula g) k = some (g, [])) :
+    decodeFormulaCore
+      ([false, true, true] ++ encodeLenPref (encodeFormula f) ++ encodeLenPref (encodeFormula g))
+      (k + 1) = some (BoolFormula.or f g, []) := by
+  simp [decodeFormulaCore, encodeFormula, readLenPref_encodeLenPref_tail,
+       readLenPref_encodeLenPref]
+  rw [hf, hg]
+
+/-- **Theorem:** Decoding a formula encoding with any sufficient budget. -/
+theorem decodeFormulaCore_encFormula (f : BoolFormula) :
+    ∀ B, (encodeFormula f).length ≤ B →
+      decodeFormulaCore (encodeFormula f) B = some (f, []) := by
+  induction f with
+  | var n =>
+    intro B hB
+    have hB3 : 3 ≤ B := le_trans (encodeFormula_length_ge_3 _) hB
+    obtain ⟨k, rfl⟩ : ∃ k, B = k + 1 := ⟨B - 1, by omega⟩
+    simpa [encodeFormula] using decodeFormulaCore_var_aux n k
+  | not f ih =>
+    intro B hB
+    have hB3 : 3 ≤ B := le_trans (encodeFormula_length_ge_3 _) hB
+    obtain ⟨k, rfl⟩ : ∃ k, B = k + 1 := ⟨B - 1, by omega⟩
+    have hkf : (encodeFormula f).length ≤ k := by
+      have hlen : (encodeFormula (BoolFormula.not f)).length = 3 + (encodeFormula f).length := by
+        simp [encodeFormula]
+        omega
+      omega
+    simpa [encodeFormula] using decodeFormulaCore_not_aux f k (ih k hkf)
+  | and f g ihf ihg =>
+    intro B hB
+    have hB3 : 3 ≤ B := le_trans (encodeFormula_length_ge_3 _) hB
+    obtain ⟨k, rfl⟩ : ∃ k, B = k + 1 := ⟨B - 1, by omega⟩
+    have hlen : (encodeFormula (BoolFormula.and f g)).length
+        = 3 + (2 * (encodeFormula f).length + 1) + (2 * (encodeFormula g).length + 1) := by
+      simp [encodeFormula, encodeLenPref_length]
+      omega
+    have hkf : (encodeFormula f).length ≤ k := by omega
+    have hkg : (encodeFormula g).length ≤ k := by omega
+    simpa [encodeFormula] using decodeFormulaCore_and_aux f g k (ihf k hkf) (ihg k hkg)
+  | or f g ihf ihg =>
+    intro B hB
+    have hB3 : 3 ≤ B := le_trans (encodeFormula_length_ge_3 _) hB
+    obtain ⟨k, rfl⟩ : ∃ k, B = k + 1 := ⟨B - 1, by omega⟩
+    have hlen : (encodeFormula (BoolFormula.or f g)).length
+        = 3 + (2 * (encodeFormula f).length + 1) + (2 * (encodeFormula g).length + 1) := by
+      simp [encodeFormula, encodeLenPref_length]
+      omega
+    have hkf : (encodeFormula f).length ≤ k := by omega
+    have hkg : (encodeFormula g).length ≤ k := by omega
+    simpa [encodeFormula] using decodeFormulaCore_or_aux f g k (ihf k hkf) (ihg k hkg)
+  | tt =>
+    intro B hB
+    have hB3 : 3 ≤ B := le_trans (encodeFormula_length_ge_3 _) hB
+    obtain ⟨k, rfl⟩ : ∃ k, B = k + 1 := ⟨B - 1, by omega⟩
+    simpa [encodeFormula] using show
+      decodeFormulaCore ([true, false, false]) (k + 1) = some (BoolFormula.tt, []) from by
+      simp [decodeFormulaCore]
+  | ff =>
+    intro B hB
+    have hB3 : 3 ≤ B := le_trans (encodeFormula_length_ge_3 _) hB
+    obtain ⟨k, rfl⟩ : ∃ k, B = k + 1 := ⟨B - 1, by omega⟩
+    simpa [encodeFormula] using show
+      decodeFormulaCore ([true, false, true]) (k + 1) = some (BoolFormula.ff, []) from by
+      simp [decodeFormulaCore]
+
 
 /-- **Theorem:** Round-trip for constants `tt` and `ff`. -/
 theorem decodeEncode_constants :
@@ -601,9 +817,9 @@ theorem decodeFormulaCore_var_tag (n : Nat) (h_small : n ≤ 3) :
     decodeFormulaCore ([false, false, false] ++ encodeLenPref (encNat n))
       ([false, false, false] ++ encodeLenPref (encNat n)).length =
       some (BoolFormula.var n, []) := by
-  -- The decoder reads tag [F,F,F], then readLenPref to get encNat n,
-  -- then decNat to get n. This is a finite computation for small n.
-  sorry
+  simpa [encodeFormula] using
+    decodeFormulaCore_encFormula (BoolFormula.var n)
+      (([false, false, false] ++ encodeLenPref (encNat n)).length) (le_refl _)
 
 /-- **Lemma:** When `decodeFormulaCore` encounters a `[F,F,T]` tag followed by a
     formula encoding, it decodes to `(not f, [])`. -/
@@ -612,10 +828,9 @@ theorem decodeFormulaCore_not_tag (f : BoolFormula)
     decodeFormulaCore ([false, false, true] ++ encodeFormula f)
       ([false, false, true] ++ encodeFormula f).length =
       some (BoolFormula.not f, []) := by
-  -- The decoder reads tag [F,F,T], then recursively decodes the subformula.
-  -- By the induction hypothesis, decodeFormula (encodeFormula f) = some f,
-  -- which means decodeFormulaCore returns some (f, []).
-  sorry
+  simpa [encodeFormula] using
+    decodeFormulaCore_encFormula (BoolFormula.not f)
+      (([false, false, true] ++ encodeFormula f).length) (le_refl _)
 
 /-- **Lemma:** When `decodeFormulaCore` encounters a `[F,T,F]` tag followed by
     two length-prefixed formula encodings, it decodes to `(and f g, [])`. -/
@@ -625,10 +840,10 @@ theorem decodeFormulaCore_and_tag (f g : BoolFormula)
     decodeFormulaCore ([false, true, false] ++ encodeLenPref (encodeFormula f) ++ encodeLenPref (encodeFormula g))
       ([false, true, false] ++ encodeLenPref (encodeFormula f) ++ encodeLenPref (encodeFormula g)).length =
       some (BoolFormula.and f g, []) := by
-  -- The decoder reads tag [F,T,F], then readLenPref for first subformula,
-  -- recursively decodes it, then readLenPref for second subformula,
-  -- recursively decodes it.
-  sorry
+  simpa [encodeFormula] using
+    decodeFormulaCore_encFormula (BoolFormula.and f g)
+      (([false, true, false] ++ encodeLenPref (encodeFormula f) ++ encodeLenPref (encodeFormula g)).length)
+      (le_refl _)
 
 /-- **Lemma:** When `decodeFormulaCore` encounters a `[F,T,T]` tag followed by
     two length-prefixed formula encodings, it decodes to `(or f g, [])`. -/
@@ -638,8 +853,10 @@ theorem decodeFormulaCore_or_tag (f g : BoolFormula)
     decodeFormulaCore ([false, true, true] ++ encodeLenPref (encodeFormula f) ++ encodeLenPref (encodeFormula g))
       ([false, true, true] ++ encodeLenPref (encodeFormula f) ++ encodeLenPref (encodeFormula g)).length =
       some (BoolFormula.or f g, []) := by
-  -- Same structure as and_tag but with [F,T,T] tag and or constructor.
-  sorry
+  simpa [encodeFormula] using
+    decodeFormulaCore_encFormula (BoolFormula.or f g)
+      (([false, true, true] ++ encodeLenPref (encodeFormula f) ++ encodeLenPref (encodeFormula g)).length)
+      (le_refl _)
 
 /-- **Theorem:** Formula encoding/decoding round-trips.
     For any formula φ, decoding its encoding recovers φ exactly.
@@ -647,43 +864,8 @@ theorem decodeFormulaCore_or_tag (f g : BoolFormula)
     SAT instances can be faithfully represented as bit strings. -/
 theorem decodeEncode_formula (f : BoolFormula) :
     decodeFormula (encodeFormula f) = some f := by
-  -- Use structural induction on the formula
-  cases f with
-  | var n =>
-    -- Encoding: [F,F,F] ++ encodeLenPref (encNat n)
-    -- Use the helper lemma for small variable indices
-    have h_small : n ≤ 3 := by sorry -- TODO: generalize or restrict to small formulas
-    simp only [decodeFormula]
-    rw [encodeFormula]
-    -- Goal: match decodeFormulaCore ([F,F,F] ++ ...) with ... = some (var n)
-    -- We know decodeFormulaCore returns some (var n, []), and rem.isEmpty is true
-    rw [decodeFormulaCore_var_tag n h_small]
-    simp
-  | not f =>
-    -- Encoding: [F,F,T] ++ encodeFormula f
-    -- Decoding reads tag, then recursively decodes f
-    have ih : decodeFormula (encodeFormula f) = some f := decodeEncode_formula f
-    simp only [decodeFormula]
-    rw [encodeFormula]
-    rw [decodeFormulaCore_not_tag f ih]
-    simp
-  | and f g =>
-    -- Encoding: [F,T,F] ++ encodeLenPref (encodeFormula f) ++ encodeLenPref (encodeFormula g)
-    have ih_f : decodeFormula (encodeFormula f) = some f := decodeEncode_formula f
-    have ih_g : decodeFormula (encodeFormula g) = some g := decodeEncode_formula g
-    simp only [decodeFormula]
-    rw [encodeFormula]
-    rw [decodeFormulaCore_and_tag f g ih_f ih_g]
-    simp
-  | or f g =>
-    -- Encoding: [F,T,T] ++ encodeLenPref (encodeFormula f) ++ encodeLenPref (encodeFormula g)
-    have ih_f : decodeFormula (encodeFormula f) = some f := decodeEncode_formula f
-    have ih_g : decodeFormula (encodeFormula g) = some g := decodeEncode_formula g
-    simp only [decodeFormula]
-    rw [encodeFormula]
-    rw [decodeFormulaCore_or_tag f g ih_f ih_g]
-    simp
-  | tt => simp [decodeFormula, decodeFormulaCore, encodeFormula]
-  | ff => simp [decodeFormula, decodeFormulaCore, encodeFormula]
+  simp only [decodeFormula]
+  rw [decodeFormulaCore_encFormula f (encodeFormula f).length (le_refl _)]
+  simp
 
 
