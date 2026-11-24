@@ -54,6 +54,30 @@ that are either interesting or not.
 | Lempel-Ziv Compression | 1977 | LZ77/LZ78 dictionary-based compression, offset analysis for period detection |
 | Positional Tracing | 2026 | Third compression level: structural relationships → displacement/references (stores HOW) |
 
+
+## Riemann Hypothesis Station — The Layers
+
+We started with a question about resolution: how much detail can you recover from a low-resolution image? That was the vehicle. Here's where it got us.
+
+**The setup.** The Riemann-von Mangoldt formula tells us roughly how many zeros of ζ(s) lie below height T. It's like being told "there are about 30 zeros between 50 and 100" — true, but it doesn't tell you *where* they are or *how* they're arranged. We built four layers to separate those questions:
+
+**Layer 1: Smooth density.** `smooth_density(t) = ln(t/2π)/(2π)` — the large-scale prediction. This is the low-resolution image. It tells you the average number of zeros per unit height. Useful. Not the whole story.
+
+**Layer 2: Cumulative deviation.** `S(T)` tracks how far the actual zero count drifts from the smooth prediction. S(130) = +3.131 means we've found about 3 more zeros than expected by that height. This is cumulative — it doesn't tell you where the clustering happens, just that *something* happened somewhere below T. Like knowing your bank account is $3k over budget without knowing which purchases caused it.
+
+**Layer 3: Normalized spacings.** `s_n = (γ_{n+1} - γ_n) · ln(γ_n/2π)/(2π)` — the local relationships. This is where we start looking at individual gaps between zeros, normalized so the expected average is 1. The mean of our 18 spacings in [50, 100] is 0.9987. Which sounds like validation until you realize: *any* properly unfolded sequence has mean spacing 1. Poisson does too. This validates the normalization, not GUE. Important distinction.
+
+**Layer 4: Spacing structure.** What survives after the obvious statistics are accounted for? We found a consecutive correlation of r = -0.72 — after a large gap, the next gap tends to be smaller. That's level repulsion showing up in the *arrangement*, not just the distribution. This is where "how many fit" becomes "how they're packed."
+
+**The packing question.** Can we distinguish two sequences with identical density and identical nearest-neighbor statistics by how their spacings are arranged? We think yes — consecutive correlations, overlapping windows, higher-order structure carry information that counting doesn't capture. Whether this connects to anything deeper about the zeros is what we're investigating.
+
+**What we don't know yet.** 18 observations is not a statistical validation of GUE. The KS test (D=0.148 vs Poisson's 0.409) suggests GUE fits better, but that's exploratory, not proof. We need more zeros — computed via Riemann-Siegel at higher precision — before we can say anything definitive about the distribution.
+
+**The analogy is a coordinate system.** The resolution/packing metaphor pointed us toward separating scales and looking at arrangement. That was useful. But the memes aren't the evidence. The evidence is in the numbers: 0.9987 mean spacing, -0.72 consecutive correlation, 0 spacings below 0.25 where Poisson predicts 22%. The analogy got us to the question. The math has to answer it.
+
+**References.** Alpöge's Lean-formalized proof of RH + GRH is in `papers/riemann_hypothesis/`. Our computational experiments are the anchor bolts below that summit — not a replacement for the proof, but a way to feel what the theorem is actually saying about the zeros.
+
+
 ## Running
 
 ```bash
