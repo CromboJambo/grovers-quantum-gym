@@ -97,7 +97,7 @@ src/
 ├── p_vs_np.rs             # P vs NP Millennium Prize
 ├── eth.rs                 # Exponential Time Hypothesis
 ├── navier_stokes.rs       # Navier-Stokes: pseudo-spectral 3D solver, BKM integral, ABC/TG validation
-├── riemann/               # Riemann Hypothesis (modular: integer_structure, prime_gaps, zeta_analysis, rh_verification, von_mangoldt)
+├── riemann/               # Riemann Hypothesis (modular: integer_structure, prime_gaps, zeta_analysis, rh_verification, von_mangoldt, zeta_riemann_siegel)
 ├── yang_mills.rs          # Yang-Mills Existence & Mass Gap
 ├── von_neumann.rs         # Quantum measurement & game theory
 ├── kripke_platek.rs       # Kripke-Platek Set Theory
