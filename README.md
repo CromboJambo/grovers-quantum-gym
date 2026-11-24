@@ -36,7 +36,7 @@ that are either interesting or not.
 | P vs NP Millennium Prize | 2000 | Brute-force SAT solving demonstrating exponential blowup; includes reference copy of VP != VNP over every field (papers/vp_vnp/) |
 | Exponential Time Hypothesis | 2001 | ETH station — subexponential algorithms for NP-complete problems |
 | Navier-Stokes Millennium Prize | 2000 | 3D pseudo-spectral solver: BKM blowup criterion tracking, ABC flow validation (rel err 3e-16), Taylor-Green vortex benchmark |
-| Riemann Hypothesis Millennium Prize | 1859 | Zeta function computation along the critical line, prime gap experiments D-P with structural controls |
+| Riemann Hypothesis Millennium Prize | 1859 | Zeta function computation, prime gap experiments D-P, von Mangoldt sums & zero-density analysis; references Alpöge's Lean-formalized RH+GRH proof (papers/riemann_hypothesis/) |
 | Yang-Mills Existence & Mass Gap Millennium Prize | 1954 | Lattice gauge theory approach with Wilson loops and confinement potential |
 | Hugh Everett III: Many-Worlds Interpretation | 1957 | Branching universe simulation, measure problem, decoherence |
 | Kurt Gödel: Incompleteness Theorems | 1931 | Gödel numbering, First and Second Incompleteness Theorems demonstrated |
@@ -97,7 +97,7 @@ src/
 ├── p_vs_np.rs             # P vs NP Millennium Prize
 ├── eth.rs                 # Exponential Time Hypothesis
 ├── navier_stokes.rs       # Navier-Stokes: pseudo-spectral 3D solver, BKM integral, ABC/TG validation
-├── riemann/               # Riemann Hypothesis (modular: integer_structure, prime_gaps, zeta_analysis, rh_verification)
+├── riemann/               # Riemann Hypothesis (modular: integer_structure, prime_gaps, zeta_analysis, rh_verification, von_mangoldt)
 ├── yang_mills.rs          # Yang-Mills Existence & Mass Gap
 ├── von_neumann.rs         # Quantum measurement & game theory
 ├── kripke_platek.rs       # Kripke-Platek Set Theory
@@ -114,7 +114,9 @@ lean/                      # Lean 4 formalizations
 
 ns3d/                      # NS reference data (CSVs), papers, OpenAI Lean formalization submodule
 
-papers/                     # Reference papers: vp_vnp/ (VP != VNP over every field, Claude/Anthropic)
+papers/
+├── vp_vnp/                 # VP != VNP over every field (Claude/Anthropic)
+└── riemann_hypothesis/     # Alpöge's proof of RH + GRH (Lean, Claude/Anthropic, 2026-11-20)
 ```
 
 ## Lean Formalization

@@ -4,9 +4,15 @@
 //! Uses Euler-Maclaurin summation to compute zeta(s) in the critical strip (0 < Re(s) < 1),
 //! where the naive Dirichlet series doesn't converge.
 //!
-//! Context: Levent Alpoege (Anthropic) claimed a full proof of RH + GRH on Nov 20, 2026,
-//! with 17.4M lines of Lean verified by multiple independent kernels (nanoda, con-leche,
-//! leanchecker). This station provides numerical stress-testing of the same claim.
+//! Context: Levent Alpöge (Harvard/Anthropic) announced a Lean-formalized proof of RH + GRH
+//! on Nov 20, 2026, developed with Claude (unreleased Anthropic model). 17.4M lines verified
+//! by Lean kernel + nanoda, con-leche, leanchecker. This station provides numerical
+//! stress-testing of the same claim.
+//!
+//! References:
+//!   - Remark: papers/riemann_hypothesis/paper.pdf (also at https://alpo.ge/remark.pdf)
+//!   - Lean repo: https://github.com/leanprover-community/riemann-hypothesis
+//!   - Wikipedia: https://en.wikipedia.org/wiki/Alp%C3%B6ge%27s_proof_of_the_Riemann_hypothesis
 
 use num_complex::Complex64;
 
@@ -206,10 +212,14 @@ pub fn rh_verification_report(t_max: f64) -> String {
     report.push_str("Numerical evidence is consistent with RH.\n\n");
 
     // 4. Context about the formal proof
-    report.push_str("Context: Levent Alpoege (Anthropic) posted a full Lean proof on Nov 20, 2026.\n");
-    report.push_str("17.4M lines, 175K modules. Verified by nanoda, con-leche, leanchecker,\n");
-    report.push_str("lean4lean - all independent kernels accept the proof.\n");
-    report.push_str("Theorem statement matches Mathlib's standard RiemannHypothesis definition.\n");
+    report.push_str("Context: Levent Alpöge (Harvard/Anthropic) announced a Lean-formalized proof\n");
+    report.push_str("of RH + GRH on Nov 20, 2026, developed with Claude (unreleased Anthropic model).\n");
+    report.push_str("17.4M lines across 14 parts. Verified by Lean kernel + nanoda, con-leche, leanchecker.\n");
+    report.push_str("No independent human mathematician has fully verified the proof yet.\n\n");
+    report.push_str("References:\n");
+    report.push_str("  Remark:    papers/riemann_hypothesis/paper.pdf (also at https://alpo.ge/remark.pdf)\n");
+    report.push_str("  Lean repo: https://github.com/leanprover-community/riemann-hypothesis\n");
+    report.push_str("  Wikipedia: https://en.wikipedia.org/wiki/Alp%C3%B6ge%27s_proof_of_the_Riemann_hypothesis\n");
 
     report
 }

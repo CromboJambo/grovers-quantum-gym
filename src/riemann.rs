@@ -23,6 +23,7 @@ mod integer_structure;
 mod prime_gaps;
 pub mod rh_verification;
 mod zeta_analysis;
+pub mod von_mangoldt;
 
 use integer_structure::{factorize, mobius, omega, big_omega, is_semiprime, is_prime_power, is_squarefree};
 use prime_gaps::{prime_gaps_up_to, gap_distribution, maximal_gaps, twin_primes, experiment_d_parity_control, experiment_e_residues, experiment_f_topology, experiment_g_endpoint_conditioned, experiment_h_largest_prime_factor, experiment_i_lpf_ratio, experiment_j_factorization_conditioned, experiment_k_shield_stress_test, experiment_l_neighbor_relationships, experiment_m_ordering_analysis, experiment_n_conditional_structure, experiment_o_transition_permutation, experiment_p_magnitude_replication};
@@ -538,6 +539,11 @@ pub fn show_riemann_station() {
     println!("  - Structural cancellation (Möbius function)");
     println!("Each representation reveals different aspects of the same structure.\\n");
 
+
+    println!("\n=== VON MANGOLT SUM ANALYSIS (Post-RH-Proof Anchor) ===");
+    println!("Alpoge proof (Nov 2026) controls weighted sums S(t,X) = sum of Lambda(n)(n-1)^(-it).");
+    println!("Direct computation available via: cargo run --example von_mangoldt");
+    println!("Key objects: Λ(n), Ψ(x), zero-density peaks, explicit formula convergence.");
     println!("=== RIEMANN HYPOTHESIS STATION COMPLETE ===");
 }
 
