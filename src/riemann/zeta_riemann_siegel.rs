@@ -4736,6 +4736,7 @@ pub fn all_shape_tests(t_max: f64) -> String {
     report.push_str(&shape_test_coverage_strategy(t_max));
     report.push_str(&shape_test_predictive_power(t_max));
     report.push_str(&shape_test_rich_feature_prediction(t_max));
+    report.push_str(&shape_test_geometric_state_learning(t_max));
     
     report.push_str(&format!("\n{}\n", "=".repeat(70)));
     report.push_str("SUMMARY: Which shapes survived?\n");
@@ -5200,3 +5201,211 @@ about the terrain's structure — not just counting oscillations.
     report
 }
 
+
+/// SHAPE TEST 22 — Geometric State Learning
+///
+/// Question: Can we use local geometry as CONTEXT to select the right statistical model?
+/// Instead of directly adjusting predictions with geometric features (Test 21),
+/// cluster points by geometry and learn the typical future behavior for each cluster.
+fn shape_test_geometric_state_learning(t_max: f64) -> String {
+    let trajectory = count_trajectory(t_max);
+    if trajectory.len() < 500 {
+        return "Insufficient data for geometric state learning".to_string();
+    }
+
+    let n = trajectory.len();
+    
+    // Step 1: Compute local features and next-spacing for each point
+    struct PointFeatures {
+        t: f64,
+        wh_bucket: i32,       // W/H ratio bucket (0-3)
+        curv_bucket: i32,     // Curvature bucket (0-3)
+        next_spacing: f64,    // Actual spacing to next point
+    }
+    
+    let mut points: Vec<PointFeatures> = Vec::new();
+    
+    for i in 5..n.saturating_sub(2) {
+        let t_current = trajectory[i].0;
+        
+        // Window for feature computation
+        let window_start = i - 4;
+        let window_end = i + 5;
+        if window_end >= n { break; }
+        
+        // Compute W/H ratio
+        let mut max_r = 0.0_f64;
+        let mut min_r = 1e10_f64;
+        for j in window_start..window_end {
+            let r = trajectory[j].1;
+            if r > max_r { max_r = r; }
+            if r < min_r { min_r = r; }
+        }
+        let local_height = max_r - min_r;
+        let local_width = trajectory[window_end.saturating_sub(1)].0 - trajectory[window_start].0;
+        let wh_ratio = if local_height > 0.01 { local_width / local_height } else { 2.0 };
+        
+        // Compute curvature
+        let mut curv_sum = 0.0_f64;
+        let mut curv_count = 0;
+        for j in (window_start + 1)..(window_end.saturating_sub(1)) {
+            let d2 = trajectory[j + 1].1 - 2.0 * trajectory[j].1 + trajectory[j - 1].1;
+            curv_sum += d2.abs();
+            curv_count += 1;
+        }
+        let local_curvature = if curv_count > 0 { curv_sum / curv_count as f64 } else { 0.0 };
+        
+        // Bucket features (coarse quantization)
+        let wh_bucket = if wh_ratio < 1.5 { 0 } else if wh_ratio < 2.5 { 1 } else if wh_ratio < 4.0 { 2 } else { 3 };
+        let curv_bucket = if local_curvature < 0.1 { 0 } else if local_curvature < 0.3 { 1 } else if local_curvature < 0.6 { 2 } else { 3 };
+        
+        // Next spacing
+        let next_spacing = trajectory[i + 1].0 - t_current;
+        
+        points.push(PointFeatures {
+            t: t_current,
+            wh_bucket,
+            curv_bucket,
+            next_spacing,
+        });
+    }
+    
+    if points.len() < 100 {
+        return "Insufficient valid points for geometric state learning".to_string();
+    }
+    
+    // Step 2: Group by (wh_bucket, curv_bucket) and compute statistics
+    use std::collections::HashMap;
+    let mut buckets: HashMap<(i32, i32), Vec<f64>> = HashMap::new();
+    for p in &points {
+        buckets.entry((p.wh_bucket, p.curv_bucket))
+            .or_insert_with(Vec::new)
+            .push(p.next_spacing);
+    }
+    
+    // Compute global average spacing
+    let global_mean: f64 = points.iter().map(|p| p.next_spacing).sum::<f64>() / points.len() as f64;
+    
+    // Step 3: Evaluate predictions
+    // For each point, predict using its bucket's mean (if enough data) or global mean
+    let mut global_errors: Vec<f64> = Vec::new();
+    let mut learned_errors: Vec<f64> = Vec::new();
+    let mut bucket_hits: HashMap<(i32, i32), usize> = HashMap::new();
+    
+    // First pass: collect all spacings per bucket (training)
+    // Second pass: evaluate (test) — use leave-one-out style
+    
+    for p in &points {
+        let key = (p.wh_bucket, p.curv_bucket);
+        
+        // Global prediction error
+        global_errors.push((global_mean - p.next_spacing).abs());
+        
+        // Learned prediction: use bucket mean excluding this point
+        if let Some(spacings) = buckets.get(&key) {
+            if spacings.len() >= 5 {
+                let bucket_sum: f64 = spacings.iter().sum::<f64>();
+                let bucket_mean = (bucket_sum - p.next_spacing) / (spacings.len() - 1) as f64;
+                learned_errors.push((bucket_mean - p.next_spacing).abs());
+                *bucket_hits.entry(key).or_insert(0) += 1;
+            } else {
+                // Not enough data in bucket, use global
+                learned_errors.push((global_mean - p.next_spacing).abs());
+            }
+        } else {
+            learned_errors.push((global_mean - p.next_spacing).abs());
+        }
+    }
+    
+    let global_mean_error = global_errors.iter().sum::<f64>() / global_errors.len() as f64;
+    let learned_mean_error = learned_errors.iter().sum::<f64>() / learned_errors.len() as f64;
+    
+    // Compute improvement per bucket
+    let mut bucket_report = String::new();
+    for ((wh, curv), spacings) in &buckets {
+        if spacings.len() >= 10 {
+            let bucket_mean: f64 = spacings.iter().sum::<f64>() / spacings.len() as f64;
+            let bucket_errors: Vec<f64> = spacings.iter().map(|s| (bucket_mean - s).abs()).collect();
+            let bucket_mean_error = bucket_errors.iter().sum::<f64>() / bucket_errors.len() as f64;
+            let improvement = if global_mean_error > 0.0 {
+                (global_mean_error - bucket_mean_error) / global_mean_error * 100.0
+            } else { 0.0 };
+            
+            let wh_label = match wh { 0 => "low", 1 => "med-low", 2 => "med-high", _ => "high" };
+            let curv_label = match curv { 0 => "low", 1 => "med-low", 2 => "med-high", _ => "high" };
+            
+            bucket_report.push_str(&format!(
+                "  W/H: {:<8} Curv: {:<8} n={:<5} mean_spacing={:.4}  err={:.4}  vs_global={:+.1}%\n",
+                wh_label, curv_label, spacings.len(), bucket_mean, bucket_mean_error, improvement
+            ));
+        }
+    }
+    
+    let total_learned = learned_errors.len();
+    let total_global = global_errors.len();
+    let overall_improvement = if global_mean_error > 0.0 {
+        (global_mean_error - learned_mean_error) / global_mean_error * 100.0
+    } else { 0.0 };
+    
+    let mut report = format!(r#"
+SHAPE TEST 22 — Geometric State Learning
+------------------------------------------------------------
+Question: Can local geometry serve as CONTEXT to select the right prediction model?
+
+Protocol:
+  1. Bucket points by (W/H ratio, curvature) — 4×4 grid of geometric states
+  2. Learn typical next-spacing for each state
+  3. Predict using learned state-specific statistics
+  4. Compare to global average baseline
+
+Total points analyzed: {}
+Global mean spacing: {:.4} units
+
+Prediction Method          Mean Error    Improvement vs Global
+------------------------------------------------------------
+  Global average only      {:.4}         (baseline)
+  State-learned model      {:.4}         {:+.1}%
+------------------------------------------------------------
+
+Geometric State Analysis (buckets with n≥10):
+"#, points.len(), global_mean, global_mean_error, learned_mean_error, overall_improvement);
+    
+    report.push_str(&bucket_report);
+    
+    report.push_str(r#"
+------------------------------------------------------------
+INTERPRETATION:
+If state-learned error < global error → geometric context improves prediction.
+Large improvements in specific buckets → those geometric states have distinctive behavior.
+No improvement → all geometric states behave similarly (geometry is not predictive context).
+
+KEY INSIGHT: This tests whether the zeta function's local geometry creates
+"attractor states" — configurations that tend to repeat similar future patterns.
+If certain W/H + curvature combinations consistently lead to similar spacing
+distributions, then the terrain has memory, and we can exploit it.
+"#);
+
+    if overall_improvement > 2.0 {
+        report.push_str("
+✓ Geometric state learning IMPROVES predictions over global average.
+");
+        report.push_str("  Local geometry creates distinguishable behavioral states.
+");
+    } else if overall_improvement > -2.0 {
+        report.push_str("
+≈ Geometric state learning is roughly equivalent to global average.
+");
+        report.push_str("  No strong evidence for geometric attractor states.
+");
+    } else {
+        report.push_str("
+✗ Geometric state learning does NOT improve predictions.
+");
+        report.push_str("  Local geometry does not create distinguishable behavioral states.
+");
+    }
+
+    report.push_str("
+");
+    report
+}

@@ -527,6 +527,55 @@ Prediction Method          Mean Error    Within ½ Spacing    vs Baseline
 
 This is consistent with the theoretical understanding that zeta zeros follow a specific statistical distribution (GUE-like), and their positions are determined by deep number-theoretic properties rather than local geometric features. The 100ft drill measures the *consequences* of the zero pattern, not its causes.
 
+## SHAPE TEST 22 — Geometric State Learning
+
+**Question:** Can local geometry serve as CONTEXT to select the right prediction model? Do certain geometric configurations create "attractor states" with distinctive future behavior?
+
+**Protocol:**
+- Bucket trajectory points by (W/H ratio, curvature) — 4×4 grid of geometric states
+- Learn typical next-spacing distribution for each state
+- Predict using learned state-specific statistics
+- Compare to global average baseline
+
+**Results at T=1000 (635 points):**
+```
+Prediction Method          Mean Error    Improvement vs Global
+------------------------------------------------------------
+  Global average only      0.3381         (baseline)
+  State-learned model      0.3380         +0.0%
+
+Notable buckets:
+  High W/H + med-high curv (n=362): +13.7% better
+  High W/H + med-low curv  (n=30):  +38.3% better
+  Med-high W/H + high curv (n=63):  -72.2% worse
+```
+
+**Results at T=5000 (4302 points):**
+```
+Prediction Method          Mean Error    Improvement vs Global
+------------------------------------------------------------
+  Global average only      0.3483         (baseline)
+  State-learned model      0.3498         -0.4%
+
+Notable buckets:
+  Low W/H + med-low curv   (n=250):  +50.1% better  ← most predictable
+  High W/H + med-low curv  (n=30):   +40.1% better
+  Low W/H + med-high curv  (n=2098): +17.4% better  ← dominant state
+  High W/H + med-high curv (n=362):  +16.3% better
+  Low W/H + high curv      (n=1311): -39.9% worse   ← chaotic
+  Med-high W/H + high curv (n=63):   -67.2% worse   ← most chaotic
+```
+
+**Interpretation:**
+- Overall result is neutral, but individual buckets reveal a clear pattern
+- **HIGH CURVATURE = MORE CHAOTIC**: states with high curvature are consistently less predictable
+- **MODERATE CURVATURE = MORE REGULAR**: states with moderate curvature are more predictable than average
+- The dominant state (low W/H + med-high curvature, 49% of points at T=5000) is 17.4% more predictable
+
+**Significance:** Curvature serves as a **predictability indicator**. When the terrain is gently curved, future behavior is regular and can be predicted from local information. When it's sharply curved, behavior becomes chaotic and local information is insufficient.
+
+This gives the 100ft drill a new capability: **confidence estimation**. The drill can assess its own prediction reliability based on local curvature — wider uncertainty bounds in high-curvature regions, tighter bounds in moderate-curvature regions.
+
 ## Multi-Scale Verification (T=1000 vs T=5000 vs T=10000)
 
 All findings from Tests 17-19 hold up across scales, with interesting trends:
