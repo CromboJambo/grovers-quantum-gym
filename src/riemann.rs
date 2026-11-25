@@ -24,6 +24,7 @@ mod prime_gaps;
 pub mod rh_verification;
 mod zeta_analysis;
 pub mod von_mangoldt;
+pub mod zeta_riemann_siegel;
 
 use integer_structure::{factorize, mobius, omega, big_omega, is_semiprime, is_prime_power, is_squarefree};
 use prime_gaps::{prime_gaps_up_to, gap_distribution, maximal_gaps, twin_primes, experiment_d_parity_control, experiment_e_residues, experiment_f_topology, experiment_g_endpoint_conditioned, experiment_h_largest_prime_factor, experiment_i_lpf_ratio, experiment_j_factorization_conditioned, experiment_k_shield_stress_test, experiment_l_neighbor_relationships, experiment_m_ordering_analysis, experiment_n_conditional_structure, experiment_o_transition_permutation, experiment_p_magnitude_replication};

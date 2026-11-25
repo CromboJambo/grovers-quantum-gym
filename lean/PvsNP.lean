@@ -608,6 +608,142 @@ lemma SAT_verify_sound (w c : BitString) : SAT_verify w c → SAT w := by
       simp [SAT_verify, SAT] at hv ⊢
       aesop (add norm [a'])
 
+/-- Lemma: If `findFirstIdx n l = some i`, then the element at position i equals n.
+    Proven by structural induction on the list. -/
+lemma findFirstIdx_some_getElem (l : List ℕ) (n : ℕ) (i : ℕ) :
+    findFirstIdx n l = some i → l[i]?.getD 0 = n := by
+  induction l generalizing i with
+  | nil =>
+      exfalso
+      cases findFirstIdx n [] with
+      | none => exact (Option.no_eq_some).mpr i
+      | some val => contradiction
+  | cons x xs ih =>
+      intro h
+      by_cases hx : x = n
+      · -- First element matches: findFirstIdx n (x::xs) = some 0
+        have hi : i = 0 := by
+          dsimp [findFirstIdx] at h
+          simp [hx] at h
+          exact h.symm
+        rw [hi]
+        simp [List.getElem_cons, hx]
+      · -- Recurse: findFirstIdx n (x::xs) = (findFirstIdx n xs).map Nat.succ
+        dsimp [findFirstIdx] at h
+        simp [hx] at h ⊢
+        -- Now h : ∃ a, findFirstIdx n xs = some a ∧ a + 1 = i
+        rcases h with ⟨j, hj_eq, hj⟩
+        have h_get : xs[j]?.getD 0 = n := ih j hj_eq
+        rw [hj.symm]
+        simp [List.getElem_cons, Nat.succ_eq_add_one]
+        exact h_get
+
+/-- Lemma: `getBitAt l i` equals the i-th element of `l` when `i` is in bounds. -/
+lemma getBitAt_eq_getElem (l : List Bool) (i : ℕ) (h : i < l.length) :
+    getBitAt l i = l[i]! := by
+  induction l generalizing i with
+  | nil =>
+      intro i hi
+      exfalso; exact Nat.not_lt_zero i hi
+  | cons b bs ihb =>
+      intro i hi
+      by_cases hi0 : i = 0
+      · simp [getBitAt, List.getElem_cons, hi0]
+      · have hi' : i - 1 < bs.length := by omega
+        have hih : getBitAt bs (i - 1) = bs[i - 1]! := ihb (i - 1) hi'
+        simp [getBitAt]
+        split_ifs with hneq
+        · rw [show i = (i - 1) + 1 from by omega]
+          exact hih
+
+/-- Lemma: The assignment reconstructed from a certificate agrees with the original
+    on all variables appearing in the formula. -/
+lemma SAT_cert_assignment_agrees (f : BoolFormula) (a : Assignment) (n : ℕ)
+    (h : n ∈ varsIn f) :
+    let vs := varsIn f
+    let c := List.map (fun k => a k) vs
+    (match findFirstIdx n vs with | some i => getBitAt c i | none => false) = a n := by
+  dsimp only
+  -- Since n ∈ vs, findFirstIdx n vs returns some valid index
+  have h_find : ∃ i, findFirstIdx n (varsIn f) = some i := by
+    induction varsIn f with
+    | nil =>
+        exfalso
+        exact List.not_mem_nil n h
+    | cons x xs ih =>
+        by_cases hx : x = n
+        · use 0; simp [findFirstIdx, hx]
+        · have hxs : n ∈ xs := by simpa using h
+          obtain ⟨i, hi⟩ := ih hxs
+          use i + 1
+          simp [findFirstIdx, hx]
+          split_ifs <;> simp_all
+  obtain ⟨i, h_idx⟩ := h_find
+  -- At that index, the list element equals n
+  have h_get : (varsIn f)[i]! = n := findFirstIdx_some_getElem n (varsIn f) i h_idx
+  rw [h_idx]
+  -- The certificate at position i holds a(n)
+  -- We need to show getBitAt c i = a n where c = List.map (fun k => a k) vs
+  -- First prove that i is a valid index into the mapped list
+  have h_len : i < (List.map (fun k => a k) (varsIn f)).length := by
+    simp [List.length_map]
+    -- findFirstIdx returns some i only when i is a valid index into the list
+    induction varsIn f generalizing n with
+    | nil => exfalso; exact List.not_mem_nil n h
+    | cons x xs ih =>
+        by_cases hx : x = n
+        · dsimp [findFirstIdx] at h_idx
+          simp [hx] at h_idx
+          omega
+        · have hxs : n ∈ xs := by simpa using h
+          obtain ⟨j, hj⟩ := ih hxs
+          dsimp [findFirstIdx] at h_idx
+          simp [hx] at h_idx
+          split_ifs at h_idx <;> simp_all
+          omega
+  -- getBitAt agrees with getElem for valid indices
+  have h_getbit : getBitAt (List.map (fun k => a k) (varsIn f)) i =
+      (List.map (fun k => a k) (varsIn f))[i]! := getBitAt_eq_getElem _ _ h_len
+  rw [h_getbit]
+  -- Map preserves elements at valid indices
+  have h_map : (List.map (fun k => a k) (varsIn f))[i]! = a ((varsIn f)[i]!) := by
+    simp [List.getElem_map]
+  rw [h_map, h_get]
+
+/-- Lemma: Number of variable occurrences is bounded by formula size. -/
+lemma varsIn_length_le_formulaSize (f : BoolFormula) :
+    (varsIn f).length ≤ formulaSize f := by
+  induction f with
+  | var n => simp [varsIn, formulaSize]
+  | not f ih => simp [varsIn, formulaSize]; omega
+  | and f g ihf ihg => simp [varsIn, formulaSize]; omega
+  | or f g ihf ihg => simp [varsIn, formulaSize]; omega
+  | tt => simp [varsIn, formulaSize]
+  | ff => simp [varsIn, formulaSize]
+
+/-- Lemma: Number of variable occurrences is bounded by encoding length. -/
+lemma varsIn_length_le_encodeLength (f : BoolFormula) :
+    (varsIn f).length ≤ (encodeFormula f).length := by
+  induction f with
+  | var n =>
+      simp [varsIn, encodeFormula]
+      omega
+  | not f ih =>
+      simp [varsIn, encodeFormula]
+      omega
+  | and f g ihf ihg =>
+      simp [varsIn, encodeFormula]
+      omega
+  | or f g ihf ihg =>
+      simp [varsIn, encodeFormula]
+      omega
+  | tt =>
+      simp [varsIn, encodeFormula]
+      omega
+  | ff =>
+      simp [varsIn, encodeFormula]
+      omega
+
 /-- **SAT is in NP.** Certificate: a satisfying assignment to the formula's variables. -/
 theorem SAT_in_NP : InNP (fun w => SAT w) := by
   classical
@@ -615,7 +751,61 @@ theorem SAT_in_NP : InNP (fun w => SAT w) := by
   · -- sound: SAT_verify w c → SAT w
     exact SAT_verify_sound
   · -- complete: SAT w → ∃ short certificate c with SAT_verify w c
-    sorry
+    intro w hw  -- hw : SAT w = true
+    rcases decodeFormula w with
+    | none =>
+        simp [SAT] at hw
+        contradiction
+    | some f =>
+        -- Extract satisfying assignment from SAT w = true
+        -- In this branch, decodeFormula w = some f, so SAT w reduces to
+        -- (if ∃ a, evalFormula f a then true else false)
+        have h_exists : ∃ a : Assignment, evalFormula f a := by
+          classical
+          by_contra h
+          -- h : ¬(∃ a, evalFormula f a)
+          -- Show SAT w = false under this assumption
+          have h_sat_false : SAT w = false := by
+            dsimp [SAT]
+            simp [h]
+          rw [h_sat_false] at hw  -- hw : false = true
+          contradiction
+        obtain ⟨a, ha⟩ := h_exists
+        
+        -- Construct certificate: one bit per variable occurrence in varsIn f
+        let vs := varsIn f
+        let c : BitString := List.map (fun n => a n) vs
+        
+        refine ⟨c, ?_, ?_⟩
+        · -- Bound: c.length ≤ w.length
+          simp [List.length_map]
+          -- We need (varsIn f).length ≤ w.length
+          -- Since decodeFormula w = some f, w is a valid encoding of f
+          -- Each variable occurrence requires at least 4 bits in the encoding
+          have h_bound : (varsIn f).length ≤ (encodeFormula f).length :=
+            varsIn_length_le_encodeLength f
+          -- If decodeFormula w = some f, then w must be at least as long as
+          -- any valid encoding. For our canonical encoding, this means
+          -- w.length ≥ (encodeFormula f).length.
+          -- This follows from the decoder consuming the entire input and
+          -- the prefix-free structure of the encoding.
+          sorry
+        · -- Verification: SAT_verify w c = true
+          dsimp [SAT_verify]
+          simp [c, List.length_map]
+          -- The certificate length matches varsIn f length exactly
+          -- Now show evalFormula f (cert_assignment) = true
+          -- Using the agreement lemma and evalFormula_agree_on_vars
+          have h_agree : ∀ n, n ∈ varsIn f →
+              (fun n => match findFirstIdx n vs with | some i => getBitAt c i | none => false) n = a n := by
+            intro n hn
+            exact SAT_cert_assignment_agrees f a n hn
+          have h_eval : evalFormula f (fun n => match findFirstIdx n vs with | some i => getBitAt c i | none => false)
+              = evalFormula f a := by
+            apply evalFormula_agree_on_vars
+            exact h_agree
+          simp [h_eval] at ha ⊢
+          exact ha
 
 theorem tseitin_conj_satisfiability_preserving
     (f g : BoolFormula)

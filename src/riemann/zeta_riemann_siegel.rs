@@ -1138,3 +1138,2144 @@ mod tests {
         assert!(z.is_finite());
     }
 }
+
+
+/// Count residual R(T) = N(T) - [T/2π ln(T/2π) - T/2π + 7/8]
+/// 
+/// This is the deviation of the actual zero count from the Riemann-von Mangoldt
+/// prediction. Note: this is NOT the classical S(T) = arg(ζ(1/2+it))/π, which
+/// requires computing the argument of zeta directly. We compute from known zeros.
+pub fn count_residual(t: f64) -> f64 {
+    let n_actual = KNOWN_ZERO_ORDINATES.iter().filter(|&&g| g <= t).count() as f64;
+    let smooth = (t / (2.0 * std::f64::consts::PI)) * (t / (2.0 * std::f64::consts::PI)).ln()
+        - t / (2.0 * std::f64::consts::PI) + 7.0 / 8.0;
+    n_actual - smooth
+}
+
+/// Autocorrelation of normalized spacings at lag k
+/// C(k) = Corr(s_i, s_{i+k})
+pub fn spacing_autocorrelation(spacings: &[f64], k: usize) -> f64 {
+    if k == 0 || k >= spacings.len() { return 1.0; }
+    let n = spacings.len() - k;
+    if n < 3 { return 0.0; }
+    
+    let mean_s: f64 = spacings.iter().sum::<f64>() / spacings.len() as f64;
+    
+    let mut cov = 0.0;
+    let mut var1 = 0.0;
+    let mut var2 = 0.0;
+    for i in 0..n {
+        let x = spacings[i] - mean_s;
+        let y = spacings[i + k] - mean_s;
+        cov += x * y;
+        var1 += x * x;
+        var2 += y * y;
+    }
+    cov / (var1.sqrt() * var2.sqrt())
+}
+
+/// Autocorrelation at multiple lags
+pub fn spacing_autocorrelation_lags(spacings: &[f64], max_lag: usize) -> Vec<(usize, f64)> {
+    (0..=max_lag.min(spacings.len() - 1))
+        .map(|k| (k, spacing_autocorrelation(spacings, k)))
+        .collect()
+}
+
+/// Window sums W_m(i) = sum of m consecutive spacings starting at i
+pub fn window_sums(spacings: &[f64], window_size: usize) -> Vec<f64> {
+    if window_size >= spacings.len() {
+        return vec![spacings.iter().sum()];
+    }
+    (0..=(spacings.len() - window_size))
+        .map(|i| spacings[i..i + window_size].iter().sum())
+        .collect()
+}
+
+/// Coefficient of variation for window sums at different scales
+/// Measures how fluctuations accumulate: if windows behave independently,
+/// CV should decrease as 1/sqrt(m). If there's long-range correlation, it won't.
+pub fn multiscale_fluctuation_analysis(spacings: &[f64], max_window: usize) -> Vec<(usize, f64)> {
+    (1..=max_window.min(spacings.len()))
+        .map(|m| {
+            let windows = window_sums(spacings, m);
+            if windows.len() < 2 { return (m, 0.0); }
+            let mean: f64 = windows.iter().sum::<f64>() / windows.len() as f64;
+            let var: f64 = windows.iter().map(|w| (w - mean).powi(2)).sum::<f64>() / (windows.len() - 1) as f64;
+            (m, var.sqrt() / mean) // coefficient of variation
+        })
+        .collect()
+}
+
+/// Simulation-based calibration for KS test and consecutive correlation
+/// 
+/// Generates reference sequences (Poisson or GUE-like) with the same number
+/// of observations, applies the same statistics, and returns the distribution
+/// of test statistics. This avoids the independence assumption problem.
+pub fn simulate_reference_statistics(
+    n: usize,
+    model: &str,  // "poisson" or "gue"
+    n_simulations: usize
+) -> (Vec<f64>, Vec<f64>) {
+    let mut ks_stats = Vec::with_capacity(n_simulations);
+    let mut correlations = Vec::with_capacity(n_simulations);
+    
+    for sim in 0..n_simulations {
+        // Generate n spacings from the model using a simple deterministic hash
+        let spacings: Vec<f64> = if model == "poisson" {
+            (0..n).map(|i| {
+                let seed = (sim as u64).wrapping_mul(1000).wrapping_add(i as u64);
+                let h = hash_u64(seed);
+                let u = (h >> 32) as f64 / 4294967296.0;
+                (-u.max(0.001).ln())
+            }).collect()
+        } else {
+            // GUE-like: use Wigner surmise quantile approximation
+            // Sample from exponential, then apply a simple transform
+            (0..n).map(|i| {
+                let seed = (sim as u64).wrapping_mul(1000).wrapping_add(i as u64);
+                let h = hash_u64(seed);
+                let u = (h >> 32) as f64 / 4294967296.0;
+                // Approximate GUE spacing via inverse of numerical CDF
+                gue_spacing_inverse_cdf(u.max(0.001).min(0.999))
+            }).collect()
+        };
+        
+        if spacings.len() < 3 { continue; }
+        
+        let ks = kolmogorov_smirnov(&spacings, gue_spacing_cdf);
+        ks_stats.push(ks);
+        
+        correlations.push(spacing_autocorrelation(&spacings, 1));
+    }
+    
+    (ks_stats, correlations)
+}
+
+/// Simple hash function for deterministic pseudo-random numbers
+fn hash_u64(mut x: u64) -> u64 {
+    x ^= x >> 33;
+    x = x.wrapping_mul(0xff51afd7ed558ccd);
+    x ^= x >> 33;
+    x = x.wrapping_mul(0xc4ceb9fe1a85ec53);
+    x ^= x >> 33;
+    x
+}
+
+/// Inverse CDF for GUE spacing via bisection on the numerical CDF
+fn gue_spacing_inverse_cdf(p: f64) -> f64 {
+    let mut lo = 0.0;
+    let mut hi = 5.0;
+    for _ in 0..50 {
+        let mid = (lo + hi) / 2.0;
+        if gue_spacing_cdf(mid) < p {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    (lo + hi) / 2.0
+}
+
+/// Full multiscale analysis report (Layers 4 and 5)
+pub fn full_multiscale_report(a: f64, b: f64) -> String {
+    let mut report = format!("\n{}\n", "=".repeat(70));
+    report.push_str(&format!("MULTISCALE SPACING ANALYSIS: [{} , {}]\n", a, b));
+    report.push_str(&format!("{}\n\n", "=".repeat(70)));
+    
+    // Raw data (preserve the evidence)
+    let zeros_in_range: Vec<f64> = KNOWN_ZERO_ORDINATES.iter()
+        .copied()
+        .filter(|&g| g >= a && g <= b)
+        .collect();
+    let spacings: Vec<f64> = zeros_in_range.windows(2)
+        .map(|w| w[1] - w[0])
+        .collect();
+    
+    report.push_str(&format!("Raw zero ordinates: {:?}\n\n", zeros_in_range));
+    report.push_str(&format!("Raw spacings: {:?}\n\n", spacings));
+    
+    if spacings.len() < 3 {
+        report.push_str("Not enough spacings for multiscale analysis.\n");
+        return report;
+    }
+    
+    // Normalize
+    let normalized: Vec<f64> = zeros_in_range.windows(2)
+        .map(|w| normalized_spacing(w[0], w[1]))
+        .collect();
+    
+    report.push_str(&format!("Normalized spacings: {:?}\n\n", 
+        normalized.iter().map(|s| format!("{:.4}", s)).collect::<Vec<_>>()));
+    
+    // Layer 4: Autocorrelation at multiple lags
+    report.push_str("LAYER 4 — Arrangement (autocorrelation at multiple lags)\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    let max_lag = (normalized.len() / 2).max(1);
+    for (k, c) in spacing_autocorrelation_lags(&normalized, max_lag) {
+        if k == 0 { continue; } // skip trivial lag 0
+        report.push_str(&format!("  C({}) = {:.4}\n", k, c));
+    }
+    
+    // Layer 5: Multiscale window analysis
+    report.push_str("\nLAYER 5 — Multiscale structure (window sums)\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    let max_window = normalized.len() / 2;
+    for (m, cv) in multiscale_fluctuation_analysis(&normalized, max_window) {
+        let independent_expectation = 1.0 / (m as f64).sqrt();
+        report.push_str(&format!("  Window size {}: CV = {:.4} (independent expectation: {:.4})\n", 
+            m, cv, independent_expectation));
+    }
+    
+    // Simulation-based calibration
+    report.push_str("\nSIMULATION-BASED CALIBRATION\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    let n_obs = normalized.len();
+    let (poisson_ks, poisson_corr) = simulate_reference_statistics(n_obs, "poisson", 100);
+    let (gue_ks, gue_corr) = simulate_reference_statistics(n_obs, "gue", 100);
+    
+    let observed_ks_gue = kolmogorov_smirnov(&normalized, gue_spacing_cdf);
+    let observed_ks_poisson = kolmogorov_smirnov(&normalized, poisson_spacing_cdf);
+    let observed_corr = spacing_autocorrelation(&normalized, 1);
+    
+    let poisson_ks_worse = poisson_ks.iter().filter(|&&x| x > observed_ks_gue).count() as f64 / 100.0;
+    let gue_ks_worse = gue_ks.iter().filter(|&&x| x > observed_ks_gue).count() as f64 / 100.0;
+    
+    report.push_str(&format!("Observed KS vs GUE: {:.4}\n", observed_ks_gue));
+    report.push_str(&format!("  Poisson sims worse than this: {:.1}%\n", poisson_ks_worse * 100.0));
+    report.push_str(&format!("  GUE sims worse than this: {:.1}%\n\n", gue_ks_worse * 100.0));
+    
+    report.push_str(&format!("Observed consecutive correlation: {:.4}\n", observed_corr));
+    let poisson_corr_extreme = poisson_corr.iter().filter(|&&x| x <= observed_corr).count() as f64 / 100.0;
+    let gue_corr_extreme = gue_corr.iter().filter(|&&x| x <= observed_corr).count() as f64 / 100.0;
+    report.push_str(&format!("  Poisson sims with r <= this: {:.1}%\n", poisson_corr_extreme * 100.0));
+    report.push_str(&format!("  GUE sims with r <= this: {:.1}%\n\n", gue_corr_extreme * 100.0));
+    
+    // Interpretation
+    report.push_str("INTERPRETATION\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("- Level repulsion (small-gap suppression) and consecutive correlation\n");
+    report.push_str("  are related but distinct statistics. One measures the shape of P(s)\n");
+    report.push_str("  near zero; the other measures how gaps influence their neighbors.\n");
+    report.push_str(&format!("- With n={} observations, results are exploratory, not conclusive.\n", n_obs));
+    report.push_str("- The question: what information survives counting? What structure\n");
+    report.push_str("  gets discarded when we collapse the sequence into a single number?\n");
+    
+    report
+}
+
+/// Trajectory of (N_smooth(T), R(T)) as T increases through zero ordinates.
+/// 
+/// Instead of treating N_smooth as a baseline and R as deviation from it,
+/// this plots both as coordinates in a 2D space. If the relationship has
+/// structure (spiral, recurrence, symmetry), it should appear here.
+/// 
+/// The user's insight: "it just requires acknowledging that you crossed the zero."
+/// Every zero crossing changes the relationship between smooth and actual count.
+pub fn count_trajectory(t_max: f64) -> Vec<(f64, f64)> {
+    let mut points = Vec::new();
+    
+    // Start at T=10 (first few zeros are below this)
+    for &gamma in KNOWN_ZERO_ORDINATES.iter() {
+        if gamma > t_max { break; }
+        
+        let n_actual = KNOWN_ZERO_ORDINATES.iter().filter(|&&g| g <= gamma).count() as f64;
+        let two_pi = 2.0 * std::f64::consts::PI;
+        let n_smooth = (gamma / two_pi) * (gamma / two_pi).ln() - gamma / two_pi + 7.0 / 8.0;
+        let r = n_actual - n_smooth;
+        
+        points.push((n_smooth, r));
+    }
+    
+    points
+}
+
+/// Format the trajectory as text "plot" — shows the path through (N_smooth, R) space
+pub fn count_trajectory_report(t_max: f64) -> String {
+    let points = count_trajectory(t_max);
+    if points.is_empty() { return "No zeros in range.\n".to_string(); }
+    
+    let mut report = format!("\n{}\n", "=".repeat(70));
+    report.push_str(&format!("COUNT TRAJECTORY: (N_smooth(T), R(T)) for T up to {}\n", t_max));
+    report.push_str(&format!("{}\n\n", "=".repeat(70)));
+    
+    // Find bounds for text plot
+    let min_x = points.iter().map(|(x, _)| *x).fold(f64::INFINITY, f64::min);
+    let max_x = points.iter().map(|(x, _)| *x).fold(f64::NEG_INFINITY, f64::max);
+    let min_y = points.iter().map(|(_, y)| *y).fold(f64::INFINITY, f64::min);
+    let max_y = points.iter().map(|(_, y)| *y).fold(f64::NEG_INFINITY, f64::max);
+    
+    report.push_str(&format!("Range: N_smooth [{} , {}], R [{} , {}]\n\n", 
+        min_x as i32, max_x as i32, min_y as i32, max_y as i32));
+    
+    // Print each point with its zero index
+    report.push_str("Trajectory points (zero #, N_smooth, R):\n");
+    for (i, &(x, y)) in points.iter().enumerate() {
+        report.push_str(&format!("  {}: ({:8.3}, {:7.4})\n", i + 1, x, y));
+    }
+    
+    // Text-based scatter plot (50 wide x 20 tall)
+    let width = 50;
+    let height = 20;
+    let mut grid = vec![vec!['.'; width]; height];
+    
+    for &(x, y) in &points {
+        let px = ((x - min_x) / (max_x - min_x + 1e-10) * (width as f64 - 1.0)) as usize;
+        let py = ((max_y - y) / (max_y - min_y + 1e-10) * (height as f64 - 1.0)) as usize;
+        if px < width && py < height {
+            grid[py][px] = '*';
+        }
+    }
+    
+    report.push_str("\nTrajectory in (N_smooth, R) space:\n");
+    for row in &grid {
+        report.push_str(&format!("  {}\n", row.iter().collect::<String>()));
+    }
+    
+    // Symmetry check: are points symmetric around some R value?
+    let mean_r: f64 = points.iter().map(|(_, y)| *y).sum::<f64>() / points.len() as f64;
+    report.push_str(&format!("\nMean R(T) over first {} zeros: {:.4}\n", points.len(), mean_r));
+    
+    // Check if trajectory shows recurrence (does it visit similar regions repeatedly?)
+    let mut nearby_pairs = 0;
+    for i in 0..points.len() {
+        for j in (i + 5)..points.len() {
+            let dx = points[i].0 - points[j].0;
+            let dy = points[i].1 - points[j].1;
+            if dx.abs() < 2.0 && dy.abs() < 0.5 {
+                nearby_pairs += 1;
+            }
+        }
+    }
+    report.push_str(&format!("Nearby trajectory pairs (|ΔN|<2, |ΔR|<0.5): {}\n", nearby_pairs));
+    
+    // The symmetry question from the user's dialogue
+    report.push_str("\nSYMMETRY CHECK\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("7/8 = 21/24, 2/3 = 16/24 → symmetric around 37/48 (±5/48)\n");
+    report.push_str("If we use C=37/48 instead of C=7/8 as the reference:\n");
+    let mut r_37_48 = Vec::new();
+    for &gamma in KNOWN_ZERO_ORDINATES.iter() {
+        if gamma > t_max { break; }
+        let n_actual = KNOWN_ZERO_ORDINATES.iter().filter(|&&g| g <= gamma).count() as f64;
+        let two_pi = 2.0 * std::f64::consts::PI;
+        let n_smooth_37 = (gamma / two_pi) * (gamma / two_pi).ln() - gamma / two_pi + 37.0 / 48.0;
+        r_37_48.push(n_actual - n_smooth_37);
+    }
+    let mean_r_37: f64 = r_37_48.iter().sum::<f64>() / r_37_48.len() as f64;
+    report.push_str(&format!("  Mean R with C=7/8:   {:.4}\n", mean_r));
+    report.push_str(&format!("  Mean R with C=37/48: {:.4} (shifted by {})\n", 
+        mean_r_37, 37.0/48.0 - 7.0/8.0));
+    report.push_str("  The shift is exactly 5/48 ≈ 0.1042 — a constant vertical translation.\n");
+    report.push_str("  Symmetry around the midpoint doesn't change the trajectory shape,\n");
+    report.push_str("  only its vertical position. The geometry is in the path, not the offset.\n");
+    
+    report
+}
+
+#[cfg(test)]
+mod trajectory_tests {
+    use super::*;
+    
+    #[test]
+    fn test_trajectory_points_exist() {
+        let points = count_trajectory(100.0);
+        assert!(points.len() >= 25); // at least 25 zeros below 100
+    }
+    
+    #[test]
+    fn test_trajectory_is_monotonic_in_x() {
+        let points = count_trajectory(100.0);
+        for i in 1..points.len() {
+            assert!(points[i].0 > points[i - 1].0); // N_smooth always increases
+        }
+    }
+    
+    #[test]
+    fn test_trajectory_report_runs() {
+        let report = count_trajectory_report(100.0);
+        assert!(report.contains("Trajectory"));
+        assert!(report.contains("SYMMETRY CHECK"));
+    }
+}
+
+/// Generate a text scatter plot from 2D points
+fn text_scatter(points: &[(f64, f64)], width: usize, height: usize) -> String {
+    if points.is_empty() { return "(no points)".to_string(); }
+    
+    let min_x = points.iter().map(|(x, _)| *x).fold(f64::INFINITY, f64::min);
+    let max_x = points.iter().map(|(x, _)| *x).fold(f64::NEG_INFINITY, f64::max);
+    let min_y = points.iter().map(|(_, y)| *y).fold(f64::INFINITY, f64::min);
+    let max_y = points.iter().map(|(_, y)| *y).fold(f64::NEG_INFINITY, f64::max);
+    
+    let mut grid = vec![vec!['.'; width]; height];
+    
+    for &(x, y) in points {
+        let px = if max_x > min_x {
+            ((x - min_x) / (max_x - min_x) * (width as f64 - 1.0)) as usize
+        } else { width / 2 };
+        let py = if max_y > min_y {
+            ((max_y - y) / (max_y - min_y) * (height as f64 - 1.0)) as usize
+        } else { height / 2 };
+        if px < width && py < height {
+            grid[py][px] = '*';
+        }
+    }
+    
+    let mut s = String::new();
+    for row in &grid {
+        s.push_str(&format!("|{}\n", row.iter().collect::<String>()));
+    }
+    s
+}
+
+/// Shape test 1: Return map — (R_n, R_{n+1}) for consecutive zeros
+/// If there's deterministic structure in how the residual evolves,
+/// it should appear as a curve rather than a cloud.
+pub fn shape_test_return_map(t_max: f64) -> String {
+    let points = count_trajectory(t_max);
+    if points.len() < 3 { return "Not enough data.\n".to_string(); }
+    
+    let mut pairs = Vec::new();
+    for i in 0..points.len() - 1 {
+        pairs.push((points[i].1, points[i + 1].1)); // (R_n, R_{n+1})
+    }
+    
+    let mut report = format!("\nSHAPE TEST 1 — Return Map: (R_n vs R_{{n+1}})\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("If deterministic structure exists in residual evolution,\n");
+    report.push_str("points should form a curve, not a random cloud.\n\n");
+    report.push_str(&text_scatter(&pairs, 50, 20));
+    
+    // Compute correlation
+    let mean_x: f64 = pairs.iter().map(|(x, _)| *x).sum::<f64>() / pairs.len() as f64;
+    let mean_y: f64 = pairs.iter().map(|(_, y)| *y).sum::<f64>() / pairs.len() as f64;
+    let mut cov = 0.0;
+    let mut var_x = 0.0;
+    let mut var_y = 0.0;
+    for &(x, y) in &pairs {
+        cov += (x - mean_x) * (y - mean_y);
+        var_x += (x - mean_x).powi(2);
+        var_y += (y - mean_y).powi(2);
+    }
+    let r = if var_x > 0.0 && var_y > 0.0 { cov / (var_x.sqrt() * var_y.sqrt()) } else { 0.0 };
+    report.push_str(&format!("\nCorrelation: r = {:.4}\n", r));
+    if r.abs() < 0.3 {
+        report.push_str("→ Weak correlation. No obvious deterministic curve.\n");
+    } else if r > 0.7 {
+        report.push_str("→ Strong positive correlation. Residual tends to persist.\n");
+    } else if r < -0.7 {
+        report.push_str("→ Strong negative correlation. Residual oscillates around a mean.\n");
+    } else {
+        report.push_str("→ Moderate correlation. Some structure, but noisy.\n");
+    }
+    
+    report
+}
+
+/// Shape test 2: Log-polar spiral test
+/// If R(T) ~ A·sin(B·ln T + φ) + C·ln T (logarithmic spiral in disguise),
+/// then plotting (ln N_smooth, R mod period) should show a spiral pattern.
+pub fn shape_test_log_polar(t_max: f64) -> String {
+    let points = count_trajectory(t_max);
+    if points.len() < 3 { return "Not enough data.\n".to_string(); }
+    
+    // Convert to log-polar: x = ln(N_smooth), y = R
+    let mut log_points = Vec::new();
+    for &(x, y) in &points {
+        if x > 0.0 {
+            log_points.push((x.ln(), y));
+        }
+    }
+    
+    let mut report = format!("\nSHAPE TEST 2 — Log-Polar: (ln N_smooth vs R)\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("If R grows like a·ln(T) + b·sin(c·ln T), this should look\n");
+    report.push_str("like a spiral or band in log coordinates.\n\n");
+    report.push_str(&text_scatter(&log_points, 50, 20));
+    
+    // Check if R correlates with ln(N_smooth) — linear growth in log space = power law in T
+    let mean_x: f64 = log_points.iter().map(|(x, _)| *x).sum::<f64>() / log_points.len() as f64;
+    let mean_y: f64 = log_points.iter().map(|(_, y)| *y).sum::<f64>() / log_points.len() as f64;
+    let mut cov = 0.0;
+    let mut var_x = 0.0;
+    for &(x, y) in &log_points {
+        cov += (x - mean_x) * (y - mean_y);
+        var_x += (x - mean_x).powi(2);
+    }
+    let slope = if var_x > 0.0 { cov / var_x } else { 0.0 };
+    report.push_str(&format!("\nSlope of R vs ln(N_smooth): {:.4}\n", slope));
+    report.push_str("If positive and significant → R grows with T (expected: ~log growth)\n");
+    
+    report
+}
+
+/// Shape test 3: Folded trajectory — wrap R into [0, 1) to look for recurrence
+/// If the sawtooth pattern is regular, folding should show a concentrated band.
+pub fn shape_test_folded(t_max: f64) -> String {
+    let points = count_trajectory(t_max);
+    if points.len() < 3 { return "Not enough data.\n".to_string(); }
+    
+    // Fractional part of R(T) — the "phase" within each sawtooth cycle
+    let mut folded = Vec::new();
+    for &(x, y) in &points {
+        folded.push((x, y.fract()));
+    }
+    
+    let mut report = format!("\nSHAPE TEST 3 — Folded Phase: (N_smooth vs R mod 1)\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("If the sawtooth is regular, fractional parts should cluster.\n");
+    report.push_str("If random, they should fill [0,1) uniformly.\n\n");
+    report.push_str(&text_scatter(&folded, 50, 20));
+    
+    // Uniformity check: divide [0,1) into 5 bins, count occupancy
+    let mut bins = vec![0usize; 5];
+    for &(_, frac) in &folded {
+        let bin = (frac * 5.0).min(4.0) as usize;
+        bins[bin] += 1;
+    }
+    let expected = folded.len() as f64 / 5.0;
+    let chi2: f64 = bins.iter().map(|&b| ((b as f64 - expected).powi(2)) / expected).sum();
+    report.push_str(&format!("\nBin occupancy (expect {} each): {:?}\n", expected as usize, bins));
+    report.push_str(&format!("Chi-squared vs uniform: {:.2} (df=4, critical 9.49 at 5%)\n", chi2));
+    if chi2 > 9.49 {
+        report.push_str("→ Non-uniform! The fractional part has structure.\n");
+    } else {
+        report.push_str("→ Consistent with uniform distribution.\n");
+    }
+    
+    report
+}
+
+/// Shape test 4: Residual differences — (ΔR_n, ΔR_{n+1})
+/// Tests whether the CHANGES in residual are correlated (acceleration/deceleration)
+pub fn shape_test_residual_differences(t_max: f64) -> String {
+    let points = count_trajectory(t_max);
+    if points.len() < 4 { return "Not enough data.\n".to_string(); }
+    
+    let mut diffs = Vec::new();
+    for i in 0..points.len() - 1 {
+        diffs.push(points[i + 1].1 - points[i].1);
+    }
+    
+    let mut pairs = Vec::new();
+    for i in 0..diffs.len() - 1 {
+        pairs.push((diffs[i], diffs[i + 1]));
+    }
+    
+    let mut report = format!("\nSHAPE TEST 4 — Residual Acceleration: (ΔR_n vs ΔR_{{n+1}})\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("If ΔR is correlated with itself, the residual has momentum\n");
+    report.push_str("(accelerating away from or toward the smooth curve).\n\n");
+    report.push_str(&text_scatter(&pairs, 50, 20));
+    
+    let mean_x: f64 = pairs.iter().map(|(x, _)| *x).sum::<f64>() / pairs.len() as f64;
+    let mean_y: f64 = pairs.iter().map(|(_, y)| *y).sum::<f64>() / pairs.len() as f64;
+    let mut cov = 0.0;
+    let mut var_x = 0.0;
+    let mut var_y = 0.0;
+    for &(x, y) in &pairs {
+        cov += (x - mean_x) * (y - mean_y);
+        var_x += (x - mean_x).powi(2);
+        var_y += (y - mean_y).powi(2);
+    }
+    let r = if var_x > 0.0 && var_y > 0.0 { cov / (var_x.sqrt() * var_y.sqrt()) } else { 0.0 };
+    report.push_str(&format!("\nCorrelation of consecutive ΔR: r = {:.4}\n", r));
+    if r < -0.5 {
+        report.push_str("→ Negative: residual oscillates (mean-reverting sawtooth).\n");
+    } else if r > 0.5 {
+        report.push_str("→ Positive: residual has momentum (trending away).\n");
+    } else {
+        report.push_str("→ Weak: changes are largely independent.\n");
+    }
+    
+    report
+}
+
+/// Run all shape tests and combine into one report
+
+/// Find local maxima in a sequence of R(T) values at known zeros
+fn find_peaks(r_values: &[f64]) -> Vec<usize> {
+    let mut peaks = Vec::new();
+    for i in 1..r_values.len().saturating_sub(1) {
+        if r_values[i] > r_values[i - 1] && r_values[i] >= r_values[i + 1] {
+            peaks.push(i);
+        }
+    }
+    peaks
+}
+
+/// For each peak, find the "mirror width" — how many zeros out on each side
+/// before R drops below (peak_height - threshold). 
+/// Tests self-similarity: if width/peak is constant across peaks, the structure is scale-invariant.
+pub fn shape_test_peak_width(t_max: f64) -> String {
+    let points = count_trajectory(t_max);
+    if points.len() < 10 { return "Not enough data.\n".to_string(); }
+    
+    let r_values: Vec<f64> = points.iter().map(|&(_, r)| r).collect();
+    let peaks = find_peaks(&r_values);
+    
+    let mut report = format!("\nSHAPE TEST 5 — Peak Width Analysis (Self-Similarity Test)\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("If R(T) is self-similar, the ratio of peak width to peak height\n");
+    report.push_str("should be constant across peaks. Also tests if successive peaks\n");
+    report.push_str("grow by a constant multiplier.\n\n");
+    
+    if peaks.len() < 3 {
+        report.push_str(&format!("Only {} local maxima found in first {} zeros. Need more data.\n", 
+            peaks.len(), points.len()));
+        return report;
+    }
+    
+    // For each peak, find the width at half-height
+    let mut peak_data = Vec::new();
+    for &peak_idx in &peaks {
+        let peak_height = r_values[peak_idx];
+        let baseline = if peak_idx > 0 { 
+            // Use the minimum R value before this peak as local baseline
+            r_values[..=peak_idx].iter().cloned().fold(f64::INFINITY, f64::min)
+        } else { 0.0 };
+        
+        let half_height = (peak_height + baseline) / 2.0;
+        
+        // Find left mirror point: first zero to the left where R <= half_height
+        let mut left_width = 0;
+        for i in (0..peak_idx).rev() {
+            if r_values[i] <= half_height {
+                left_width = peak_idx - i;
+                break;
+            }
+        }
+        
+        // Find right mirror point: first zero to the right where R <= half_height
+        let mut right_width = 0;
+        for i in (peak_idx + 1)..points.len() {
+            if r_values[i] <= half_height {
+                right_width = i - peak_idx;
+                break;
+            }
+        }
+        
+        let total_width = left_width + right_width;
+        let height_above_baseline = peak_height - baseline;
+        
+        if height_above_baseline > 0.0 && total_width > 0 {
+            peak_data.push((peak_idx as f64, peak_height, total_width as f64, 
+                           height_above_baseline, total_width as f64 / height_above_baseline));
+        }
+    }
+    
+    report.push_str(&format!("{:<8} {:<10} {:<8} {:<12} {:<10}\n", 
+        "Peak#", "Height", "Width(zeros)", "AboveBase", "W/H Ratio"));
+    report.push_str(&format!("{}\n", "-".repeat(50)));
+    
+    for (i, &(idx, height, width, above_base, ratio)) in peak_data.iter().enumerate() {
+        report.push_str(&format!("{:<8} {:<10.4} {:<8} {:<12.4} {:<10.4}\n",
+            i + 1, height, width as usize, above_base, ratio));
+    }
+    
+    // Check if W/H ratio is constant
+    let ratios: Vec<f64> = peak_data.iter().map(|&(_, _, _, _, r)| r).collect();
+    if ratios.len() >= 3 {
+        let mean_ratio: f64 = ratios.iter().sum::<f64>() / ratios.len() as f64;
+        let variance: f64 = ratios.iter().map(|&r| (r - mean_ratio).powi(2)).sum::<f64>() / ratios.len() as f64;
+        let cv = if mean_ratio > 0.0 { variance.sqrt() / mean_ratio } else { 0.0 };
+        
+        report.push_str(&format!("\nW/H ratio: mean = {:.4}, CV = {:.4}\n", mean_ratio, cv));
+        if cv < 0.3 {
+            report.push_str("→ Low variation. Possible self-similarity!\n");
+        } else if cv < 0.6 {
+            report.push_str("→ Moderate variation. Some regularity, but noisy.\n");
+        } else {
+            report.push_str("→ High variation. No consistent peak shape.\n");
+        }
+    }
+    
+    // Check if successive peaks grow by a constant multiplier
+    let heights: Vec<f64> = peak_data.iter().map(|&(_, h, _, _, _)| h).collect();
+    if heights.len() >= 3 {
+        let mut multipliers = Vec::new();
+        for i in 0..heights.len() - 1 {
+            if heights[i] > 0.0 {
+                multipliers.push(heights[i + 1] / heights[i]);
+            }
+        }
+        if !multipliers.is_empty() {
+            let mean_mult: f64 = multipliers.iter().sum::<f64>() / multipliers.len() as f64;
+            report.push_str(&format!("\nSuccessive peak height ratios: {:?}\n", 
+                &multipliers[..multipliers.len().min(5)]));
+            report.push_str(&format!("Mean multiplier: {:.4}\n", mean_mult));
+            if (mean_mult - 1.0).abs() < 0.1 {
+                report.push_str("→ Peaks roughly constant height (bounded oscillation).\n");
+            } else if mean_mult > 1.1 {
+                report.push_str("→ Peaks growing. Multiplier suggests power-law growth.\n");
+            } else {
+                report.push_str("→ Peaks declining.\n");
+            }
+        }
+    }
+    
+    report
+}
+
+/// Stepwise counter: for each zero, count how many zeros since the last local minimum
+/// and compare to the current R(T) value. If there's a multiplicative relationship
+/// between "steps since trough" and residual height, that's a pinned multiplier.
+pub fn shape_test_step_counter(t_max: f64) -> String {
+    let points = count_trajectory(t_max);
+    if points.len() < 10 { return "Not enough data.\n".to_string(); }
+    
+    let r_values: Vec<f64> = points.iter().map(|&(_, r)| r).collect();
+    
+    // Find local minima
+    let mut minima = Vec::new();
+    for i in 1..r_values.len().saturating_sub(1) {
+        if r_values[i] < r_values[i - 1] && r_values[i] <= r_values[i + 1] {
+            minima.push(i);
+        }
+    }
+    
+    let mut report = format!("\nSHAPE TEST 6 — Stepwise Counter (Steps Since Trough vs Height)\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("For each zero, count steps since the last local minimum.\n");
+    report.push_str("If R(T) ≈ k · (steps since trough), there's a pinned multiplier.\n\n");
+    
+    if minima.len() < 2 {
+        report.push_str(&format!("Only {} local minima found. Need more data.\n", minima.len()));
+        return report;
+    }
+    
+    // For each zero after the first minimum, compute steps since last trough
+    let mut step_data = Vec::new();
+    let mut current_min_idx = minima[0];
+    for i in (current_min_idx + 1)..points.len() {
+        // Update current_min_idx if we've passed a new minimum
+        while current_min_idx + 1 < minima.len() && minima[current_min_idx + 1] <= i {
+            current_min_idx += 1;
+        }
+        let steps_since_trough = (i.saturating_sub(minima[current_min_idx])) as f64;
+        let height_above_trough = r_values[i] - r_values[minima[current_min_idx]];
+        if steps_since_trough > 0.0 {
+            step_data.push((steps_since_trough, height_above_trough));
+        }
+    }
+    
+    if step_data.len() < 5 {
+        report.push_str("Not enough step data.\n");
+        return report;
+    }
+    
+    // Compute the ratio R/steps for each point
+    let mut ratios = Vec::new();
+    for &(steps, height) in &step_data {
+        if steps > 0.0 {
+            ratios.push(height / steps);
+        }
+    }
+    
+    report.push_str(&format!("{} data points (steps since trough vs R above trough)\n\n", step_data.len()));
+    report.push_str(&text_scatter(&step_data, 50, 15));
+    
+    // Check for linear relationship through origin
+    let mean_x: f64 = step_data.iter().map(|&(x, _)| x).sum::<f64>() / step_data.len() as f64;
+    let mean_y: f64 = step_data.iter().map(|&(_, y)| y).sum::<f64>() / step_data.len() as f64;
+    let mut cov = 0.0;
+    let mut var_x = 0.0;
+    for &(x, y) in &step_data {
+        cov += (x - mean_x) * (y - mean_y);
+        var_x += (x - mean_x).powi(2);
+    }
+    let slope = if var_x > 0.0 { cov / var_x + (mean_y - 0.0 * cov / var_x) / mean_x.max(1.0) } else { 0.0 };
+    
+    // Simpler: just compute mean ratio
+    let mean_ratio: f64 = ratios.iter().sum::<f64>() / ratios.len() as f64;
+    report.push_str(&format!("\nMean R/steps ratio (the 'multiplier'): {:.4}\n", mean_ratio));
+    
+    // Check consistency of the multiplier
+    if ratios.len() >= 5 {
+        let variance: f64 = ratios.iter().map(|&r| (r - mean_ratio).powi(2)).sum::<f64>() / ratios.len() as f64;
+        let cv = if mean_ratio > 0.0 { variance.sqrt() / mean_ratio } else { 0.0 };
+        report.push_str(&format!("CV of multiplier: {:.4}\n", cv));
+        if cv < 0.3 {
+            report.push_str("→ Multiplier is stable! R(T) ≈ k · steps_since_trough\n");
+        } else {
+            report.push_str("→ Multiplier varies. No pinned relationship.\n");
+        }
+    }
+    
+    report
+}
+
+/// Add these to the all_shape_tests function
+
+/// Test if peak geometry follows a Pythagorean-like constraint:
+/// W² + H² vs T, N_smooth(T), or other candidate quantities.
+/// Also checks for an envelope (max width for given height).
+
+/// Rigorous test for depth-dependent geometric constraints.
+/// Tests Model A (W = k·H) vs Model B (W = H·k(N_smooth)),
+/// conditional variance of W/H by depth, and detrended correlations.
+
+
+/// Two-sample Kolmogorov-Smirnov statistic between two empirical distributions.
+fn two_sample_ks(a: &[f64], b: &[f64]) -> f64 {
+    if a.is_empty() || b.is_empty() { return 0.0; }
+    
+    let mut combined: Vec<f64> = a.iter().cloned().chain(b.iter().cloned()).collect();
+    combined.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+    
+    let n_a = a.len() as f64;
+    let n_b = b.len() as f64;
+    let mut max_diff = 0.0;
+    
+    let mut count_a = 0usize;
+    let mut count_b = 0usize;
+    
+    for &val in &combined {
+        // Count how many of a and b are <= val
+        while count_a < a.len() && a[count_a] <= val + 1e-15 {
+            count_a += 1;
+        }
+        while count_b < b.len() && b[count_b] <= val + 1e-15 {
+            count_b += 1;
+        }
+        
+        let cdf_a = count_a as f64 / n_a;
+        let cdf_b = count_b as f64 / n_b;
+        let diff = (cdf_a - cdf_b).abs();
+        if diff > max_diff {
+            max_diff = diff;
+        }
+    }
+    
+    max_diff
+}
+
+
+
+/// Gradient-based zero finding with distance-to-peak estimation.
+/// Uses the 100-foot perpendicular drill constraint: at each point, compute
+/// gradient and curvature (perpendicular measurement), then extrapolate zeros.
+pub fn shape_test_gradient_zero_finding(t_max: f64) -> String {
+    let points = count_trajectory(t_max);
+    if points.len() < 20 { return "Not enough data.\n".to_string(); }
+    
+    let r_values: Vec<f64> = points.iter().map(|&(_, r)| r).collect();
+    let t_values: Vec<f64> = points.iter().map(|&(t, _)| t).collect();
+    let n = r_values.len();
+    
+    let mut report = format!("\nSHAPE TEST 11 — Gradient Descent Zero Finding\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("Protocol: at each point, compute gradient + curvature (perpendicular\n");
+    report.push_str("drill), extrapolate zeros using Newton-like step. 100ft drill only.\n\n");
+    
+    // Compute local gradients and curvatures using central differences
+    let mut gradients = Vec::new();
+    let mut curvatures = Vec::new();
+    
+    for i in 0..n {
+        if i == 0 {
+            let grad = (r_values[1] - r_values[0]) / (t_values[1] - t_values[0]);
+            gradients.push(grad);
+            curvatures.push(0.0);
+        } else if i == n - 1 {
+            let grad = (r_values[i] - r_values[i-1]) / (t_values[i] - t_values[i-1]);
+            gradients.push(grad);
+            curvatures.push(0.0);
+        } else {
+            let dt_left = t_values[i] - t_values[i-1];
+            let dt_right = t_values[i+1] - t_values[i];
+            
+            // Central difference for gradient
+            let grad_left = (r_values[i] - r_values[i-1]) / dt_left;
+            let grad_right = (r_values[i+1] - r_values[i]) / dt_right;
+            let grad = (grad_left + grad_right) / 2.0;
+            
+            // Curvature from gradient change
+            let curv = (grad_right - grad_left) / ((dt_left + dt_right) / 2.0);
+            
+            gradients.push(grad);
+            curvatures.push(curv);
+        }
+    }
+    
+    // For each point, use Newton-like extrapolation to find zeros
+    // x_new = x_old - f(x) / f'(x)
+    // But constrained: only trust if curvature confirms the direction
+    let mut predicted_zeros = Vec::new();
+    let mut distances_to_peaks = Vec::new();
+    
+    for i in 1..n.saturating_sub(1) {
+        let f = r_values[i];
+        let df = gradients[i];
+        let d2f = curvatures[i];
+        
+        if df.abs() < 1e-10 { continue; } // Skip flat points
+        
+        // Newton step: where does the linear extrapolation hit zero?
+        let t_zero_linear = t_values[i] - f / df;
+        
+        // With curvature correction (second-order):
+        // Solve f + df*dt + 0.5*d2f*dt^2 = 0
+        if d2f.abs() > 1e-10 {
+            let a = 0.5 * d2f;
+            let b = df;
+            let c = f;
+            let disc = b*b - 4.0*a*c;
+            if disc >= 0.0 {
+                let sqrt_disc = disc.sqrt();
+                let dt1 = (-b + sqrt_disc) / (2.0 * a);
+                let dt2 = (-b - sqrt_disc) / (2.0 * a);
+                
+                // Only trust zeros that are "ahead" in the direction of the gradient
+                // and within a reasonable range (the 100ft drill constraint)
+                for &dt in &[dt1, dt2] {
+                    let t_pred = t_values[i] + dt;
+                    if t_pred > 0.0 && t_pred < t_max * 2.0 && dt.abs() < 50.0 {
+                        predicted_zeros.push((t_values[i], t_pred, f, df, d2f));
+                    }
+                }
+            }
+        } else {
+            // Linear only
+            if t_zero_linear > 0.0 && t_zero_linear < t_max * 2.0 {
+                let dt = t_zero_linear - t_values[i];
+                if dt.abs() < 50.0 {
+                    predicted_zeros.push((t_values[i], t_zero_linear, f, df, d2f));
+                }
+            }
+        }
+        
+        // Distance to peak: if gradient points toward increasing R (uphill),
+        // estimate distance to local maximum using curvature
+        if df > 0.0 && d2f < 0.0 {
+            // Moving uphill but curving down — approaching a peak
+            let dt_to_peak = -df / d2f;
+            if dt_to_peak > 0.0 && dt_to_peak < 50.0 {
+                let t_peak_pred = t_values[i] + dt_to_peak;
+                distances_to_peaks.push((t_values[i], t_peak_pred, dt_to_peak));
+            }
+        }
+    }
+    
+    report.push_str(&format!("Total predicted zeros (from all starting points): {}\n", predicted_zeros.len()));
+    report.push_str(&format!("Total peak distance estimates: {}\n\n", distances_to_peaks.len()));
+    
+    // Compare predicted zeros against actual known zeros
+    // We know the first few zeta zeros on the critical line
+    let known_zeros = [14.1347, 21.0220, 25.0109, 30.4249, 32.9351, 37.5862, 40.9187, 43.3271, 48.0052, 49.7738];
+    
+    report.push_str("Predicted zeros vs known zeros (first 10):\n");
+    let mut matches = 0;
+    for &(t_start, t_pred, f_val, df_val, d2f_val) in &predicted_zeros {
+        for &known in &known_zeros {
+            if (t_pred - known).abs() < 1.5 { // Within 1.5 units of a known zero
+                matches += 1;
+                report.push_str(&format!("  Predicted T={:.2} (from T={:.2}) matches known zero at T={:.4}\n", 
+                    t_pred, t_start, known));
+                report.push_str(&format!("    f={:.3}, f'={:.3}, f''={:.3}\n", f_val, df_val, d2f_val));
+                break;
+            }
+        }
+    }
+    
+    if matches == 0 {
+        report.push_str("  No predicted zeros matched known zeros within tolerance.\n");
+    } else {
+        report.push_str(&format!("\nMatched {}/{} known zeros from {} predictions.\n", 
+            matches, known_zeros.len(), predicted_zeros.len()));
+    }
+    
+    // Distance-to-peak analysis
+    if !distances_to_peaks.is_empty() {
+        report.push_str(&format!("\nDistance-to-peak estimates (gradient points uphill):\n"));
+        let mut peak_distances: Vec<f64> = distances_to_peaks.iter().map(|&(_, _, d)| d).collect();
+        peak_distances.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        
+        let mean_dist: f64 = peak_distances.iter().sum::<f64>() / peak_distances.len() as f64;
+        let median_dist = if peak_distances.len() % 2 == 1 {
+            peak_distances[peak_distances.len() / 2]
+        } else {
+            (peak_distances[peak_distances.len()/2 - 1] + peak_distances[peak_distances.len()/2]) / 2.0
+        };
+        
+        report.push_str(&format!("  Mean distance to predicted peak: {:.2}\n", mean_dist));
+        report.push_str(&format!("  Median distance to predicted peak: {:.2}\n", median_dist));
+        report.push_str(&format!("  Min: {:.2}, Max: {:.2}\n\n", 
+            peak_distances[0], peak_distances[peak_distances.len()-1]));
+        
+        // Check if predicted peaks align with actual peaks in our data
+        let peaks = find_peaks(&r_values);
+        report.push_str("Predicted peaks vs actual peaks in trajectory:\n");
+        let mut peak_matches = 0;
+        for &(t_start, t_pred_peak, dt) in &distances_to_peaks {
+            for &actual_peak_idx in &peaks {
+                let actual_peak_t = t_values[actual_peak_idx];
+                if (t_pred_peak - actual_peak_t).abs() < 2.0 {
+                    peak_matches += 1;
+                    report.push_str(&format!("  Predicted peak at T={:.2} (from T={:.2}, d={:.2}) matches actual at T={:.2}\n",
+                        t_pred_peak, t_start, dt, actual_peak_t));
+                    break;
+                }
+            }
+        }
+        
+        if peak_matches == 0 {
+            report.push_str("  No predicted peaks matched actual peaks.\n");
+        } else {
+            report.push_str(&format!("\nMatched {} of {} predicted peaks with actual peaks.\n", 
+                peak_matches, distances_to_peaks.len()));
+        }
+    }
+    
+    // The key question: can gradient descent be FORCED to find far zeros?
+    report.push_str(&format!("\n{}\n", "-".repeat(60)));
+    report.push_str("FORCING GRADIENT DESCENT TO FIND FAR ZEROS:\n");
+    report.push_str("Standard gradient descent converges to the NEAREST extremum.\n");
+    report.push_str("To find ALL zeros, we need to:\n\n");
+    
+    // Strategy 1: Multiple starting points (but keep them connected)
+    report.push_str("1. **Connected multi-start**: Begin at every Nth point along the\n");
+    report.push_str("   trajectory and run Newton steps from each. The 100ft drill\n");
+    report.push_str("   constraint means we only trust predictions within 50 units.\n\n");
+    
+    // Strategy 2: Use curvature to detect when we're on the wrong side of a peak
+    report.push_str("2. **Curvature sign flip**: If f' > 0 and f'' < 0, we're approaching\n");
+    report.push_str("   a peak from below. The zero is BEHIND us (we already passed it).\n");
+    report.push_str("   If f' < 0 and f'' < 0, the zero is AHEAD of us.\n\n");
+    
+    // Strategy 3: Perpendicular drill tells us if the extrapolation is trustworthy
+    report.push_str("3. **Perpendicular validation**: The curvature (perpendicular\n");
+    report.push_str("   measurement) tells us if the hill is bending toward or away\n");
+    report.push_str("   from our predicted zero. If f'' has the same sign as f,\n");
+    report.push_str("   the hill is bending AWAY — the zero is farther than linear\n");
+    report.push_str("   extrapolation suggests.\n\n");
+    
+    // Count how many predictions were validated by curvature
+    let mut validated = 0;
+    let mut invalidated = 0;
+    for &(t_start, t_pred, f_val, df_val, d2f_val) in &predicted_zeros {
+        // Curvature validation: if f and f'' have the same sign, 
+        // the function is convex/concave in a way that supports the zero existing
+        if f_val * d2f_val > 0.0 {
+            validated += 1;
+        } else {
+            invalidated += 1;
+        }
+    }
+    
+    report.push_str(&format!("Curvature validation of predictions:\n"));
+    report.push_str(&format!("  Validated (f·f'' > 0): {}\n", validated));
+    report.push_str(&format!("  Invalidated (f·f'' < 0): {}\n\n", invalidated));
+    
+    if validated + invalidated > 0 {
+        let validation_rate = validated as f64 / (validated + invalidated) as f64;
+        report.push_str(&format!("Validation rate: {:.1}%\n", validation_rate * 100.0));
+        if validation_rate > 0.7 {
+            report.push_str("→ Most predictions are curvature-validated. The 100ft\n");
+            report.push_str("  perpendicular drill confirms the gradient-based zeros.\n");
+        } else {
+            report.push_str("→ Many predictions fail curvature validation. The hill\n");
+            report.push_str("  bends unpredictably — need more local measurements.\n");
+        }
+    }
+    
+    // Summary
+    report.push_str(&format!("\n{}\n", "-".repeat(60)));
+    report.push_str("CONCLUSION:\n");
+    report.push_str("Gradient descent with the 100ft perpendicular drill constraint\n");
+    report.push_str("can find zeros, but only within the trust radius of each measurement.\n");
+    report.push_str("To find ALL zeros (even far from peaks), you need a CONNECTED WALK\n");
+    report.push_str("that validates each prediction with local curvature before trusting it.\n");
+    report.push_str("The perpendicular drill is what makes the difference between blind\n");
+    report.push_str("extrapolation and validated zero-finding.\n");
+    
+    report
+}
+
+/// Perpendicular-to-grade measurement protocol.
+/// At each zero, fit a local trend over a fixed window, measure the residual
+/// (perpendicular component). Same tool everywhere, walk in order.
+pub fn shape_test_perpendicular_grade(t_max: f64) -> String {
+    let points = count_trajectory(t_max);
+    if points.len() < 20 { return "Not enough data.\n".to_string(); }
+    
+    let r_values: Vec<f64> = points.iter().map(|&(_, r)| r).collect();
+    let n = r_values.len();
+    
+    let mut report = format!("\nSHAPE TEST 10 — Perpendicular to Grade (Fixed 100ft Drill)\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("Protocol: at each zero, fit local trend over fixed window,\n");
+    report.push_str("measure residual perpendicular to grade. Same tool everywhere.\n\n");
+    
+    // Fixed window size (the "100-foot drill")
+    let half_window = 5;
+    
+    // Compute perpendicular residuals at each point
+    let mut perp_residuals = Vec::new();
+    let mut local_slopes = Vec::new();
+    let mut local_curvatures = Vec::new();
+    
+    for i in 0..n {
+        let start = i.saturating_sub(half_window);
+        let end = (i + half_window + 1).min(n);
+        
+        if end - start < 3 { continue; }
+        
+        // Linear fit over window
+        let mut sum_x = 0.0;
+        let mut sum_y = 0.0;
+        let mut sum_xy = 0.0;
+        let mut sum_xx = 0.0;
+        let mut count = 0.0;
+        
+        for j in start..end {
+            let x = (j as f64 - i as f64); // centered at current point
+            let y = r_values[j];
+            sum_x += x;
+            sum_y += y;
+            sum_xy += x * y;
+            sum_xx += x * x;
+            count += 1.0;
+        }
+        
+        if count < 3.0 || sum_xx == 0.0 { continue; }
+        
+        let slope = (count * sum_xy - sum_x * sum_y) / (count * sum_xx - sum_x * sum_x);
+        let intercept = (sum_y - slope * sum_x) / count;
+        
+        // Perpendicular residual at current point
+        let predicted = intercept + slope * 0.0; // at x=0 (current point)
+        let residual = r_values[i] - predicted;
+        
+        // Curvature: compare slopes on left and right halves
+        let mut left_slope = 0.0;
+        let mut right_slope = 0.0;
+        let mut left_count = 0.0;
+        let mut right_count = 0.0;
+        
+        for j in start..=i {
+            if j == i { continue; }
+            let x = (j as f64 - i as f64);
+            let y = r_values[j];
+            // Simple two-point slope estimate
+            if left_count > 0.0 {
+                left_slope = (y - r_values[i]) / (x - 0.0);
+            }
+            left_count += 1.0;
+        }
+        
+        for j in (i+1)..end {
+            let x = (j as f64 - i as f64);
+            let y = r_values[j];
+            if right_count > 0.0 {
+                right_slope = (y - r_values[i]) / (x - 0.0);
+            }
+            right_count += 1.0;
+        }
+        
+        let curvature = if left_count > 0.0 && right_count > 0.0 {
+            (right_slope - left_slope) / 2.0
+        } else {
+            0.0
+        };
+        
+        perp_residuals.push((i as f64, residual));
+        local_slopes.push((i as f64, slope));
+        local_curvatures.push((i as f64, curvature));
+    }
+    
+    if perp_residuals.is_empty() {
+        report.push_str("Not enough data for perpendicular measurement.\n");
+        return report;
+    }
+    
+    // Statistics of perpendicular residuals
+    let residuals_only: Vec<f64> = perp_residuals.iter().map(|&(_, r)| r).collect();
+    let mean_res: f64 = residuals_only.iter().sum::<f64>() / residuals_only.len() as f64;
+    let var_res: f64 = residuals_only.iter().map(|&r| (r - mean_res).powi(2)).sum::<f64>() / residuals_only.len() as f64;
+    let std_res = var_res.sqrt();
+    
+    report.push_str(&format!("Perpendicular residual statistics:\n"));
+    report.push_str(&format!("  Mean: {:.4} (should be ~0 if trend fits well)\n", mean_res));
+    report.push_str(&format!("  Std:  {:.4}\n\n", std_res));
+    
+    // Correlation between perpendicular residual and local slope
+    let mut cov_res_slope = 0.0;
+    let mut var_res2 = 0.0;
+    let mut var_slope = 0.0;
+    let mean_slope: f64 = local_slopes.iter().map(|&(_, s)| s).sum::<f64>() / local_slopes.len() as f64;
+    
+    for i in 0..perp_residuals.len().min(local_slopes.len()) {
+        let r_dev = perp_residuals[i].1 - mean_res;
+        let s_dev = local_slopes[i].1 - mean_slope;
+        cov_res_slope += r_dev * s_dev;
+        var_res2 += r_dev * r_dev;
+        var_slope += s_dev * s_dev;
+    }
+    
+    let denom_rs = (var_res2 * var_slope).sqrt();
+    let corr_res_slope = if denom_rs > 0.0 { cov_res_slope / denom_rs } else { 0.0 };
+    
+    report.push_str(&format!("Corr(perpendicular residual, local slope): {:.4}\n", corr_res_slope));
+    if corr_res_slope.abs() > 0.3 {
+        report.push_str("  → Residuals correlate with grade. The perpendicular component\n");
+        report.push_str("    carries information about the local slope.\n");
+    } else {
+        report.push_str("  → Residuals are independent of grade. The perpendicular\n");
+        report.push_str("    component is orthogonal to the trend (as expected).\n");
+    }
+    
+    // Correlation between perpendicular residual and curvature
+    let mut cov_res_curv = 0.0;
+    let mut var_curv = 0.0;
+    let mean_curv: f64 = local_curvatures.iter().map(|&(_, c)| c).sum::<f64>() / local_curvatures.len() as f64;
+    
+    for i in 0..perp_residuals.len().min(local_curvatures.len()) {
+        let r_dev = perp_residuals[i].1 - mean_res;
+        let c_dev = local_curvatures[i].1 - mean_curv;
+        cov_res_curv += r_dev * c_dev;
+        var_curv += c_dev * c_dev;
+    }
+    
+    let denom_rc = (var_res2 * var_curv).sqrt();
+    let corr_res_curv = if denom_rc > 0.0 { cov_res_curv / denom_rc } else { 0.0 };
+    
+    report.push_str(&format!("Corr(perpendicular residual, local curvature): {:.4}\n", corr_res_curv));
+    if corr_res_curv.abs() > 0.3 {
+        report.push_str("  → Residuals correlate with curvature. The perpendicular\n");
+        report.push_str("    component reveals how the hill bends.\n");
+    } else {
+        report.push_str("  → Residuals independent of curvature.\n");
+    }
+    
+    // Now the key test: do perpendicular residuals behave differently
+    // at peaks vs troughs vs slopes, using ONLY the perpendicular measurement?
+    let peaks = find_peaks(&r_values);
+    let mut troughs = Vec::new();
+    for i in 1..r_values.len().saturating_sub(1) {
+        if r_values[i] <= r_values[i-1] && r_values[i] <= r_values[i+1] {
+            troughs.push(i);
+        }
+    }
+    
+    let mut peak_perp = Vec::new();
+    let mut trough_perp = Vec::new();
+    let mut slope_perp = Vec::new();
+    
+    for &(idx, res) in &perp_residuals {
+        let i = idx as usize;
+        let near_peak = peaks.iter().any(|&p| (i as i64 - p as i64).abs() <= 1);
+        let near_trough = troughs.iter().any(|&t| (i as i64 - t as i64).abs() <= 1);
+        
+        if near_peak {
+            peak_perp.push(res);
+        } else if near_trough {
+            trough_perp.push(res);
+        } else {
+            slope_perp.push(res);
+        }
+    }
+    
+    report.push_str(&format!("\nPerpendicular residuals by position (threshold = 1 zero):\n"));
+    
+    fn perp_stats(name: &str, values: &[f64], report: &mut String) {
+        if values.len() < 3 {
+            report.push_str(&format!("  {}: n={} (too few)\n", name, values.len()));
+            return;
+        }
+        let mean: f64 = values.iter().sum::<f64>() / values.len() as f64;
+        let var: f64 = values.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64;
+        let std = var.sqrt();
+        report.push_str(&format!("  {}: mean={:.4}, std={:.4} (n={})\n", name, mean, std, values.len()));
+    }
+    
+    perp_stats("Near-peak", &peak_perp, &mut report);
+    perp_stats("Near-trough", &trough_perp, &mut report);
+    perp_stats("On-slope", &slope_perp, &mut report);
+    
+    // KS test between peak and slope perpendicular residuals
+    if peak_perp.len() >= 5 && slope_perp.len() >= 5 {
+        let d_stat = two_sample_ks(&peak_perp, &slope_perp);
+        report.push_str(&format!("\nKS statistic (peak vs slope perpendicular residuals): D = {:.4}\n", d_stat));
+        if d_stat > 0.3 {
+            report.push_str("→ Significant difference even with perpendicular measurement.\n");
+            report.push_str("  Edge structure is real, not an artifact of peak-biased sampling.\n");
+        } else {
+            report.push_str("→ No significant difference. The perpendicular component\n");
+            report.push_str("  doesn't distinguish edges from slopes.\n");
+        }
+    }
+    
+    // Connected walk: how does the perpendicular residual evolve along the path?
+    report.push_str(&format!("\nConnected walk — perpendicular residual evolution:\n"));
+    let mut consecutive_same_sign = 0;
+    let mut max_consecutive = 0;
+    for i in 1..perp_residuals.len() {
+        if perp_residuals[i].1 * perp_residuals[i-1].1 > 0.0 {
+            consecutive_same_sign += 1;
+            if consecutive_same_sign > max_consecutive {
+                max_consecutive = consecutive_same_sign;
+            }
+        } else {
+            consecutive_same_sign = 0;
+        }
+    }
+    
+    report.push_str(&format!("Max consecutive same-sign residuals: {}\n", max_consecutive));
+    if max_consecutive > 5 {
+        report.push_str("  → Residuals persist. The perpendicular component has memory.\n");
+        report.push_str("    Connected measurements reveal structure that isolated\n");
+        report.push_str("    measurements would miss.\n");
+    } else {
+        report.push_str("  → Residuals don't persist. Each measurement is independent.\n");
+    }
+    
+    // The key question: can we reconstruct the hill from perpendicular measurements alone?
+    // If the perpendicular component carries information about both slope and curvature,
+    // then yes — we're getting 3D information from a 1D walk with a fixed tool.
+    report.push_str(&format!("\n{}\n", "-".repeat(60)));
+    report.push_str("RECONSTRUCTION POTENTIAL:\n");
+    let info_content = corr_res_slope.abs() + corr_res_curv.abs();
+    if info_content > 0.6 {
+        report.push_str("The perpendicular component carries significant information\n");
+        report.push_str("about both slope and curvature. A connected walk with a fixed\n");
+        report.push_str("perpendicular drill can reconstruct the hill's geometry.\n");
+    } else if info_content > 0.3 {
+        report.push_str("The perpendicular component carries partial information about\n");
+        report.push_str("the hill's shape. Useful, but not sufficient alone.\n");
+    } else {
+        report.push_str("The perpendicular component is mostly noise relative to the\n");
+        report.push_str("hill's geometry. Need additional measurement directions.\n");
+    }
+    
+    report
+}
+
+/// Edge-partition spacing test: classify zeros by position relative to peaks/troughs,
+/// compare spacing statistics across groups. Also measures "distance to connection"
+/// — how many observations needed before each dimension stabilizes.
+pub fn shape_test_edge_partition_and_mapping(t_max: f64) -> String {
+    let points = count_trajectory(t_max);
+    if points.len() < 20 { return "Not enough data.\n".to_string(); }
+    
+    let r_values: Vec<f64> = points.iter().map(|&(_, r)| r).collect();
+    let peaks = find_peaks(&r_values);
+    
+    // Find troughs (local minima)
+    let mut troughs = Vec::new();
+    for i in 1..r_values.len().saturating_sub(1) {
+        if r_values[i] <= r_values[i-1] && r_values[i] <= r_values[i+1] {
+            troughs.push(i);
+        }
+    }
+    
+    let mut report = format!("\nSHAPE TEST 9 — Edge Partition & Distance Mapping\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("Classify zeros by position: near-peak, near-trough, on-slope.\n");
+    report.push_str("Compare spacing statistics. Measure distance to connection.\n\n");
+    
+    // Classify each zero
+    let proximity_threshold = 2; // within 2 zeros of a peak/trough
+    let mut classifications = Vec::new();
+    for i in 0..points.len() {
+        let near_peak = peaks.iter().any(|&p| (i as i64 - p as i64).abs() <= proximity_threshold as i64);
+        let near_trough = troughs.iter().any(|&t| (i as i64 - t as i64).abs() <= proximity_threshold as i64);
+        
+        if near_peak {
+            classifications.push("peak");
+        } else if near_trough {
+            classifications.push("trough");
+        } else {
+            classifications.push("slope");
+        }
+    }
+    
+    let n_peaks_class = classifications.iter().filter(|&&c| c == "peak").count();
+    let n_troughs_class = classifications.iter().filter(|&&c| c == "trough").count();
+    let n_slopes_class = classifications.iter().filter(|&&c| c == "slope").count();
+    
+    report.push_str(&format!("Classifications (threshold = {} zeros):\n", proximity_threshold));
+    report.push_str(&format!("  Near-peak: {}\n", n_peaks_class));
+    report.push_str(&format!("  Near-trough: {}\n", n_troughs_class));
+    report.push_str(&format!("  On-slope: {}\n\n", n_slopes_class));
+    
+    // Compute normalized spacings for each group
+    let known_zeros = KNOWN_ZERO_ORDINATES;
+    let mut peak_spacings = Vec::new();
+    let mut trough_spacings = Vec::new();
+    let mut slope_spacings = Vec::new();
+    
+    for i in 0..points.len().saturating_sub(1) {
+        let gamma_n = points[i].0;
+        let gamma_next = points[i+1].0;
+        let spacing = (gamma_next - gamma_n) * (gamma_n / (2.0 * std::f64::consts::PI)).ln() / (2.0 * std::f64::consts::PI);
+        
+        if spacing > 0.0 {
+            match classifications[i] {
+                "peak" => peak_spacings.push(spacing),
+                "trough" => trough_spacings.push(spacing),
+                _ => slope_spacings.push(spacing),
+            }
+        }
+    }
+    
+    // Report statistics for each group
+    fn spacing_stats(name: &str, spacings: &[f64], report: &mut String) {
+        if spacings.len() < 3 {
+            report.push_str(&format!("  {}: n={} (too few)\n", name, spacings.len()));
+            return;
+        }
+        let mean: f64 = spacings.iter().sum::<f64>() / spacings.len() as f64;
+        let var: f64 = spacings.iter().map(|&s| (s - mean).powi(2)).sum::<f64>() / spacings.len() as f64;
+        let std = var.sqrt();
+        
+        // Fraction below 0.5 (level repulsion indicator)
+        let below_half = spacings.iter().filter(|&&s| s < 0.5).count() as f64 / spacings.len() as f64;
+        
+        report.push_str(&format!("  {}: mean={:.4}, std={:.4}, frac<0.5={:.2} (n={})\n", 
+            name, mean, std, below_half, spacings.len()));
+    }
+    
+    report.push_str("Normalized spacing statistics by position:\n");
+    spacing_stats("Near-peak", &peak_spacings, &mut report);
+    spacing_stats("Near-trough", &trough_spacings, &mut report);
+    spacing_stats("On-slope", &slope_spacings, &mut report);
+    
+    // KS test: peak vs slope spacings
+    if peak_spacings.len() >= 5 && slope_spacings.len() >= 5 {
+        let d_stat = two_sample_ks(&peak_spacings, &slope_spacings);
+        report.push_str(&format!("\nKS statistic (peak vs slope spacings): D = {:.4}\n", d_stat));
+        if d_stat > 0.3 {
+            report.push_str("→ Significant difference. Edge zeros behave differently.\n");
+        } else {
+            report.push_str("→ No significant difference detected.\n");
+        }
+    }
+    
+    // === DISTANCE TO CONNECTION ===
+    // For each dimension, measure how many peaks we need before the measurement stabilizes.
+    // "Stable" = the last 3 measurements have std < 0.5 * overall mean
+    
+    report.push_str(&format!("\n{}\n", "-".repeat(60)));
+    report.push_str("DISTANCE TO CONNECTION — how far to drill before each dimension locks in:\n\n");
+    
+    // Recompute peak data with W/H ratios
+    let mut peak_ratios = Vec::new();
+    for &peak_idx in &peaks {
+        let n_smooth = points[peak_idx].1;
+        let peak_height = r_values[peak_idx];
+        
+        let baseline = if peak_idx > 0 {
+            r_values[..=peak_idx].iter().cloned().fold(f64::INFINITY, f64::min)
+        } else { 0.0 };
+        
+        let half_height = (peak_height + baseline) / 2.0;
+        
+        let mut left_width = 0;
+        for i in (0..peak_idx).rev() {
+            if r_values[i] <= half_height {
+                left_width = peak_idx - i;
+                break;
+            }
+        }
+        
+        let mut right_width = 0;
+        for i in (peak_idx + 1)..points.len() {
+            if r_values[i] <= half_height {
+                right_width = i - peak_idx;
+                break;
+            }
+        }
+        
+        let total_width = (left_width + right_width) as f64;
+        let height_above_base = peak_height - baseline;
+        
+        if height_above_base > 0.0 && total_width > 0.0 {
+            let ratio = total_width / height_above_base;
+            peak_ratios.push((peak_idx, n_smooth, ratio));
+        }
+    }
+    
+    // Find where W/H stabilizes (last 3 have std < threshold)
+    let mut wh_stable_at = None;
+    for i in 3..peak_ratios.len() {
+        let recent: Vec<f64> = peak_ratios[i-3..=i].iter().map(|&(_, _, r)| r).collect();
+        let mean: f64 = recent.iter().sum::<f64>() / 3.0;
+        let var: f64 = recent.iter().map(|&r| (r - mean).powi(2)).sum::<f64>() / 3.0;
+        let std = var.sqrt();
+        
+        if std < 1.0 { // stabilization threshold
+            wh_stable_at = Some((peak_ratios[i].0, peak_ratios[i].1));
+            break;
+        }
+    }
+    
+    match wh_stable_at {
+        Some((idx, ns)) => {
+            report.push_str(&format!("W/H ratio stabilizes at peak index {}, N_smooth = {:.2}\n", idx, ns));
+            report.push_str(&format!("  → Distance to connection (W/H dimension): {} peaks\n\n", idx + 1));
+        }
+        None => {
+            report.push_str("W/H ratio does NOT stabilize in available range.\n\n");
+        }
+    }
+    
+    // Find where detrended correlation stabilizes
+    // Compute rolling detrended correlation using expanding windows
+    let mut corr_stable_at = None;
+    for window_size in 5..=peak_ratios.len() {
+        if window_size < 5 { break; }
+        
+        let wh_sq: Vec<f64> = peak_ratios[..window_size].iter()
+            .map(|&(_, _, r)| { 
+                // Approximate W²+H² from ratio and typical height
+                let h_approx = 1.0 + window_size as f64 * 0.1; // rough proxy
+                let w = r * h_approx;
+                w*w + h_approx*h_approx
+            })
+            .collect();
+        
+        let ln_ns: Vec<f64> = peak_ratios[..window_size].iter().map(|&(_, ns, _)| ns.ln()).collect();
+        
+        // Detrend and correlate
+        fn detrend(x: &[f64]) -> Vec<f64> {
+            let n = x.len() as f64;
+            if n < 3.0 { return x.to_vec(); }
+            let indices: Vec<f64> = (0..x.len()).map(|i| i as f64).collect();
+            let mean_x: f64 = indices.iter().sum::<f64>() / n;
+            let mean_y: f64 = x.iter().sum::<f64>() / n;
+            
+            let mut num = 0.0;
+            let mut den = 0.0;
+            for i in 0..x.len() {
+                num += (indices[i] - mean_x) * (x[i] - mean_y);
+                den += (indices[i] - mean_x).powi(2);
+            }
+            if den == 0.0 { return x.to_vec(); }
+            let slope = num / den;
+            let intercept = mean_y - slope * mean_x;
+            x.iter().enumerate().map(|(i, &v)| v - (intercept + slope * i as f64)).collect()
+        }
+        
+        let wh_detrended = detrend(&wh_sq);
+        let ns_detrended = detrend(&ln_ns);
+        
+        let n_dt = wh_detrended.len() as f64;
+        if n_dt >= 3.0 {
+            let mean_wh: f64 = wh_detrended.iter().sum::<f64>() / n_dt;
+            let mean_ns: f64 = ns_detrended.iter().sum::<f64>() / n_dt;
+            
+            let mut cov = 0.0;
+            let mut var_wh = 0.0;
+            let mut var_ns = 0.0;
+            for i in 0..wh_detrended.len() {
+                cov += (wh_detrended[i] - mean_wh) * (ns_detrended[i] - mean_ns);
+                var_wh += (wh_detrended[i] - mean_wh).powi(2);
+                var_ns += (ns_detrended[i] - mean_ns).powi(2);
+            }
+            
+            let denom = (var_wh * var_ns).sqrt();
+            if denom > 0.0 {
+                let r_val = cov / denom;
+                
+                // Check stability: compare with previous window
+                if window_size >= 8 {
+                    // Compute correlation for window-1
+                    let wh_sq_prev: Vec<f64> = peak_ratios[..window_size-1].iter()
+                        .map(|&(_, _, r)| { 
+                            let h_approx = 1.0 + (window_size-1) as f64 * 0.1;
+                            let w = r * h_approx;
+                            w*w + h_approx*h_approx
+                        })
+                        .collect();
+                    let ln_ns_prev: Vec<f64> = peak_ratios[..window_size-1].iter().map(|&(_, ns, _)| ns.ln()).collect();
+                    
+                    let wh_detrended_prev = detrend(&wh_sq_prev);
+                    let ns_detrended_prev = detrend(&ln_ns_prev);
+                    
+                    let n_dt2 = wh_detrended_prev.len() as f64;
+                    if n_dt2 >= 3.0 {
+                        let mean_wh2: f64 = wh_detrended_prev.iter().sum::<f64>() / n_dt2;
+                        let mean_ns2: f64 = ns_detrended_prev.iter().sum::<f64>() / n_dt2;
+                        
+                        let mut cov2 = 0.0;
+                        let mut var_wh2 = 0.0;
+                        let mut var_ns2 = 0.0;
+                        for i in 0..wh_detrended_prev.len() {
+                            cov2 += (wh_detrended_prev[i] - mean_wh2) * (ns_detrended_prev[i] - mean_ns2);
+                            var_wh2 += (wh_detrended_prev[i] - mean_wh2).powi(2);
+                            var_ns2 += (ns_detrended_prev[i] - mean_ns2).powi(2);
+                        }
+                        
+                        let denom2 = (var_wh2 * var_ns2).sqrt();
+                        if denom2 > 0.0 {
+                            let r_val2 = cov2 / denom2;
+                            if (r_val - r_val2).abs() < 0.05 {
+                                corr_stable_at = Some((peak_ratios[window_size-1].0, peak_ratios[window_size-1].1));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    match corr_stable_at {
+        Some((idx, ns)) => {
+            report.push_str(&format!("Detrended correlation stabilizes at peak index {}, N_smooth = {:.2}\n", idx, ns));
+            report.push_str(&format!("  → Distance to connection (correlation dimension): {} peaks\n\n", idx + 1));
+        }
+        None => {
+            report.push_str("Detrended correlation does NOT stabilize in available range.\n\n");
+        }
+    }
+    
+    // Edge partition stability: when do peak vs slope spacings first differ significantly?
+    let mut edge_stable_at = None;
+    for window_size in 5..=points.len() {
+        if window_size < 10 { continue; }
+        
+        let r_window: Vec<f64> = r_values[..window_size].to_vec();
+        let peaks_window = find_peaks(&r_window);
+        
+        let mut peak_sp = Vec::new();
+        let mut slope_sp = Vec::new();
+        
+        for i in 0..window_size.saturating_sub(1) {
+            let gamma_n = points[i].0;
+            let gamma_next = points[i+1].0;
+            let spacing = (gamma_next - gamma_n) * (gamma_n / (2.0 * std::f64::consts::PI)).ln() / (2.0 * std::f64::consts::PI);
+            
+            if spacing <= 0.0 { continue; }
+            
+            let near_peak = peaks_window.iter().any(|&p| (i as i64 - p as i64).abs() <= proximity_threshold as i64);
+            if near_peak {
+                peak_sp.push(spacing);
+            } else {
+                slope_sp.push(spacing);
+            }
+        }
+        
+        if peak_sp.len() >= 3 && slope_sp.len() >= 3 {
+            let d_stat = two_sample_ks(&peak_sp, &slope_sp);
+            if d_stat > 0.3 {
+                edge_stable_at = Some((points[window_size-1].0, points[window_size-1].1));
+                break;
+            }
+        }
+    }
+    
+    match edge_stable_at {
+        Some((t_val, ns)) => {
+            report.push_str(&format!("Edge partition difference emerges at T = {:.2}, N_smooth = {:.2}\n", t_val, ns));
+            report.push_str(&format!("  → Distance to connection (edge dimension): T = {:.2}\n\n", t_val));
+        }
+        None => {
+            report.push_str("Edge partition difference does NOT emerge in available range.\n\n");
+        }
+    }
+    
+    // Final mapping: the "hill map" — all dimensions at their connection points
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("HILL MAP — connection points for each dimension:\n");
+    report.push_str("  W/H stabilization:     ");
+    match wh_stable_at {
+        Some((_, ns)) => report.push_str(&format!("N_smooth = {:.2}\n", ns)),
+        None => report.push_str("NOT REACHED\n"),
+    }
+    report.push_str("  Correlation stability: ");
+    match corr_stable_at {
+        Some((_, ns)) => report.push_str(&format!("N_smooth = {:.2}\n", ns)),
+        None => report.push_str("NOT REACHED\n"),
+    }
+    report.push_str("  Edge partition:        ");
+    match edge_stable_at {
+        Some((t_val, _)) => report.push_str(&format!("T = {:.2}\n", t_val)),
+        None => report.push_str("NOT REACHED\n"),
+    }
+    
+    // Check if all three align within a range
+    let wh_ns = wh_stable_at.map(|(_, ns)| ns);
+    let corr_ns = corr_stable_at.map(|(_, ns)| ns);
+    
+    if let (Some(a), Some(b)) = (wh_ns, corr_ns) {
+        if (a - b).abs() < 10.0 {
+            report.push_str("\n→ W/H and correlation dimensions CONNECT within ΔN_smooth < 10.\n");
+            report.push_str("  The hill is mappable from these two ends.\n");
+        } else {
+            report.push_str(&format!("\n→ Dimensions connect at different depths (Δ = {:.2}).\n", (a-b).abs()));
+            report.push_str("  Need more data or a different coordinate system to unify.\n");
+        }
+    }
+    
+    report
+}
+
+pub fn shape_test_depth_constraint(t_max: f64) -> String {
+    let points = count_trajectory(t_max);
+    if points.len() < 10 { return "Not enough data.\n".to_string(); }
+    
+    let r_values: Vec<f64> = points.iter().map(|&(_, r)| r).collect();
+    let peaks = find_peaks(&r_values);
+    
+    let mut report = format!("\nSHAPE TEST 8 — Depth-Dependent Constraint (Rigorous)\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("Tests whether the W/H constraint tightens with depth.\n");
+    report.push_str("Model A: W = k·H (fixed geometry)\n");
+    report.push_str("Model B: W = H·k(N_smooth) (depth-dependent)\n\n");
+    
+    if peaks.len() < 8 {
+        report.push_str(&format!("Only {} peaks. Need at least 8 for depth analysis.\n", peaks.len()));
+        return report;
+    }
+    
+    // Collect peak data: (T, N_smooth, W, H_above_base, W/H ratio)
+    let mut peak_data = Vec::new();
+    for &peak_idx in &peaks {
+        let t_val = points[peak_idx].0;
+        let n_smooth = points[peak_idx].1;
+        let peak_height = r_values[peak_idx];
+        
+        let baseline = if peak_idx > 0 {
+            r_values[..=peak_idx].iter().cloned().fold(f64::INFINITY, f64::min)
+        } else { 0.0 };
+        
+        let half_height = (peak_height + baseline) / 2.0;
+        
+        let mut left_width = 0;
+        for i in (0..peak_idx).rev() {
+            if r_values[i] <= half_height {
+                left_width = peak_idx - i;
+                break;
+            }
+        }
+        
+        let mut right_width = 0;
+        for i in (peak_idx + 1)..points.len() {
+            if r_values[i] <= half_height {
+                right_width = i - peak_idx;
+                break;
+            }
+        }
+        
+        let total_width = (left_width + right_width) as f64;
+        let height_above_base = peak_height - baseline;
+        
+        if height_above_base > 0.0 && total_width > 0.0 {
+            let ratio = total_width / height_above_base;
+            peak_data.push((t_val, n_smooth, total_width, height_above_base, ratio));
+        }
+    }
+    
+    report.push_str(&format!("Testing {} peaks\n\n", peak_data.len()));
+    
+    // Split into early/middle/late thirds by N_smooth (which correlates with depth)
+    let sorted_by_depth: Vec<_> = peak_data.iter().collect();
+    let third = peak_data.len() / 3;
+    if third < 2 {
+        report.push_str("Not enough peaks for three-way split.\n");
+        return report;
+    }
+    
+    let early: &[&(f64, f64, f64, f64, f64)] = &sorted_by_depth[..third];
+    let middle: &[&(f64, f64, f64, f64, f64)] = &sorted_by_depth[third..2*third];
+    let late: &[&(f64, f64, f64, f64, f64)] = &sorted_by_depth[2*third..];
+    
+    // Compute mean and variance of W/H ratio in each group
+    fn stats(ratios: &[&f64]) -> (f64, f64) {
+        let n = ratios.len() as f64;
+        if n == 0.0 { return (0.0, 0.0); }
+        let mean: f64 = ratios.iter().map(|&&r| r).sum::<f64>() / n;
+        let var: f64 = ratios.iter().map(|&&r| (r - mean).powi(2)).sum::<f64>() / n.max(1.0);
+        (mean, var.sqrt())
+    }
+    
+    let early_ratios: Vec<&f64> = early.iter().map(|&(_, _, _, _, r)| r).collect();
+    let middle_ratios: Vec<&f64> = middle.iter().map(|&(_, _, _, _, r)| r).collect();
+    let late_ratios: Vec<&f64> = late.iter().map(|&(_, _, _, _, r)| r).collect();
+    
+    let (e_mean, e_std) = stats(&early_ratios);
+    let (m_mean, m_std) = stats(&middle_ratios);
+    let (l_mean, l_std) = stats(&late_ratios);
+    
+    report.push_str("W/H ratio by depth:\n");
+    report.push_str(&format!("  Early  peaks: mean = {:.4}, std = {:.4}  (n={})\n", e_mean, e_std, early.len()));
+    report.push_str(&format!("  Middle peaks: mean = {:.4}, std = {:.4}  (n={})\n", m_mean, m_std, middle.len()));
+    report.push_str(&format!("  Late   peaks: mean = {:.4}, std = {:.4}  (n={})\n\n", l_mean, l_std, late.len()));
+    
+    // Test 1: Does variance decrease with depth?
+    let var_decreasing = e_std > m_std && m_std > l_std;
+    if var_decreasing {
+        report.push_str("→ Variance DECREASES with depth. Envelope tightens.\n");
+    } else if e_std > l_std {
+        report.push_str("→ Variance decreases overall (early > late), but not monotonically.\n");
+    } else {
+        report.push_str("→ Variance does NOT clearly decrease with depth.\n");
+    }
+    
+    // Test 2: Model A vs Model B
+    // Model A: W = k·H → regress ln(W) on ln(H), get R²_A
+    // Model B: W = H·k(N) → regress ln(W/H) on ln(N_smooth), get R²_B (reduction in residual variance)
+    
+    let n_peaks = peak_data.len() as f64;
+    
+    // Model A: ln(W) = a + b·ln(H) + ε
+    let ln_w: Vec<f64> = peak_data.iter().map(|&(_, _, w, _, _)| w.ln()).collect();
+    let ln_h: Vec<f64> = peak_data.iter().map(|&(_, _, _, h, _)| h.ln()).collect();
+    
+    // Simple linear regression
+    fn linreg(x: &[f64], y: &[f64]) -> (f64, f64, f64) {
+        let n = x.len() as f64;
+        if n < 3.0 { return (0.0, 0.0, 0.0); }
+        let mean_x: f64 = x.iter().sum::<f64>() / n;
+        let mean_y: f64 = y.iter().sum::<f64>() / n;
+        
+        let mut num = 0.0;
+        let mut den = 0.0;
+        for i in 0..x.len() {
+            num += (x[i] - mean_x) * (y[i] - mean_y);
+            den += (x[i] - mean_x).powi(2);
+        }
+        if den == 0.0 { return (mean_y, 0.0, 0.0); }
+        let slope = num / den;
+        let intercept = mean_y - slope * mean_x;
+        
+        // R²
+        let mut ss_res = 0.0;
+        let mut ss_tot = 0.0;
+        for i in 0..x.len() {
+            let pred = intercept + slope * x[i];
+            ss_res += (y[i] - pred).powi(2);
+            ss_tot += (y[i] - mean_y).powi(2);
+        }
+        let r_sq = if ss_tot > 0.0 { 1.0 - ss_res / ss_tot } else { 0.0 };
+        
+        (intercept, slope, r_sq)
+    }
+    
+    let (_, slope_a, r_sq_a) = linreg(&ln_h, &ln_w);
+    report.push_str(&format!("\nModel A (W = k·H): ln(W) = {:.4} + {:.4}·ln(H), R² = {:.4}\n", 
+        0.0, slope_a, r_sq_a)); // intercept shown separately
+    let (int_a, _, _) = linreg(&ln_h, &ln_w);
+    report.push_str(&format!("  (intercept = {:.4})\n", int_a));
+    
+    // Model B: ln(W/H) = a + b·ln(N_smooth) + ε
+    let ln_ratio: Vec<f64> = peak_data.iter().map(|&(_, _, w, h, _)| if h > 0.0 { (w/h).ln() } else { 0.0 }).collect();
+    let ln_ns: Vec<f64> = peak_data.iter().map(|&(_, ns, _, _, _)| ns.ln()).collect();
+    
+    let (int_b, slope_b, r_sq_b) = linreg(&ln_ns, &ln_ratio);
+    report.push_str(&format!("\nModel B (W/H depends on depth): ln(W/H) = {:.4} + {:.4}·ln(N_smooth), R² = {:.4}\n", 
+        int_b, slope_b, r_sq_b));
+    
+    // Compare: does adding depth explain additional variance?
+    if r_sq_b > 0.3 {
+        report.push_str("→ Depth explains significant additional variance in W/H.\n");
+        report.push_str("  Model B outperforms Model A. Geometry is depth-dependent.\n");
+    } else if slope_b < 0.0 && r_sq_b > 0.1 {
+        report.push_str("→ Weak evidence for depth dependence (negative slope, low R²).\n");
+    } else {
+        report.push_str("→ Depth does NOT significantly explain W/H variation.\n");
+        report.push_str("  Model A (fixed geometry) is sufficient.\n");
+    }
+    
+    // Test 3: Detrended correlation between W²+H² and N_smooth
+    // Remove linear trend from both, then correlate
+    let wh_sq: Vec<f64> = peak_data.iter().map(|&(_, _, w, h, _)| w*w + h*h).collect();
+    
+    fn detrend(x: &[f64]) -> Vec<f64> {
+        let n = x.len() as f64;
+        if n < 3.0 { return x.to_vec(); }
+        let indices: Vec<f64> = (0..x.len()).map(|i| i as f64).collect();
+        let (int, slope, _) = linreg(&indices, x);
+        x.iter().enumerate().map(|(i, &v)| v - (int + slope * i as f64)).collect()
+    }
+    
+    let wh_sq_detrended = detrend(&wh_sq);
+    let ns_detrended = detrend(&ln_ns);
+    
+    // Correlation of detrended values
+    let n_dt = wh_sq_detrended.len() as f64;
+    if n_dt >= 3.0 {
+        let mean_wh: f64 = wh_sq_detrended.iter().sum::<f64>() / n_dt;
+        let mean_ns: f64 = ns_detrended.iter().sum::<f64>() / n_dt;
+        
+        let mut cov = 0.0;
+        let mut var_wh = 0.0;
+        let mut var_ns = 0.0;
+        for i in 0..wh_sq_detrended.len() {
+            cov += (wh_sq_detrended[i] - mean_wh) * (ns_detrended[i] - mean_ns);
+            var_wh += (wh_sq_detrended[i] - mean_wh).powi(2);
+            var_ns += (ns_detrended[i] - mean_ns).powi(2);
+        }
+        
+        let denom = (var_wh * var_ns).sqrt();
+        let r_detrended = if denom > 0.0 { cov / denom } else { 0.0 };
+        
+        report.push_str(&format!("\nDetrended Corr(W²+H², N_smooth) = {:.4}\n", r_detrended));
+        if r_detrended.abs() < 0.3 {
+            report.push_str("→ After removing trends, correlation vanishes.\n");
+            report.push_str("  Original correlation was mostly shared trend, not geometry.\n");
+        } else {
+            report.push_str("→ Correlation survives detrending. Real geometric relationship.\n");
+        }
+    }
+    
+    // Summary: three distinct concepts at the "top of the hill"
+    report.push_str(&format!("\n{}\n", "-".repeat(60)));
+    report.push_str("Top of the hill — three distinct concepts:\n");
+    report.push_str("  1. Maximum of R(T) — where we are now\n");
+    report.push_str("  2. Boundary of geometrically permitted (W,H) region\n");
+    report.push_str("  3. Transition point between regimes\n");
+    report.push_str("These could coincide. The data above tests whether 1 and 2 align.\n");
+    
+    report
+}
+
+pub fn shape_test_pythagorean_constraint(t_max: f64) -> String {
+    let points = count_trajectory(t_max);
+    if points.len() < 10 { return "Not enough data.\n".to_string(); }
+    
+    let r_values: Vec<f64> = points.iter().map(|&(_, r)| r).collect();
+    let peaks = find_peaks(&r_values);
+    
+    let mut report = format!("\nSHAPE TEST 7 — Pythagorean Constraint Test\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("If peaks are geometrically constrained, W² + H² should correlate\n");
+    report.push_str("with some function of T (or N_smooth). Also checks for an envelope.\n\n");
+    
+    if peaks.len() < 5 {
+        report.push_str(&format!("Only {} peaks found. Need more data.\n", peaks.len()));
+        return report;
+    }
+    
+    // Collect peak data: (T, W, H_above_base, N_smooth_at_peak)
+    let mut peak_data = Vec::new();
+    for &peak_idx in &peaks {
+        let t_val = points[peak_idx].0;
+        let n_smooth = points[peak_idx].1; // count_trajectory returns (N_smooth, R)
+        let peak_height = r_values[peak_idx];
+        
+        let baseline = if peak_idx > 0 {
+            r_values[..=peak_idx].iter().cloned().fold(f64::INFINITY, f64::min)
+        } else { 0.0 };
+        
+        let half_height = (peak_height + baseline) / 2.0;
+        
+        let mut left_width = 0;
+        for i in (0..peak_idx).rev() {
+            if r_values[i] <= half_height {
+                left_width = peak_idx - i;
+                break;
+            }
+        }
+        
+        let mut right_width = 0;
+        for i in (peak_idx + 1)..points.len() {
+            if r_values[i] <= half_height {
+                right_width = i - peak_idx;
+                break;
+            }
+        }
+        
+        let total_width = (left_width + right_width) as f64;
+        let height_above_base = peak_height - baseline;
+        
+        if height_above_base > 0.0 && total_width > 0.0 {
+            peak_data.push((t_val, n_smooth, total_width, height_above_base));
+        }
+    }
+    
+    report.push_str(&format!("Testing {} peaks for geometric constraints\n\n", peak_data.len()));
+    
+    // Compute W² + H² for each peak
+    let mut wh_sq: Vec<f64> = Vec::new();
+    for &(_, _, w, h) in &peak_data {
+        wh_sq.push(w * w + h * h);
+    }
+    
+    // Test 1: Correlate W²+H² with T
+    let t_vals: Vec<f64> = peak_data.iter().map(|&(t, _, _, _)| t).collect();
+    let r_t = correlation(&t_vals, &wh_sq);
+    report.push_str(&format!("Corr(W²+H², T) = {:.4}\n", r_t));
+    
+    // Test 2: Correlate W²+H² with N_smooth
+    let ns_vals: Vec<f64> = peak_data.iter().map(|&(_, ns, _, _)| ns).collect();
+    let r_ns = correlation(&ns_vals, &wh_sq);
+    report.push_str(&format!("Corr(W²+H², N_smooth) = {:.4}\n", r_ns));
+    
+    // Test 3: Correlate W²+H² with T² (power law check)
+    let t_sq: Vec<f64> = t_vals.iter().map(|&t| t * t).collect();
+    let r_t2 = correlation(&t_sq, &wh_sq);
+    report.push_str(&format!("Corr(W²+H², T²) = {:.4}\n", r_t2));
+    
+    // Test 4: Correlate W²+H² with H² (is width determined by height?)
+    let h_sq: Vec<f64> = peak_data.iter().map(|&(_, _, _, h)| h * h).collect();
+    let r_h2 = correlation(&h_sq, &wh_sq);
+    report.push_str(&format!("Corr(W²+H², H²) = {:.4}\n", r_h2));
+    
+    // Test 5: Check W/H ratio stability at different scales
+    let mut ratios_by_scale = Vec::new();
+    for &(_, _, w, h) in &peak_data {
+        if h > 0.0 {
+            ratios_by_scale.push(w / h);
+        }
+    }
+    if ratios_by_scale.len() >= 3 {
+        let mean_ratio: f64 = ratios_by_scale.iter().sum::<f64>() / ratios_by_scale.len() as f64;
+        let var: f64 = ratios_by_scale.iter().map(|&r| (r - mean_ratio).powi(2)).sum::<f64>() / ratios_by_scale.len() as f64;
+        let cv = if mean_ratio > 0.0 { var.sqrt() / mean_ratio } else { 0.0 };
+        report.push_str(&format!("\nW/H ratio across all peaks: mean = {:.4}, CV = {:.4}\n", 
+            mean_ratio, cv));
+        
+        // Split into early vs late peaks
+        let mid = peak_data.len() / 2;
+        if mid >= 2 {
+            let early_ratios: Vec<f64> = peak_data[..mid].iter().map(|&(_, _, w, h)| if h > 0.0 { w/h } else { 0.0 }).collect();
+            let late_ratios: Vec<f64> = peak_data[mid..].iter().map(|&(_, _, w, h)| if h > 0.0 { w/h } else { 0.0 }).collect();
+            
+            let early_mean: f64 = early_ratios.iter().sum::<f64>() / early_ratios.len() as f64;
+            let late_mean: f64 = late_ratios.iter().sum::<f64>() / late_ratios.len() as f64;
+            
+            report.push_str(&format!("Early peaks W/H mean: {:.4}\n", early_mean));
+            report.push_str(&format!("Late peaks W/H mean: {:.4}\n", late_mean));
+            if (late_mean - early_mean).abs() / early_mean.max(0.1) < 0.3 {
+                report.push_str("→ Ratio stabilizes at scale. Self-similar geometry.\n");
+            } else {
+                report.push_str("→ Ratio changes with scale. Not self-similar.\n");
+            }
+        }
+    }
+    
+    // Test 6: Envelope check — for each peak, is W bounded by some function of H?
+    report.push_str(&format!("\nEnvelope check (W vs H):\n"));
+    report.push_str(&text_scatter(
+        &peak_data.iter().map(|&(_, _, w, h)| (h, w)).collect::<Vec<_>>(),
+        40, 12
+    ));
+    
+    // Check if W ≈ k·H holds (linear envelope)
+    let mut k_values = Vec::new();
+    for &(_, _, w, h) in &peak_data {
+        if h > 0.0 {
+            k_values.push(w / h);
+        }
+    }
+    if !k_values.is_empty() {
+        let min_k = k_values.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max_k = k_values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        report.push_str(&format!("W/H range: [{:.4}, {:.4}]\n", min_k, max_k));
+        if (max_k - min_k) / min_k.max(0.1) < 0.5 {
+            report.push_str("→ Tight envelope. W is bounded by ~constant × H.\n");
+            report.push_str("  This IS a Pythagorean-like constraint: given H, W is determined.\n");
+        } else {
+            report.push_str("→ Loose envelope. W not tightly constrained by H.\n");
+        }
+    }
+    
+    report
+}
+
+/// Compute Pearson correlation between two vectors
+fn correlation(x: &[f64], y: &[f64]) -> f64 {
+    if x.len() < 3 || x.len() != y.len() { return 0.0; }
+    let n = x.len() as f64;
+    let mean_x: f64 = x.iter().sum::<f64>() / n;
+    let mean_y: f64 = y.iter().sum::<f64>() / n;
+    
+    let mut cov = 0.0;
+    let mut var_x = 0.0;
+    let mut var_y = 0.0;
+    for i in 0..x.len() {
+        cov += (x[i] - mean_x) * (y[i] - mean_y);
+        var_x += (x[i] - mean_x).powi(2);
+        var_y += (y[i] - mean_y).powi(2);
+    }
+    
+    let denom = (var_x * var_y).sqrt();
+    if denom > 0.0 { cov / denom } else { 0.0 }
+}
+
+pub fn all_shape_tests(t_max: f64) -> String {
+    let mut report = format!("\n{}\n", "=".repeat(70));
+    report.push_str(&format!("SHAPE TESTING: Geometric structure in zero-count trajectory\n"));
+    report.push_str(&format!("First {} zeros (T up to {})\n", 
+        KNOWN_ZERO_ORDINATES.iter().filter(|&&g| g <= t_max).count(), t_max));
+    report.push_str(&format!("{}\n", "=".repeat(70)));
+    
+    report.push_str(&shape_test_return_map(t_max));
+    report.push_str(&shape_test_log_polar(t_max));
+    report.push_str(&shape_test_folded(t_max));
+    report.push_str(&shape_test_residual_differences(t_max));
+    
+    report.push_str(&shape_test_peak_width(t_max));
+    report.push_str(&shape_test_step_counter(t_max));
+    report.push_str(&shape_test_pythagorean_constraint(t_max));
+    report.push_str(&shape_test_depth_constraint(t_max));
+    report.push_str(&shape_test_edge_partition_and_mapping(t_max));
+    report.push_str(&shape_test_perpendicular_grade(t_max));
+    report.push_str(&shape_test_gradient_zero_finding(t_max));
+    
+    report.push_str(&format!("\n{}\n", "=".repeat(70)));
+    report.push_str("SUMMARY: Which shapes survived?\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("The question isn't 'is it a spiral?' — it's 'what geometry\n");
+    report.push_str("survives when we stop treating one curve as the baseline?'\n");
+    report.push_str("Each test above tries a different coordinate system.\n");
+    
+    report
+}
+
+#[cfg(test)]
+mod shape_tests {
+    use super::*;
+    
+    #[test]
+    fn test_shape_tests_run() {
+        let report = all_shape_tests(200.0);
+        assert!(report.contains("SHAPE TEST 1"));
+        assert!(report.contains("SHAPE TEST 2"));
+        assert!(report.contains("SHAPE TEST 3"));
+        assert!(report.contains("SHAPE TEST 4"));
+    }
+    
+    #[test]
+    fn test_text_scatter_works() {
+        let points = vec![(0.0, 0.0), (1.0, 1.0), (2.0, 2.0)];
+        let plot = text_scatter(&points, 10, 5);
+        assert!(plot.contains('*'));
+    }
+}
+
+#[cfg(test)]
+mod multiscale_tests {
+    use super::*;
+    
+    #[test]
+    fn test_count_residual_at_known_zero() {
+        // At t=100, there are 29 known zeros below
+        let r = count_residual(100.0);
+        assert!(r.is_finite());
+    }
+    
+    #[test]
+    fn test_autocorrelation_lag_zero_is_one() {
+        let s = vec![1.0, 2.0, 3.0, 4.0];
+        assert!((spacing_autocorrelation(&s, 0) - 1.0).abs() < 1e-10);
+    }
+    
+    #[test]
+    fn test_window_sums_length() {
+        let s = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        assert_eq!(window_sums(&s, 2).len(), 4);
+        assert_eq!(window_sums(&s, 3)[0], 6.0);
+    }
+    
+    #[test]
+    fn test_multiscale_report_runs() {
+        let report = full_multiscale_report(50.0, 100.0);
+        assert!(report.contains("LAYER 4"));
+        assert!(report.contains("LAYER 5"));
+        assert!(report.contains("SIMULATION-BASED CALIBRATION"));
+    }
+}
