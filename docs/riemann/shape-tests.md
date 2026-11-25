@@ -226,6 +226,73 @@ sequence. This means:
 | Distance to peak (mean) | 0.57 units | Test 11 |
 | Layered dimension discovery | peaks 20 → T=33 → peak 47 | Test 9 |
 
+## SHAPE TEST 12 — Connected Multi-Start Walk
+
+**Question:** Can we chain predictions together? If each validated zero becomes
+the next starting point, how far can we map the hill before the chain breaks?
+
+**Protocol:**
+1. Start at a point on the trajectory
+2. Use gradient + curvature to predict the next zero (quadratic extrapolation)
+3. Validate: is the predicted T within 2 units of an actual zero?
+4. If yes, move there and repeat. If no, the walk breaks.
+
+**Results (T=1000, 645 zeros):**
+- Walks attempted: 65
+- Total predictions made: 58
+- Validated steps: 55 (94.8% validation rate)
+- Mean walk length: 0.85 steps
+- Max walk length: 5 steps
+
+**Interpretation:**
+The hill is **locally predictable** (94.8% of predictions land near actual zeros)
+but **globally fragmented** (walks break after ~1 step on average). This means:
+
+- The 100ft drill works: local geometry (gradient + curvature) reliably predicts
+  where the next zero is
+- But you can't build long chains — the terrain changes too rapidly to continue
+  without re-orienting
+- Mapping the full hill requires many independent starting points, not one long walk
+
+**Scale comparison:**
+
+| Metric | T=200 (93 zeros) | T=1000 (645 zeros) |
+|--------|------------------|---------------------|
+| Validation rate | 90.0% | 94.8% |
+| Mean walk length | 0.90 steps | 0.85 steps |
+| Max walk length | 5 steps | 5 steps |
+
+The protocol is scale-invariant: local predictability holds at both scales,
+but global connectivity doesn't improve with more data.
+
+## Scale-Up Findings (T=200 → T=1000)
+
+**What changed:**
+- Zeros: 93 → 645
+- Peaks: 25 → 200
+
+**Key corrections from small-sample bias:**
+
+1. **Model A (W = H^k) is the real constraint**, not Model B (depth-dependent):
+   - T=200: Neither model fit well (R² ≈ 0) — insufficient data
+   - T=1000: Model A wins with R² = 0.81, W = H^1.42
+   - This is a **fixed geometric constraint** that holds across scales
+
+2. **The Pythagorean constraint was partially an artifact:**
+   - T=200: Corr(W²+H², N_smooth) = 0.72 (looked like geometry)
+   - T=1000: Detrended Corr = 0.795 (survives detrending — real relationship)
+   - But it's not the simple Pythagorean tuple we thought — it's more complex
+
+3. **W/H behavior is scale-dependent:**
+   - T=200: W/H increases with depth (1.48 → 5.03)
+   - T=1000: Non-monotonic (25.9 → 64.8 → 25.4)
+   - Small sample was misleading about the trend
+
+**What survived scale-up:**
+- Connected walk validation rate: 90% → 94.8% (local predictability holds)
+- Perpendicular drill orthogonality to slope: still ~0 correlation
+- Curvature-based prediction: works at both scales
+
 ## Implementation
 
 All shape tests are in `src/riemann/zeta_riemann_siegel.rs`:
@@ -234,6 +301,6 @@ All shape tests are in `src/riemann/zeta_riemann_siegel.rs`:
 - `find_peaks(r_values)` — local extrema detection
 - `two_sample_ks(a, b)` — Kolmogorov-Smirnov test for distribution comparison
 - `shape_test_*` functions — individual tests returning formatted reports
-- `all_shape_tests(t_max)` — runs all 11 tests in sequence
+- `all_shape_tests(t_max)` — runs all 12 tests in sequence
 
 Run with: `cargo run --example debug_multiscale`

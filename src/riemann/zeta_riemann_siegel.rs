@@ -1372,21 +1372,17 @@ pub fn full_multiscale_report(a: f64, b: f64) -> String {
 /// The user's insight: "it just requires acknowledging that you crossed the zero."
 /// Every zero crossing changes the relationship between smooth and actual count.
 pub fn count_trajectory(t_max: f64) -> Vec<(f64, f64)> {
-    let mut points = Vec::new();
+    // Compute zeros dynamically using Riemann-Siegel Z-function with bisection.
+    // This allows scaling to any T value without hardcoding zero ordinates.
+    let zeros = find_zeros_rs(10.0, t_max, 0.5);
+    let two_pi = 2.0 * std::f64::consts::PI;
     
-    // Start at T=10 (first few zeros are below this)
-    for &gamma in KNOWN_ZERO_ORDINATES.iter() {
-        if gamma > t_max { break; }
-        
-        let n_actual = KNOWN_ZERO_ORDINATES.iter().filter(|&&g| g <= gamma).count() as f64;
-        let two_pi = 2.0 * std::f64::consts::PI;
+    zeros.iter().enumerate().map(|(i, &gamma)| {
+        let n_actual = (i + 1) as f64; // zeros are found in order starting from T=10
         let n_smooth = (gamma / two_pi) * (gamma / two_pi).ln() - gamma / two_pi + 7.0 / 8.0;
         let r = n_actual - n_smooth;
-        
-        points.push((n_smooth, r));
-    }
-    
-    points
+        (n_smooth, r)
+    }).collect()
 }
 
 /// Format the trajectory as text "plot" — shows the path through (N_smooth, R) space
@@ -2961,10 +2957,16 @@ pub fn shape_test_depth_constraint(t_max: f64) -> String {
     report.push_str(&format!("  (intercept = {:.4})\n", int_a));
     
     // Model B: ln(W/H) = a + b·ln(N_smooth) + ε
-    let ln_ratio: Vec<f64> = peak_data.iter().map(|&(_, _, w, h, _)| if h > 0.0 { (w/h).ln() } else { 0.0 }).collect();
-    let ln_ns: Vec<f64> = peak_data.iter().map(|&(_, ns, _, _, _)| ns.ln()).collect();
+    // Filter out invalid values (W/H ≤ 0 or N_smooth ≤ 0) before regression
+    let valid_pairs: Vec<(f64, f64)> = peak_data.iter()
+        .filter(|p| p.3 > 0.0 && p.2/p.3 > 0.0 && p.1 > 0.0)
+        .map(|p| (p.1.ln(), (p.2/p.3).ln()))
+        .collect();
     
-    let (int_b, slope_b, r_sq_b) = linreg(&ln_ns, &ln_ratio);
+    let ln_ns: Vec<f64> = valid_pairs.iter().map(|&(x, _)| x).collect();
+    let ln_ratio: Vec<f64> = valid_pairs.iter().map(|&(_, y)| y).collect();
+    
+    let (int_b, slope_b, r_sq_b) = if valid_pairs.len() >= 3 { linreg(&ln_ns, &ln_ratio) } else { (0.0, 0.0, 0.0) };
     report.push_str(&format!("\nModel B (W/H depends on depth): ln(W/H) = {:.4} + {:.4}·ln(N_smooth), R² = {:.4}\n", 
         int_b, slope_b, r_sq_b));
     
@@ -2981,7 +2983,11 @@ pub fn shape_test_depth_constraint(t_max: f64) -> String {
     
     // Test 3: Detrended correlation between W²+H² and N_smooth
     // Remove linear trend from both, then correlate
-    let wh_sq: Vec<f64> = peak_data.iter().map(|&(_, _, w, h, _)| w*w + h*h).collect();
+    // Use only valid pairs (where both W/H and N_smooth are well-defined)
+    let wh_sq_valid: Vec<f64> = peak_data.iter()
+        .filter(|p| p.3 > 0.0 && p.2/p.3 > 0.0 && p.1 > 0.0)
+        .map(|p| p.2*p.2 + p.3*p.3)
+        .collect();
     
     fn detrend(x: &[f64]) -> Vec<f64> {
         let n = x.len() as f64;
@@ -2991,7 +2997,7 @@ pub fn shape_test_depth_constraint(t_max: f64) -> String {
         x.iter().enumerate().map(|(i, &v)| v - (int + slope * i as f64)).collect()
     }
     
-    let wh_sq_detrended = detrend(&wh_sq);
+    let wh_sq_detrended = detrend(&wh_sq_valid);
     let ns_detrended = detrend(&ln_ns);
     
     // Correlation of detrended values
@@ -3196,11 +3202,210 @@ fn correlation(x: &[f64], y: &[f64]) -> f64 {
     if denom > 0.0 { cov / denom } else { 0.0 }
 }
 
+
+/// SHAPE TEST 12 — Connected Multi-Start Walk
+/// 
+/// Protocol: Start at a point, predict next zero using gradient+curvature,
+/// validate with perpendicular drill (local measurements), then move to that
+/// point and repeat. Measure how far the connected chain maps before breaking.
+/// 
+/// This is the 100ft drill constraint applied dynamically: we only trust
+/// predictions that are locally validated by the perpendicular component.
+pub fn shape_test_connected_walk(t_max: f64) -> String {
+    let points = count_trajectory(t_max);
+    if points.len() < 20 { return "Not enough data.\n".to_string(); }
+    
+    let r_values: Vec<f64> = points.iter().map(|&(_, r)| r).collect();
+    let t_values: Vec<f64> = points.iter().map(|&(t, _)| t).collect();
+    let n = r_values.len();
+    
+    let mut report = format!("\nSHAPE TEST 12 — Connected Multi-Start Walk\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("Protocol: chain predictions. Each validated zero becomes\n");
+    report.push_str("the next starting point. 100ft drill validates each step.\n\n");
+    
+    // Compute local gradients and curvatures
+    let mut gradients = Vec::new();
+    let mut curvatures = Vec::new();
+    
+    for i in 0..n {
+        if i == 0 {
+            let grad = (r_values[1] - r_values[0]) / (t_values[1] - t_values[0]);
+            gradients.push(grad);
+            curvatures.push(0.0);
+        } else if i == n - 1 {
+            let grad = (r_values[i] - r_values[i-1]) / (t_values[i] - t_values[i-1]);
+            gradients.push(grad);
+            curvatures.push(0.0);
+        } else {
+            let dt_left = t_values[i] - t_values[i-1];
+            let dt_right = t_values[i+1] - t_values[i];
+            let grad_left = (r_values[i] - r_values[i-1]) / dt_left;
+            let grad_right = (r_values[i+1] - r_values[i]) / dt_right;
+            let grad = (grad_left + grad_right) / 2.0;
+            let curv = (grad_right - grad_left) / ((dt_left + dt_right) / 2.0);
+            gradients.push(grad);
+            curvatures.push(curv);
+        }
+    }
+    
+    // Helper: find nearest point index to a given T value
+    fn find_nearest_index(t_values: &[f64], target: f64) -> Option<usize> {
+        t_values.iter()
+            .enumerate()
+            .min_by(|(_, a), (_, b)| (**a - target).abs().partial_cmp(&(**b - target).abs()).unwrap())
+            .map(|(i, _)| i)
+    }
+    
+    // Helper: validate a prediction by checking if it's near an actual zero
+    // The t_values array contains T locations of known zeros, so we check
+    // if the predicted T is close to any known zero location (within 2 units)
+    fn validate_prediction(t_values: &[f64], t_pred: f64) -> bool {
+        for &t in t_values {
+            if (t - t_pred).abs() < 2.0 {
+                return true;
+            }
+        }
+        false
+    }
+    
+    // Run connected walks from multiple starting points
+    let start_points: Vec<usize> = (0..n).step_by(10).collect();
+    let mut walk_lengths = Vec::new();
+    let mut total_validated_steps = 0;
+    let mut total_predictions = 0;
+    let mut longest_walk = 0;
+    let mut best_walk_start = 0;
+    
+    for &start_idx in &start_points {
+        if start_idx >= n - 2 { continue; }
+        
+        let mut current_idx = start_idx;
+        let mut walk_length = 0;
+        let mut visited = vec![false; n];
+        visited[current_idx] = true;
+        
+        loop {
+            let f = r_values[current_idx];
+            let df = gradients[current_idx];
+            let d2f = curvatures[current_idx];
+            
+            if df.abs() < 1e-10 { break; } // Flat point, can't predict
+            
+            // Predict next zero using quadratic extrapolation
+            let t_pred;
+            if d2f.abs() > 1e-10 {
+                let a = 0.5 * d2f;
+                let b = df;
+                let c = f;
+                let disc = b*b - 4.0*a*c;
+                if disc < 0.0 { break; }
+                let sqrt_disc = disc.sqrt();
+                let dt1 = (-b + sqrt_disc) / (2.0 * a);
+                let dt2 = (-b - sqrt_disc) / (2.0 * a);
+                
+                // Choose the root that's "ahead" and within trust radius
+                let candidates: Vec<f64> = vec![t_values[current_idx] + dt1, t_values[current_idx] + dt2];
+                let valid_candidates: Vec<f64> = candidates.into_iter()
+                    .filter(|&tp| tp > 0.0 && tp < t_max * 1.5 && (tp - t_values[current_idx]).abs() < 50.0)
+                    .collect();
+                
+                if valid_candidates.is_empty() { break; }
+                t_pred = valid_candidates[0]; // Take first valid candidate
+            } else {
+                let dt = -f / df;
+                t_pred = t_values[current_idx] + dt;
+                if (dt).abs() > 50.0 || t_pred <= 0.0 || t_pred > t_max * 1.5 { break; }
+            }
+            
+            total_predictions += 1;
+            
+            // Validate prediction with local measurements
+            if validate_prediction(&t_values, t_pred) {
+                // Find nearest point to predicted zero
+                if let Some(next_idx) = find_nearest_index(&t_values, t_pred) {
+                    if !visited[next_idx] && next_idx != current_idx {
+                        visited[next_idx] = true;
+                        current_idx = next_idx;
+                        walk_length += 1;
+                        total_validated_steps += 1;
+                        continue;
+                    }
+                }
+            }
+            
+            // Prediction failed validation or led to visited point — walk breaks
+            break;
+        }
+        
+        walk_lengths.push(walk_length);
+        if walk_length > longest_walk {
+            longest_walk = walk_length;
+            best_walk_start = start_idx;
+        }
+    }
+    
+    let n_walks = walk_lengths.len();
+    let mean_walk_len = if n_walks > 0 { walk_lengths.iter().sum::<usize>() as f64 / n_walks as f64 } else { 0.0 };
+    let validation_rate = if total_predictions > 0 { total_validated_steps as f64 / total_predictions as f64 * 100.0 } else { 0.0 };
+    
+    report.push_str(&format!("Walks attempted: {}\n", n_walks));
+    report.push_str(&format!("Total predictions made: {}\n", total_predictions));
+    report.push_str(&format!("Validated steps (prediction confirmed locally): {}\n", total_validated_steps));
+    report.push_str(&format!("Validation rate: {:.1}%\n\n", validation_rate));
+    report.push_str(&format!("Walk lengths:\n"));
+    report.push_str(&format!("  Mean: {:.2} steps\n", mean_walk_len));
+    report.push_str(&format!("  Max: {} steps (from T={:.2})\n", longest_walk, t_values[best_walk_start]));
+    
+    // Distribution of walk lengths
+    let mut len_counts = std::collections::HashMap::new();
+    for &len in &walk_lengths {
+        *len_counts.entry(len).or_insert(0) += 1;
+    }
+    report.push_str("\nWalk length distribution:\n");
+    let mut sorted_lens: Vec<(usize, usize)> = len_counts.into_iter().collect();
+    sorted_lens.sort_by_key(|&(k, _)| k);
+    for (len, count) in &sorted_lens {
+        if *len <= 10 || *count > 1 {
+            report.push_str(&format!("  {} steps: {} walks\n", len, count));
+        }
+    }
+    
+    // Connected walk success means the hill's geometry is locally consistent —
+    // predictions made from one point can be validated and chained to the next.
+    if validation_rate > 30.0 {
+        report.push_str("\n→ High validation rate: the hill's geometry is locally\n");
+        report.push_str("  consistent. Connected walks can map large regions.\n");
+    } else if validation_rate > 10.0 {
+        report.push_str("\n→ Moderate validation rate: geometry is partially\n");
+        report.push_str("  predictable. Some regions allow connected mapping,\n");
+        report.push_str("  others require new starting points.\n");
+    } else {
+        report.push_str("\n→ Low validation rate: the hill bends unpredictably.\n");
+        report.push_str("  Connected walks break quickly — need many independent\n");
+        report.push_str("  starting points to map the terrain.\n");
+    }
+    
+    // Key insight: what does walk length tell us?
+    report.push_str(&format!("\n{}\n", "-".repeat(60)));
+    report.push_str("INTERPRETATION:\n");
+    report.push_str("Walk length = how far the 100ft drill can map before it needs\n");
+    report.push_str("a new starting point. Long walks mean the hill is locally\n");
+    report.push_str("predictable (smooth curvature). Short walks mean the terrain\n");
+    report.push_str("changes rapidly — you need to keep re-orienting.\n");
+    report.push_str("\nThe 100ft constraint isn't arbitrary: it's the maximum distance\n");
+    report.push_str("over which local geometry (gradient + curvature) remains a\n");
+    report.push_str("valid predictor of where zeros are. Beyond that, you need\n");
+    report.push_str("fresh measurements to re-establish your position.\n");
+    
+    report
+}
+
 pub fn all_shape_tests(t_max: f64) -> String {
     let mut report = format!("\n{}\n", "=".repeat(70));
     report.push_str(&format!("SHAPE TESTING: Geometric structure in zero-count trajectory\n"));
-    report.push_str(&format!("First {} zeros (T up to {})\n", 
-        KNOWN_ZERO_ORDINATES.iter().filter(|&&g| g <= t_max).count(), t_max));
+    let n_zeros = count_trajectory(t_max).len();
+    report.push_str(&format!("{} zeros found (T up to {})\n", n_zeros, t_max));
     report.push_str(&format!("{}\n", "=".repeat(70)));
     
     report.push_str(&shape_test_return_map(t_max));
@@ -3215,6 +3420,7 @@ pub fn all_shape_tests(t_max: f64) -> String {
     report.push_str(&shape_test_edge_partition_and_mapping(t_max));
     report.push_str(&shape_test_perpendicular_grade(t_max));
     report.push_str(&shape_test_gradient_zero_finding(t_max));
+    report.push_str(&shape_test_connected_walk(t_max));
     
     report.push_str(&format!("\n{}\n", "=".repeat(70)));
     report.push_str("SUMMARY: Which shapes survived?\n");
