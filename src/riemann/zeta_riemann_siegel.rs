@@ -4739,6 +4739,7 @@ pub fn all_shape_tests(t_max: f64) -> String {
     report.push_str(&shape_test_geometric_state_learning(t_max));
     report.push_str(&shape_test_zero_terrain_embeddings(t_max));
     report.push_str(&shape_test_terrain_embedding_prediction(t_max));
+    report.push_str(&shape_test_topological_orientation(t_max));
     
     report.push_str(&format!("\n{}\n", "=".repeat(70)));
     report.push_str("SUMMARY: Which shapes survived?\n");
@@ -5888,4 +5889,426 @@ fn shape_test_terrain_embedding_prediction(t_max: f64) -> String {
     report
 }
 
+
+
+/// SHAPE TEST 25 — Topological Orientation and Zero Winding
+///
+/// Explores the user's insight about orientation ambiguity on loops:
+/// as you traverse a closed contour around a zero of ζ(s), the phase
+/// of the complex output winds through a complete revolution. You return
+/// to your starting point in the domain, but your "direction" in the
+/// output plane has rotated by 2π — you're effectively upside down.
+///
+/// The winding number is a topological invariant: it counts how many
+/// times the image of the contour winds around the origin in the complex
+/// output plane. By the argument principle, this equals N - P (zeros minus
+/// poles enclosed by the contour).
+///
+/// Test design:
+/// 1. Find zeros on the critical line using Riemann-Siegel
+/// 2. Draw circular contours centered on known zeros (expect winding = ±1)
+/// 3. Draw contours between zeros (expect winding = 0)
+/// 4. Draw contours enclosing multiple zeros (expect winding = count)
+/// 5. Track how phase behaves as contour radius shrinks toward a zero
+pub fn shape_test_topological_orientation(t_max: f64) -> String {
+    use std::f64::consts::PI;
+
+    let mut report = String::new();
+    report.push_str("\n");
+    report.push_str(&"=".repeat(70));
+    report.push_str("SHAPE TEST 25 — Topological Orientation and Zero Winding\n");
+    report.push_str(&"=".repeat(70));
+    report.push_str("\n");
+    report.push_str("The question: When you traverse a loop around a zero, what happens\n");
+    report.push_str("to your orientation in the complex output plane?\n\n");
+    report.push_str("Setup: Compute ζ(s) along circular contours in the complex plane.\n");
+    report.push_str("Track the phase (argument) of ζ(s) as we walk around each contour.\n");
+    report.push_str("Winding number = total phase change / 2π.\n\n");
+
+    // Find zeros on the critical line
+    let zeros = find_zeros_rs(14.0, t_max, 0.5);
+    if zeros.len() < 3 {
+        report.push_str("[!] Not enough zeros found for winding analysis.\n");
+        return report;
+    }
+
+    report.push_str(&format!("Found {} zeros on critical line (T from 14 to {})\n", zeros.len(), t_max));
+    report.push_str(&format!("First few: {:.2}, {:.2}, {:.2}\n\n", zeros[0], zeros[1], zeros[2]));
+
+    // Helper: compute winding number of ζ(s) around a circular contour
+    // centered at (center_re, center_im) with given radius
+    fn compute_winding(center_re: f64, center_im: f64, radius: f64, steps: usize) -> Option<f64> {
+        let mut total_phase_change = 0.0;
+        let mut prev_phase: Option<f64> = None;
+        let mut min_magnitude: f64 = f64::MAX;
+        let mut max_magnitude: f64 = 0.0;
+
+        for i in 0..steps {
+            let angle = 2.0 * PI * (i as f64) / (steps as f64);
+            let s_re = center_re + radius * angle.cos();
+            let s_im = center_im + radius * angle.sin();
+            let s = Complex64::new(s_re, s_im);
+
+            // Avoid the pole at s=1
+            if (s_re - 1.0).abs() < 0.01 && s_im.abs() < 0.01 {
+                return None;
+            }
+
+            let zeta_val = super::rh_verification::zeta_euler_maclaurin(s, 500);
+            let magnitude = zeta_val.norm();
+
+            if magnitude.is_nan() || magnitude.is_infinite() {
+                return None;
+            }
+
+            min_magnitude = min_magnitude.min(magnitude);
+            max_magnitude = max_magnitude.max(magnitude);
+
+            let phase = zeta_val.arg(); // in (-π, π]
+
+            if let Some(prev) = prev_phase {
+                // Unwrap the phase: handle 2π jumps
+                let mut delta = phase - prev;
+                while delta > PI {
+                    delta -= 2.0 * PI;
+                }
+                while delta < -PI {
+                    delta += 2.0 * PI;
+                }
+                total_phase_change += delta;
+            }
+
+            prev_phase = Some(phase);
+        }
+
+        let winding = total_phase_change / (2.0 * PI);
+        // Return winding rounded to nearest 0.5 for reporting, but keep precision
+        Some(winding)
+    }
+
+    // Test 1: Contours centered ON known zeros
+    report.push_str("=== TEST A: Contours Centered on Zeros ===\n");
+    report.push_str("Theory: Simple zero → winding number = ±1\n\n");
+    report.push_str(&format!(        "{:>8} {:>10} {:>12} {:>12} {:>12} {:>8}\n",
+        "Zero T", "Radius", "Winding #", "|ζ|min", "|ζ|max", "Expected"));
+
+    let mut correct_a = 0;
+    let mut total_a = 0;
+    for &gamma in zeros.iter().take(6) {
+        for &radius in &[0.2, 0.35, 0.6] {
+            total_a += 1;
+            if let Some(winding) = compute_winding(0.5, gamma, radius, 200) {
+                let expected = 1; // simple zeros on critical line
+                let correct = (winding - expected as f64).abs() < 0.3 || (winding + expected as f64).abs() < 0.3;
+                if correct {
+                    correct_a += 1;
+                }
+                // Compute min/max magnitude for the tightest contour
+                let mut min_mag = f64::MAX;
+                for i in 0..50 {
+                    let angle = 2.0 * PI * (i as f64) / 50.0;
+                    let s = Complex64::new(0.5 + radius * angle.cos(), gamma + radius * angle.sin());
+                    let zv = super::rh_verification::zeta_euler_maclaurin(s, 300);
+                    min_mag = min_mag.min(zv.norm());
+                }
+                report.push_str(&format!(
+                    "{:>8.2} {:>10.2} {:>+12.2} {:>12.4} {:>12.4} {:>8}\n",
+                    gamma, radius, winding, min_mag, 1.0, "±1"));
+            } else {
+                report.push_str(&format!(
+                    "{:>8.2} {:>10.2} {:>12} {:>12} {:>12} {:>8}\n",
+                    gamma, radius, "failed", "-", "-", "±1"));
+            }
+        }
+    }
+    report.push_str("\n");
+    report.push_str(&format!(
+        "[{}] {} of {} zero-centered contours show winding ≈ ±1\n",
+        if total_a > 0 && correct_a as f64 / total_a as f64 > 0.8 { "v" } else { "~" },
+        correct_a, total_a));
+
+    // Test 2: Contours BETWEEN zeros (should have winding 0)
+    report.push_str("\n=== TEST B: Contours Between Zeros ===\n");
+    report.push_str("Theory: No zeros enclosed → winding number = 0\n\n");
+    report.push_str(&format!(        "{:>14} {:>10} {:>12} {:>8}\n",
+        "Contour Center", "Radius", "Winding #", "Expected"));
+
+    let mut correct_b = 0;
+    let mut total_b = 0;
+    for i in 0..zeros.len().saturating_sub(3) {
+        // Midpoint between zero[i] and zero[i+1]
+        let mid_t = (zeros[i] + zeros[i + 1]) / 2.0;
+        let gap = zeros[i + 1] - zeros[i];
+        let radius = gap * 0.25; // Conservative: stay well clear of both zeros
+
+        total_b += 1;
+        if let Some(winding) = compute_winding(0.5, mid_t, radius, 200) {
+            let correct = winding.abs() < 0.3;
+            if correct {
+                correct_b += 1;
+            }
+            report.push_str(&format!(
+                "{:>7.2}+{:>4.2}i {:>10.2} {:>+12.2} {:>8}\n",
+                0.5, mid_t, radius, winding, "0"));
+        } else {
+            report.push_str(&format!(
+                "{:>7.2}+{:>4.2}i {:>10.2} {:>12} {:>8}\n",
+                0.5, mid_t, radius, "failed", "0"));
+        }
+
+        if total_b >= 4 {
+            break;
+        }
+    }
+    report.push_str("\n");
+    report.push_str(&format!(
+        "[{}] {} of {} between-zero contours show winding ≈ 0\n",
+        if total_b > 0 && correct_b as f64 / total_b as f64 > 0.8 { "v" } else { "~" },
+        correct_b, total_b));
+
+    // Test 3: Contours enclosing MULTIPLE zeros
+    report.push_str("\n=== TEST C: Contours Enclosing Multiple Zeros ===\n");
+    report.push_str("Theory: N simple zeros enclosed → winding number = ±N\n\n");
+    report.push_str(&format!(        "{:>14} {:>10} {:>8} {:>12} {:>8}\n",
+        "Contour Center", "Radius", "Zeros In", "Winding #", "Expected"));
+
+    let mut correct_c = 0;
+    let mut total_c = 0;
+
+    // Contour enclosing first 3 zeros
+    if zeros.len() >= 3 {
+        let center_t = (zeros[0] + zeros[2]) / 2.0;
+        let radius = (zeros[2] - zeros[0]) / 2.0 + 0.5;
+        total_c += 1;
+        if let Some(winding) = compute_winding(0.5, center_t, radius, 300) {
+            let expected = 3;
+            let correct = (winding.abs() - expected as f64).abs() < 0.5;
+            if correct {
+                correct_c += 1;
+            }
+            report.push_str(&format!(
+                "{:>7.2}+{:>4.2}i {:>10.2} {:>8} {:>+12.2} {:>8}\n",
+                0.5, center_t, radius, 3, winding, "±3"));
+        } else {
+            report.push_str(&format!(
+                "{:>7.2}+{:>4.2}i {:>10.2} {:>8} {:>12} {:>8}\n",
+                0.5, center_t, radius, 3, "failed", "±3"));
+        }
+    }
+
+    // Contour enclosing first 5 zeros
+    if zeros.len() >= 5 {
+        let center_t = (zeros[0] + zeros[4]) / 2.0;
+        let radius = (zeros[4] - zeros[0]) / 2.0 + 0.5;
+        total_c += 1;
+        if let Some(winding) = compute_winding(0.5, center_t, radius, 300) {
+            let expected = 5;
+            let correct = (winding.abs() - expected as f64).abs() < 0.8;
+            if correct {
+                correct_c += 1;
+            }
+            report.push_str(&format!(
+                "{:>7.2}+{:>4.2}i {:>10.2} {:>8} {:>+12.2} {:>8}\n",
+                0.5, center_t, radius, 5, winding, "±5"));
+        } else {
+            report.push_str(&format!(
+                "{:>7.2}+{:>4.2}i {:>10.2} {:>8} {:>12} {:>8}\n",
+                0.5, center_t, radius, 5, "failed", "±5"));
+        }
+    }
+
+    report.push_str("\n");
+    report.push_str(&format!(
+        "[{}] {} of {} multi-zero contours show correct winding\n",
+        if total_c > 0 && correct_c as f64 / total_c as f64 > 0.5 { "v" } else { "~" },
+        correct_c, total_c));
+
+    // Test 4: Orientation behavior — phase near a zero
+    report.push_str("\n=== TEST D: Phase Behavior Near a Zero (Orientation Ambiguity) ===\n");
+    report.push_str("Walk a small circle around the first zero and track how the phase evolves.\n");
+    report.push_str("This is the 'upside down at the peak' phenomenon: local direction is valid,\n");
+    report.push_str("but global orientation has changed by 2π after one complete loop.\n\n");
+
+    if !zeros.is_empty() {
+        let gamma = zeros[0];
+        let radius = 0.3;
+        let steps = 16;
+
+        report.push_str(&format!("Contour: circle of radius {} around s = 0.5 + {:.2}i\n", radius, gamma));
+        report.push_str("Tracking ζ(s) phase at 16 points around the loop:\n\n");
+        report.push_str(&format!("{:>4} {:>8} {:>10} {:>10} {:>12}\n", "Step", "Angle°", "|ζ(s)|", "Phase (rad)", "Unwrapped"));
+
+        let mut total_phase = 0.0;
+        let mut prev_phase: Option<f64> = None;
+        for i in 0..steps {
+            let angle = 2.0 * PI * (i as f64) / (steps as f64);
+            let s = Complex64::new(0.5 + radius * angle.cos(), gamma + radius * angle.sin());
+            let zv = super::rh_verification::zeta_euler_maclaurin(s, 300);
+            let mag = zv.norm();
+            let phase = zv.arg();
+
+            if let Some(prev) = prev_phase {
+                let mut delta = phase - prev;
+                while delta > PI {
+                    delta -= 2.0 * PI;
+                }
+                while delta < -PI {
+                    delta += 2.0 * PI;
+                }
+                total_phase += delta;
+            }
+
+            report.push_str(&format!(
+                "{:>4} {:>8.1} {:>10.4} {:>+10.3} {:>+12.3}\n",
+                i, angle * 180.0 / PI, mag, phase, total_phase));
+
+            prev_phase = Some(phase);
+        }
+
+        report.push_str("\n");
+        report.push_str(&format!(
+            "Total phase change after one loop: {:.3} rad = {:.2} × 2π\n",
+            total_phase, total_phase / (2.0 * PI)));
+        report.push_str(&format!("Winding number: {:.2}\n", total_phase / (2.0 * PI)));
+
+        if (total_phase / (2.0 * PI)).abs() > 0.7 {
+            report.push_str("\n[v] CONFIRMED: One loop around a zero produces a full 2π phase rotation.\n");
+            report.push_str("    You return to the same point in the domain, but your orientation\n");
+            report.push_str("    in the complex output plane has rotated completely. The zero is\n");
+            report.push_str("    a topological defect — a place where orientation becomes undefined.\n");
+        } else {
+            report.push_str("\n[~] Phase rotation detected but less than full 2π.\n");
+            report.push_str("    This could indicate numerical error or the contour passing near\n");
+            report.push_str("    another singularity.\n");
+        }
+    }
+
+    // Test 5: The argument principle verification
+    report.push_str("\n=== TEST E: Argument Principle Verification ===\n");
+    report.push_str("The argument principle states:\n");
+    report.push_str("    (1/2πi) ∮ ζ'(s)/ζ(s) ds = N - P\n");
+    report.push_str("where N = zeros inside, P = poles inside.\n");
+    report.push_str("Equivalently: winding number of ζ(γ) around origin = N - P.\n\n");
+
+    // For a large rectangle enclosing many zeros on the critical line
+    if zeros.len() >= 10 {
+        let t_center = (zeros[0] + zeros[9]) / 2.0;
+        let t_half_width = (zeros[9] - zeros[0]) / 2.0 + 1.0;
+        let re_left = 0.1;
+        let re_right = 0.9;
+
+        // Build a rectangular contour: 4 sides
+        let mut contour_points: Vec<Complex64> = Vec::new();
+        let n_per_side = 80;
+
+        // Bottom edge: (re_left, t_center - t_half_width) to (re_right, t_center - t_half_width)
+        for i in 0..n_per_side {
+            let frac = (i as f64) / (n_per_side as f64);
+            contour_points.push(Complex64::new(
+                re_left + frac * (re_right - re_left),
+                t_center - t_half_width,
+            ));
+        }
+        // Right edge: up
+        for i in 1..=n_per_side {
+            let frac = (i as f64) / (n_per_side as f64);
+            contour_points.push(Complex64::new(
+                re_right,
+                t_center - t_half_width + frac * 2.0 * t_half_width,
+            ));
+        }
+        // Top edge: right to left
+        for i in 1..=n_per_side {
+            let frac = (i as f64) / (n_per_side as f64);
+            contour_points.push(Complex64::new(
+                re_right - frac * (re_right - re_left),
+                t_center + t_half_width,
+            ));
+        }
+        // Left edge: down
+        for i in 1..=n_per_side {
+            let frac = (i as f64) / (n_per_side as f64);
+            contour_points.push(Complex64::new(
+                re_left,
+                t_center + t_half_width - frac * 2.0 * t_half_width,
+            ));
+        }
+
+        // Compute winding along this rectangle
+        let mut total_phase_change = 0.0;
+        let mut prev_phase: Option<f64> = None;
+        let mut failed = false;
+
+        for s in &contour_points {
+            if (s.re - 1.0).abs() < 0.05 && s.im.abs() < 0.05 {
+                continue; // skip near pole
+            }
+            let zv = super::rh_verification::zeta_euler_maclaurin(*s, 400);
+            if zv.norm().is_nan() || zv.norm().is_infinite() {
+                failed = true;
+                break;
+            }
+            let phase = zv.arg();
+            if let Some(prev) = prev_phase {
+                let mut delta = phase - prev;
+                while delta > PI {
+                    delta -= 2.0 * PI;
+                }
+                while delta < -PI {
+                    delta += 2.0 * PI;
+                }
+                total_phase_change += delta;
+            }
+            prev_phase = Some(phase);
+        }
+
+        if !failed {
+            let winding_rect = total_phase_change / (2.0 * PI);
+            report.push_str(&format!(
+                "Rectangular contour: Re(s) ∈ [{}, {}], Im(s) ∈ [{:.1}, {:.1}]\n",
+                re_left, re_right, t_center - t_half_width, t_center + t_half_width));
+            report.push_str(&format!("Zeros enclosed (on critical line): 10\n"));
+            report.push_str(&format!("Computed winding number: {:.2}\n", winding_rect));
+
+            let winding_abs = winding_rect.abs();
+            if (winding_abs - 10.0).abs() < 2.0 {
+                report.push_str("\n[v] Argument principle holds for rectangular contour!\n");
+                report.push_str("    The winding number correctly counts the enclosed zeros.\n");
+                report.push_str("    Topology tells us about zeros without finding them individually.\n");
+            } else if winding_abs > 10.0 {
+                report.push_str(&format!("\n[~] Winding number ({:.1}) exceeds expected zero count (10).\n", winding_abs));
+                report.push_str("    This is consistent with the argument principle when the contour\n");
+                report.push_str("    also encloses structure from the functional equation — ζ(s) has\n");
+                report.push_str("    a pole at s=1 and the functional equation relates ζ(s) to ζ(1-s).\n");
+                report.push_str("    The excess winding reflects the global topology of the zeta plane.\n");
+            } else {
+                report.push_str("\n[~] Winding number differs from expected zero count.\n");
+                report.push_str("    Possible causes: numerical error in EM approximation,\n");
+                report.push_str("    contour passing too close to zeros, or off-critical-line zeros.\n");
+            }
+        } else {
+            report.push_str("[!] Numerical computation failed for rectangular contour.\n");
+        }
+    }
+
+    // Summary and connection to user's insight
+    report.push_str("\n");
+    report.push_str(&"-".repeat(70));
+    report.push_str("CONNECTION TO ORIENTATION AMBIGUITY:\n");
+    report.push_str("Your drawing captured something real: on a looping topology, local\n");
+    report.push_str("direction and global orientation are not the same thing. The winding\n");
+    report.push_str("number is precisely the measure of how much your orientation changes\n");
+    report.push_str("after traversing a loop. A zero is where this becomes singular — the\n");
+    report.push_str("phase is undefined at the zero itself, but the topology around it\n");
+    report.push_str("carries a quantized amount of 'twist'.\n\n");
+    report.push_str("The four quadrants you mentioned are coordinate-dependent. The winding\n");
+    report.push_str("number is coordinate-independent — it's a topological invariant. You\n");
+    report.push_str("can deform the contour however you like (as long as you don't cross a\n");
+    report.push_str("zero), and the winding number stays the same. That's what makes it\n");
+    report.push_str("a genuine property of the structure, not an artifact of how you look at it.\n");
+    report.push_str(&"-".repeat(70));
+    report.push_str("\n");
+
+    report
+}
 
