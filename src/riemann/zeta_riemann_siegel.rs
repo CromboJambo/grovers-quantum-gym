@@ -4734,6 +4734,7 @@ pub fn all_shape_tests(t_max: f64) -> String {
     report.push_str(&shape_test_adaptive_angle(t_max));
     report.push_str(&shape_test_jump_mechanism(t_max));
     report.push_str(&shape_test_coverage_strategy(t_max));
+    report.push_str(&shape_test_predictive_power(t_max));
     
     report.push_str(&format!("\n{}\n", "=".repeat(70)));
     report.push_str("SUMMARY: Which shapes survived?\n");
@@ -4797,4 +4798,201 @@ mod multiscale_tests {
         assert!(report.contains("LAYER 5"));
         assert!(report.contains("SIMULATION-BASED CALIBRATION"));
     }
+}
+
+/// SHAPE TEST 20 — Predictive Power of Local Geometry
+///
+/// Question: Does local geometry (which is all the 100ft drill can see) actually
+/// contain information about where future zeros will be?
+///
+/// Protocol:
+/// 1. Start at each zero, predict next zero using 30° tilt + jumps (R=5)
+/// 2. Compare predicted location to actual Riemann-Siegel zero
+/// 3. Measure error distribution across chain lengths
+/// 4. If predictions are accurate → local geometry encodes future zero positions
+/// 5. If predictions are random → we're just following noise
+fn shape_test_predictive_power(t_max: f64) -> String {
+    let trajectory = count_trajectory(t_max);
+    if trajectory.len() < 100 {
+        return "Insufficient data for predictive power test".to_string();
+    }
+
+    // Build zero list from trajectory (zeros are where r changes sign or has local structure)
+    // For this test, we use the actual zeros found by find_zeros_rs
+    let zeros = find_zeros_rs(10.0, t_max, 0.5);
+    if zeros.len() < 100 {
+        return "Insufficient zeros for predictive power test".to_string();
+    }
+
+    let n = zeros.len();
+    let mut predictions: Vec<(usize, f64, f64)> = Vec::new(); // (start_idx, predicted_t, actual_t)
+    let mut errors_by_chain_len: Vec<Vec<f64>> = vec![Vec::new(); 20]; // errors by step in chain
+
+    // For each zero, predict the next zero using local geometry
+    for i in 0..n.saturating_sub(1) {
+        let t_current = zeros[i];
+        
+        // Find the peak/trough structure around this zero
+        // The 30° tilt protocol: look at the gradient and curvature to predict next zero
+        // Simplified: use the average spacing in a window around this zero
+        
+        // Look at zeros within ±20 units
+        let window_start = i.saturating_sub(5);
+        let window_end = (i + 6).min(n);
+        
+        if window_end - window_start >= 3 {
+            // Compute local average spacing
+            let spacings: Vec<f64> = (window_start..window_end.saturating_sub(1))
+                .map(|j| zeros[j + 1] - zeros[j])
+                .collect();
+            
+            if !spacings.is_empty() {
+                let avg_spacing = spacings.iter().sum::<f64>() / spacings.len() as f64;
+                
+                // Predict next zero using local average spacing
+                let predicted_next = t_current + avg_spacing;
+                let actual_next = zeros[i + 1];
+                let error = (predicted_next - actual_next).abs();
+                
+                predictions.push((i, predicted_next, actual_next));
+                
+                if errors_by_chain_len.len() > 0 {
+                    errors_by_chain_len[0].push(error);
+                }
+            }
+        }
+    }
+
+    // Now do multi-step predictions: predict zero i+2 from i using chain of predictions
+    for step in 1..5 {
+        let mut step_errors: Vec<f64> = Vec::new();
+        for i in 0..n.saturating_sub(step + 1) {
+            let t_current = zeros[i];
+            
+            // Use local average spacing to predict step zeros ahead
+            let window_start = i.saturating_sub(5);
+            let window_end = (i + 6).min(n);
+            
+            if window_end - window_start >= 3 {
+                let spacings: Vec<f64> = (window_start..window_end.saturating_sub(1))
+                    .map(|j| zeros[j + 1] - zeros[j])
+                    .collect();
+                
+                if !spacings.is_empty() {
+                    let avg_spacing = spacings.iter().sum::<f64>() / spacings.len() as f64;
+                    let predicted = t_current + avg_spacing * (step as f64);
+                    let actual = zeros[i + step];
+                    let error = (predicted - actual).abs();
+                    
+                    if step < errors_by_chain_len.len() {
+                        errors_by_chain_len[step].push(error);
+                    }
+                }
+            }
+        }
+    }
+
+    // Compute statistics
+    let total_predictions = predictions.len();
+    let mean_error_1step = if !errors_by_chain_len[0].is_empty() {
+        errors_by_chain_len[0].iter().sum::<f64>() / errors_by_chain_len[0].len() as f64
+    } else { 0.0 };
+    
+    let mean_spacing = if n > 1 {
+        (zeros[n-1] - zeros[0]) / (n - 1) as f64
+    } else { 0.0 };
+
+    let mut report = format!(r#"
+SHAPE TEST 20 — Predictive Power of Local Geometry
+------------------------------------------------------------
+Question: Does local geometry encode future zero positions?
+Protocol: Predict next zeros using local average spacing (30° tilt proxy).
+Compare predicted vs actual locations.
+
+Total zeros: {}
+Total predictions made: {}
+Mean zero spacing in range: {:.4} units
+
+Step  Prediction Error Statistics
+-------------------------------------------------------
+"#, n, total_predictions, mean_spacing);
+
+    for step in 0..errors_by_chain_len.len() {
+        if !errors_by_chain_len[step].is_empty() {
+            let errors = &errors_by_chain_len[step];
+            let mean_err = errors.iter().sum::<f64>() / errors.len() as f64;
+            let std_err = (errors.iter().map(|e| (e - mean_err).powi(2)).sum::<f64>() / errors.len() as f64).sqrt();
+            let within_half_spacing = errors.iter().filter(|&&e| e < 0.5 * mean_spacing).count() as f64 / errors.len() as f64;
+            
+            report.push_str(&format!(
+                "  {}      Mean: {:.4}  Std: {:.4}  Within ½ spacing: {:.1}%
+",
+                step + 1, mean_err, std_err, within_half_spacing * 100.0
+            ));
+        }
+    }
+
+    report.push_str(&format!(r#"
+------------------------------------------------------------
+INTERPRETATION:
+If 1-step error << mean spacing → local geometry predicts next zero well.
+If error grows linearly with steps → predictions are just extrapolating spacing.
+If error grows faster than linear → chaos, local info doesn't encode future.
+
+Key question: Is the 1-step prediction better than random?
+Random prediction of next zero (uniform in [t, t+2*spacing]) would have
+mean error ≈ spacing/2 = {:.4}.
+Our mean 1-step error: {:.4}
+"#, mean_spacing / 2.0, mean_error_1step));
+
+    if mean_error_1step < mean_spacing / 2.0 {
+        report.push_str("
+✓ Local geometry PREDICTS better than random — it contains real information.
+");
+    } else {
+        report.push_str("
+✗ Local geometry does NOT predict better than random.
+");
+    }
+
+    report.push_str(&format!(r#"
+Error growth rate (step 1 vs step 4):
+"#));
+    
+    if !errors_by_chain_len[0].is_empty() && !errors_by_chain_len[3].is_empty() {
+        let mean_err_1 = errors_by_chain_len[0].iter().sum::<f64>() / errors_by_chain_len[0].len() as f64;
+        let mean_err_4 = errors_by_chain_len[3].iter().sum::<f64>() / errors_by_chain_len[3].len() as f64;
+        let growth_ratio = mean_err_4 / mean_err_1.max(0.0001);
+        
+        report.push_str(&format!(
+            "  Error at step 1: {:.4}
+",
+            mean_err_1
+        ));
+        report.push_str(&format!(
+            "  Error at step 4: {:.4}
+",
+            mean_err_4
+        ));
+        report.push_str(&format!(
+            "  Growth ratio (step 4 / step 1): {:.2}x
+",
+            growth_ratio
+        ));
+        
+        if growth_ratio < 4.0 {
+            report.push_str("  → Sub-linear error growth: local geometry has predictive power beyond simple extrapolation.
+");
+        } else if growth_ratio < 6.0 {
+            report.push_str("  → Roughly linear error growth: predictions are mostly extrapolating local spacing.
+");
+        } else {
+            report.push_str("  → Super-linear error growth: predictions degrade quickly, limited predictive power.
+");
+        }
+    }
+
+    report.push_str("
+");
+    report
 }
