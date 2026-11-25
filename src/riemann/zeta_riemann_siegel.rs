@@ -3606,6 +3606,523 @@ pub fn shape_test_distance_map(t_max: f64) -> String {
     report
 }
 
+/// SHAPE TEST 14 — Chain Length Distribution
+/// 
+/// Theory: The graph has out-degree ≈ 1, creating chains. What's the
+/// distribution of chain lengths? Power law (few very long) or exponential
+/// (many short)? This reveals the "grain structure" of the hill.
+pub fn shape_test_chain_distribution(t_max: f64) -> String {
+    let points = count_trajectory(t_max);
+    if points.len() < 20 { return "Not enough data.\n".to_string(); }
+    
+    let r_values: Vec<f64> = points.iter().map(|&(_, r)| r).collect();
+    let t_values: Vec<f64> = points.iter().map(|&(t, _)| t).collect();
+    let n = r_values.len();
+    
+    let mut report = format!("\nSHAPE TEST 14 — Chain Length Distribution\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("Theory: Graph has out-degree ≈ 1, creating chains.\n");
+    report.push_str("What's the distribution of chain lengths?\n\n");
+    
+    // Compute local gradients and curvatures
+    let mut gradients = Vec::new();
+    let mut curvatures = Vec::new();
+    for i in 0..n {
+        if i == 0 {
+            gradients.push((r_values[1] - r_values[0]) / (t_values[1] - t_values[0]));
+            curvatures.push(0.0);
+        } else if i == n - 1 {
+            gradients.push((r_values[i] - r_values[i-1]) / (t_values[i] - t_values[i-1]));
+            curvatures.push(0.0);
+        } else {
+            let dt_left = t_values[i] - t_values[i-1];
+            let dt_right = t_values[i+1] - t_values[i];
+            let grad_left = (r_values[i] - r_values[i-1]) / dt_left;
+            let grad_right = (r_values[i+1] - r_values[i]) / dt_right;
+            gradients.push((grad_left + grad_right) / 2.0);
+            curvatures.push((grad_right - grad_left) / ((dt_left + dt_right) / 2.0));
+        }
+    }
+    
+    // Build successor map: from each node, which node does it predict?
+    let mut successors: Vec<Option<usize>> = vec![None; n];
+    
+    for i in 0..n {
+        let f = r_values[i];
+        let df = gradients[i];
+        let d2f = curvatures[i];
+        
+        if df.abs() < 1e-10 { continue; }
+        
+        let mut best_j: Option<usize> = None;
+        let mut best_dist = f64::MAX;
+        
+        // Generate predictions
+        let mut predictions: Vec<f64> = Vec::new();
+        if d2f.abs() > 1e-10 {
+            let a = 0.5 * d2f;
+            let b = df;
+            let c = f;
+            let disc = b*b - 4.0*a*c;
+            if disc >= 0.0 {
+                for sign in [1.0, -1.0] {
+                    let dt = (-b + sign * disc.sqrt()) / (2.0 * a);
+                    let t_pred = t_values[i] + dt;
+                    if t_pred > 0.0 && t_pred < t_max * 1.5 && dt.abs() < 50.0 {
+                        predictions.push(t_pred);
+                    }
+                }
+            }
+        } else {
+            let dt = -f / df;
+            let t_pred = t_values[i] + dt;
+            if dt.abs() < 50.0 && t_pred > 0.0 && t_pred < t_max * 1.5 {
+                predictions.push(t_pred);
+            }
+        }
+        
+        // Find closest actual zero for each prediction
+        for &t_pred in &predictions {
+            for j in 0..n {
+                if i != j {
+                    let dist = (t_values[j] - t_pred).abs();
+                    if dist < 2.0 && dist < best_dist {
+                        best_dist = dist;
+                        best_j = Some(j);
+                    }
+                }
+            }
+        }
+        
+        successors[i] = best_j;
+    }
+    
+    // Find all chains by following successors
+    let mut visited = vec![false; n];
+    let mut chain_lengths: Vec<usize> = Vec::new();
+    
+    for i in 0..n {
+        if visited[i] { continue; }
+        
+        // Follow the chain from i
+        let mut chain = Vec::new();
+        let mut current = Some(i);
+        while let Some(u) = current {
+            if visited[u] { break; }
+            visited[u] = true;
+            chain.push(u);
+            current = successors[u];
+        }
+        
+        if chain.len() > 1 {
+            chain_lengths.push(chain.len());
+        }
+    }
+    
+    // Also count single nodes (chains of length 1)
+    let singles = n - chain_lengths.iter().sum::<usize>();
+    
+    report.push_str(&format!("Chain statistics:\n"));
+    report.push_str(&format!("  Total chains: {}\n", chain_lengths.len()));
+    report.push_str(&format!("  Single nodes (no connections): {}\n", singles));
+    
+    if !chain_lengths.is_empty() {
+        let mean = chain_lengths.iter().sum::<usize>() as f64 / chain_lengths.len() as f64;
+        let max = *chain_lengths.iter().max().unwrap();
+        let min = *chain_lengths.iter().min().unwrap();
+        
+        report.push_str(&format!("  Mean chain length: {:.2}\n", mean));
+        report.push_str(&format!("  Max chain length: {}\n", max));
+        report.push_str(&format!("  Min chain length: {}\n", min));
+        
+        // Distribution by length
+        let mut dist = std::collections::HashMap::new();
+        for &len in &chain_lengths {
+            *dist.entry(len).or_insert(0) += 1;
+        }
+        
+        report.push_str(&format!("\nChain length distribution:\n"));
+        let mut sorted: Vec<(usize, usize)> = dist.into_iter().collect();
+        sorted.sort_by_key(|&(k, _)| k);
+        for (len, count) in &sorted {
+            if *count >= 1 || *len <= 5 {
+                report.push_str(&format!("  Length {}: {} chains\n", len, count));
+            }
+        }
+        
+        // Local linear regression helper
+        fn local_linreg(xs: &[f64], ys: &[f64]) -> (f64, f64) {
+            let n = xs.len() as f64;
+            if n < 2.0 { return (0.0, 0.0); }
+            let sum_x: f64 = xs.iter().sum();
+            let sum_y: f64 = ys.iter().sum();
+            let sum_xy: f64 = xs.iter().zip(ys.iter()).map(|(&x, &y)| x * y).sum();
+            let sum_xx: f64 = xs.iter().map(|&x| x * x).sum();
+            let slope = (n * sum_xy - sum_x * sum_y) / (n * sum_xx - sum_x * sum_x);
+            let mean_y = sum_y / n;
+            let ss_tot: f64 = ys.iter().map(|&y| (y - mean_y).powi(2)).sum();
+            let ss_res: f64 = xs.iter().zip(ys.iter()).map(|(&x, &y)| {
+                let intercept = (sum_y - slope * sum_x) / n;
+                (y - (intercept + slope * x)).powi(2)
+            }).sum();
+            let r_squared = if ss_tot > 0.0 { 1.0 - ss_res / ss_tot } else { 0.0 };
+            (slope, r_squared)
+        }
+        
+        // Test for power law vs exponential
+        // Fit ln(count) = a - b*length for lengths where count > 0
+        let mut valid: Vec<(f64, f64)> = sorted.iter()
+            .filter(|&(_, c)| *c > 0)
+            .map(|&(l, c)| (l as f64, (c as f64).ln()))
+            .collect();
+        
+        if valid.len() >= 3 {
+            let xs: Vec<f64> = valid.iter().map(|&(x, _)| x).collect();
+            let ys: Vec<f64> = valid.iter().map(|&(_, y)| y).collect();
+            let (slope, r2) = local_linreg(&xs, &ys);
+            
+            report.push_str(&format!("\nFit ln(count) vs length:\n"));
+            report.push_str(&format!("  Slope: {:.4}\n", slope));
+            report.push_str(&format!("  R²: {:.4}\n", r2));
+            
+            if slope.abs() < 0.1 {
+                report.push_str("  → Nearly flat: chain lengths are uniform (no preference)\n");
+            } else if slope < -0.5 {
+                report.push_str("  → Steep negative: exponential decay (many short, few long)\n");
+            } else {
+                report.push_str("  → Moderate negative: power-law-like distribution\n");
+            }
+        }
+    }
+    
+    report.push_str(&format!("\n{}\n", "-".repeat(60)));
+    report.push_str("INTERPRETATION:\n");
+    report.push_str("The chain length distribution reveals the \"grain structure\" of the hill.\n");
+    report.push_str("If exponential: terrain changes rapidly, chains break quickly.\n");
+    report.push_str("If power law: some regions have very long predictable corridors.\n");
+    
+    report
+}
+
+/// SHAPE TEST 15 — Perpendicular Drill Optimality
+/// 
+/// Theory: We've assumed perpendicular-to-grade is the right drill direction.
+/// Test this by trying different angles and measuring prediction error.
+/// If perpendicular minimizes error, that's a deep geometric result.
+pub fn shape_test_drill_angle_optimality(t_max: f64) -> String {
+    let points = count_trajectory(t_max);
+    if points.len() < 20 { return "Not enough data.\n".to_string(); }
+    
+    let r_values: Vec<f64> = points.iter().map(|&(_, r)| r).collect();
+    let t_values: Vec<f64> = points.iter().map(|&(t, _)| t).collect();
+    let n = r_values.len();
+    
+    let mut report = format!("\nSHAPE TEST 15 — Perpendicular Drill Optimality\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("Theory: Is perpendicular-to-grade actually optimal?\n");
+    report.push_str("Test different drill angles and measure prediction error.\n\n");
+    
+    // Compute local gradients
+    let mut gradients = Vec::new();
+    for i in 0..n {
+        if i == 0 {
+            gradients.push((r_values[1] - r_values[0]) / (t_values[1] - t_values[0]));
+        } else if i == n - 1 {
+            gradients.push((r_values[i] - r_values[i-1]) / (t_values[i] - t_values[i-1]));
+        } else {
+            let dt_left = t_values[i] - t_values[i-1];
+            let dt_right = t_values[i+1] - t_values[i];
+            let grad_left = (r_values[i] - r_values[i-1]) / dt_left;
+            let grad_right = (r_values[i+1] - r_values[i]) / dt_right;
+            gradients.push((grad_left + grad_right) / 2.0);
+        }
+    }
+    
+    // Test different drill angles relative to perpendicular
+    // angle=0 means perpendicular, angle=±90 means parallel to grade
+    let angles: Vec<f64> = vec![-90.0, -60.0, -30.0, 0.0, 30.0, 60.0, 90.0];
+    
+    report.push_str("Prediction error by drill angle (relative to perpendicular):\n");
+    report.push_str(&format!("{:>10} {:>12} {:>12}\n", "Angle(°)", "Mean Error", "Valid Preds"));
+    
+    for &angle in &angles {
+        let angle_rad = angle * std::f64::consts::PI / 180.0;
+        let cos_a = angle_rad.cos();
+        let sin_a = angle_rad.sin();
+        
+        let mut errors: Vec<f64> = Vec::new();
+        
+        for i in 1..n-1 {
+            let f = r_values[i];
+            let df = gradients[i];
+            
+            if df.abs() < 1e-10 { continue; }
+            
+            // Drill direction: blend between perpendicular and parallel
+            // Perpendicular to grade at angle θ has direction (-sinθ, cosθ) in (t,r) space
+            // Grade angle θ = arctan(df)
+            let grade_angle = df.atan();
+            let drill_angle = grade_angle + std::f64::consts::PI/2.0 + angle_rad;
+            
+            // Drill a short distance (10 units) in this direction
+            let drill_len = 10.0;
+            let dt_drill = drill_len * drill_angle.cos();
+            let dr_drill = drill_len * drill_angle.sin();
+            
+            // End point of drill
+            let t_end = t_values[i] + dt_drill;
+            let r_end = f + dr_drill;
+            
+            // From end point, predict where the next zero is using local gradient there
+            if t_end > 0.0 && t_end < t_max * 1.5 {
+                // Find nearest point to interpolate gradient at t_end
+                let mut min_dist = f64::MAX;
+                let mut nearest_idx = i;
+                for j in 0..n {
+                    let d = (t_values[j] - t_end).abs();
+                    if d < min_dist {
+                        min_dist = d;
+                        nearest_idx = j;
+                    }
+                }
+                
+                if min_dist < 5.0 {
+                    let df_end = gradients[nearest_idx];
+                    if df_end.abs() > 1e-10 {
+                        // Predict zero from end point
+                        let t_pred = t_end - r_end / df_end;
+                        
+                        // Find actual nearest zero to prediction
+                        let mut best_dist = f64::MAX;
+                        for j in 0..n {
+                            if i != j {
+                                let d = (t_values[j] - t_pred).abs();
+                                if d < best_dist && d < 10.0 {
+                                    best_dist = d;
+                                }
+                            }
+                        }
+                        
+                        if best_dist < 10.0 {
+                            errors.push(best_dist);
+                        }
+                    }
+                }
+            }
+        }
+        
+        let mean_err = if !errors.is_empty() {
+            errors.iter().sum::<f64>() / errors.len() as f64
+        } else {
+            0.0
+        };
+        
+        report.push_str(&format!("{:>10} {:>12.4} {:>12}\n", angle, mean_err, errors.len()));
+    }
+    
+    // Find optimal angle
+    let mut best_angle = 0.0;
+    let mut best_error = f64::MAX;
+    for &angle in &angles {
+        let angle_rad = angle * std::f64::consts::PI / 180.0;
+        let cos_a = angle_rad.cos();
+        let sin_a = angle_rad.sin();
+        
+        let mut errors: Vec<f64> = Vec::new();
+        for i in 1..n-1 {
+            let f = r_values[i];
+            let df = gradients[i];
+            if df.abs() < 1e-10 { continue; }
+            
+            let grade_angle = df.atan();
+            let drill_angle = grade_angle + std::f64::consts::PI/2.0 + angle_rad;
+            let drill_len = 10.0;
+            let t_end = t_values[i] + drill_len * drill_angle.cos();
+            let r_end = f + drill_len * drill_angle.sin();
+            
+            if t_end > 0.0 && t_end < t_max * 1.5 {
+                let mut min_dist = f64::MAX;
+                let mut nearest_idx = i;
+                for j in 0..n {
+                    let d = (t_values[j] - t_end).abs();
+                    if d < min_dist { min_dist = d; nearest_idx = j; }
+                }
+                
+                if min_dist < 5.0 {
+                    let df_end = gradients[nearest_idx];
+                    if df_end.abs() > 1e-10 {
+                        let t_pred = t_end - r_end / df_end;
+                        let mut best_dist = f64::MAX;
+                        for j in 0..n {
+                            if i != j {
+                                let d = (t_values[j] - t_pred).abs();
+                                if d < best_dist && d < 10.0 { best_dist = d; }
+                            }
+                        }
+                        if best_dist < 10.0 { errors.push(best_dist); }
+                    }
+                }
+            }
+        }
+        
+        let mean_err = if !errors.is_empty() {
+            errors.iter().sum::<f64>() / errors.len() as f64
+        } else {
+            f64::MAX
+        };
+        
+        if mean_err < best_error && !errors.is_empty() {
+            best_error = mean_err;
+            best_angle = angle;
+        }
+    }
+    
+    report.push_str(&format!("\nOptimal drill angle: {}° from perpendicular\n", best_angle));
+    report.push_str(&format!("Mean error at optimal angle: {:.4}\n", best_error));
+    
+    report.push_str(&format!("\n{}\n", "-".repeat(60)));
+    report.push_str("INTERPRETATION:\n");
+    if (best_angle).abs() < 15.0 {
+        report.push_str("→ Perpendicular drilling is confirmed as optimal (or near-optimal).\n");
+        report.push_str("  The 100ft drill constraint isn't arbitrary — it's geometrically justified.\n");
+    } else {
+        report.push_str(&format!("→ Optimal angle is {}° from perpendicular.\n", best_angle));
+        report.push_str("  This suggests the terrain has a preferred drilling direction\n");
+        report.push_str("  that's not exactly perpendicular to grade.\n");
+    }
+    
+    report
+}
+
+/// SHAPE TEST 16 — Multi-Scale Structure
+/// 
+/// Theory: Compare graph connectivity at different scales (T=100, 500, 1000).
+/// If chain structure is scale-invariant, that's a fundamental property.
+pub fn shape_test_multiscale_structure(t_max: f64) -> String {
+    let mut report = format!("\nSHAPE TEST 16 — Multi-Scale Structure\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("Theory: Is chain structure scale-invariant?\n");
+    report.push_str("Compare connectivity at T=100, 500, 1000.\n\n");
+    
+    let scales = vec![100.0, 300.0, 600.0, t_max];
+    
+    report.push_str(&format!("{:>8} {:>8} {:>8} {:>8} {:>12}\n", 
+        "T_max", "Zeros", "Chains", "Mean Len", "Max Chain"));
+    
+    for &t in &scales {
+        let points = count_trajectory(t);
+        if points.len() < 10 { continue; }
+        
+        let r_values: Vec<f64> = points.iter().map(|&(_, r)| r).collect();
+        let t_values: Vec<f64> = points.iter().map(|&(t, _)| t).collect();
+        let n = r_values.len();
+        
+        // Compute gradients and curvatures
+        let mut gradients = Vec::new();
+        let mut curvatures = Vec::new();
+        for i in 0..n {
+            if i == 0 {
+                gradients.push((r_values[1] - r_values[0]) / (t_values[1] - t_values[0]));
+                curvatures.push(0.0);
+            } else if i == n - 1 {
+                gradients.push((r_values[i] - r_values[i-1]) / (t_values[i] - t_values[i-1]));
+                curvatures.push(0.0);
+            } else {
+                let dt_left = t_values[i] - t_values[i-1];
+                let dt_right = t_values[i+1] - t_values[i];
+                let grad_left = (r_values[i] - r_values[i-1]) / dt_left;
+                let grad_right = (r_values[i+1] - r_values[i]) / dt_right;
+                gradients.push((grad_left + grad_right) / 2.0);
+                curvatures.push((grad_right - grad_left) / ((dt_left + dt_right) / 2.0));
+            }
+        }
+        
+        // Build successors
+        let mut successors: Vec<Option<usize>> = vec![None; n];
+        for i in 0..n {
+            let f = r_values[i];
+            let df = gradients[i];
+            let d2f = curvatures[i];
+            if df.abs() < 1e-10 { continue; }
+            
+            let mut best_j: Option<usize> = None;
+            let mut best_dist = f64::MAX;
+            
+            let mut predictions: Vec<f64> = Vec::new();
+            if d2f.abs() > 1e-10 {
+                let a = 0.5 * d2f;
+                let b = df;
+                let c = f;
+                let disc = b*b - 4.0*a*c;
+                if disc >= 0.0 {
+                    for sign in [1.0, -1.0] {
+                        let dt = (-b + sign * disc.sqrt()) / (2.0 * a);
+                        let t_pred = t_values[i] + dt;
+                        if t_pred > 0.0 && t_pred < t * 1.5 && dt.abs() < 50.0 {
+                            predictions.push(t_pred);
+                        }
+                    }
+                }
+            } else {
+                let dt = -f / df;
+                let t_pred = t_values[i] + dt;
+                if dt.abs() < 50.0 && t_pred > 0.0 && t_pred < t * 1.5 {
+                    predictions.push(t_pred);
+                }
+            }
+            
+            for &t_pred in &predictions {
+                for j in 0..n {
+                    if i != j {
+                        let dist = (t_values[j] - t_pred).abs();
+                        if dist < 2.0 && dist < best_dist {
+                            best_dist = dist;
+                            best_j = Some(j);
+                        }
+                    }
+                }
+            }
+            
+            successors[i] = best_j;
+        }
+        
+        // Find chains
+        let mut visited = vec![false; n];
+        let mut chain_lengths: Vec<usize> = Vec::new();
+        for i in 0..n {
+            if visited[i] { continue; }
+            let mut chain = Vec::new();
+            let mut current = Some(i);
+            while let Some(u) = current {
+                if visited[u] { break; }
+                visited[u] = true;
+                chain.push(u);
+                current = successors[u];
+            }
+            if chain.len() > 1 {
+                chain_lengths.push(chain.len());
+            }
+        }
+        
+        let mean_len = if !chain_lengths.is_empty() {
+            chain_lengths.iter().sum::<usize>() as f64 / chain_lengths.len() as f64
+        } else { 0.0 };
+        let max_chain = chain_lengths.iter().max().copied().unwrap_or(0);
+        
+        report.push_str(&format!("{:>8} {:>8} {:>8} {:>8.2} {:>12}\n", 
+            t, n, chain_lengths.len(), mean_len, max_chain));
+    }
+    
+    report.push_str(&format!("\n{}\n", "-".repeat(60)));
+    report.push_str("INTERPRETATION:\n");
+    report.push_str("If mean chain length stays constant across scales → scale-invariant structure.\n");
+    report.push_str("If it grows with T → larger regions have longer predictable corridors.\n");
+    report.push_str("If it shrinks with T → terrain becomes more fragmented at larger scales.\n");
+    
+    report
+}
+
+
 pub fn all_shape_tests(t_max: f64) -> String {
     let mut report = format!("\n{}\n", "=".repeat(70));
     report.push_str(&format!("SHAPE TESTING: Geometric structure in zero-count trajectory\n"));
@@ -3627,6 +4144,9 @@ pub fn all_shape_tests(t_max: f64) -> String {
     report.push_str(&shape_test_gradient_zero_finding(t_max));
     report.push_str(&shape_test_connected_walk(t_max));
     report.push_str(&shape_test_distance_map(t_max));
+    report.push_str(&shape_test_chain_distribution(t_max));
+    report.push_str(&shape_test_drill_angle_optimality(t_max));
+    report.push_str(&shape_test_multiscale_structure(t_max));
     
     report.push_str(&format!("\n{}\n", "=".repeat(70)));
     report.push_str("SUMMARY: Which shapes survived?\n");

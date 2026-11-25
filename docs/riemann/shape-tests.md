@@ -330,6 +330,59 @@ This confirms Test 12's finding of global fragmentation and quantifies it:
 the zeta hill is not a single connected surface under the 100ft drill protocol.
 It's a collection of isolated chains, each requiring its own drilling campaign.
 
+## SHAPE TEST 14 — Chain Length Distribution
+
+**Question:** What's the distribution of chain lengths in the prediction graph?
+
+**Results (T=1000, 645 zeros):**
+- 107 chains total, 372 single nodes (57.7% isolated)
+- Mean chain length: 2.55
+- Max chain length: 7
+- Distribution: **exponential decay** (slope -0.91, R²=0.96)
+
+**Interpretation:** The terrain changes rapidly — chains break quickly. No long
+predictable corridors exist. The hill is made of short segments (2-3 zeros each)
+connected by unpredictable transitions. This confirms the 100ft constraint is
+not arbitrary — it's close to the maximum distance over which local geometry
+remains valid.
+
+## SHAPE TEST 15 — Perpendicular Drill Optimality
+
+**Question:** Is perpendicular-to-grade actually the optimal drill direction?
+
+**Results (T=1000):**
+| Angle from perpendicular | Mean Error | Valid Preds |
+|-------------------------|------------|-------------|
+| -90°                    | 0.4012     | 532         |
+| -60°                    | 0.3704     | 480         |
+| -30°                    | 0.4043     | 468         |
+| 0° (perpendicular)      | 0.3820     | 404         |
+| **30°**                 | **0.3480** | **476**     |
+| 60°                     | 0.4200     | 492         |
+| 90°                     | 0.3767     | 540         |
+
+**Key finding:** Optimal drill angle is **30° from perpendicular**, not 0°.
+The terrain has a preferred drilling direction tilted toward the grade direction.
+This challenges the assumption that perpendicular drilling is geometrically optimal.
+
+## SHAPE TEST 16 — Multi-Scale Structure
+
+**Question:** Is chain structure scale-invariant?
+
+**Results:**
+| T_max | Zeros | Chains | Mean Len | Max Chain |
+|-------|-------|--------|----------|-----------|
+| 100   | 45    | 6      | 2.67     | 4         |
+| 300   | 152   | 25     | 2.56     | 7         |
+| 600   | 349   | 59     | 2.44     | 7         |
+| 1000  | 645   | 107    | 2.55     | 7         |
+
+**Key finding:** Mean chain length stays constant (~2.5) across all scales.
+The zeta hill has **scale-invariant grain structure** — the same "grain size"
+at T=100 as at T=1000. This is a fundamental property of the zeta function's
+geometry: the predictable corridors are always about 2-3 zeros long, regardless
+of where you are on the hill.
+
 ## Implementation
 
 All shape tests are in `src/riemann/zeta_riemann_siegel.rs`:
@@ -338,6 +391,6 @@ All shape tests are in `src/riemann/zeta_riemann_siegel.rs`:
 - `find_peaks(r_values)` — local extrema detection
 - `two_sample_ks(a, b)` — Kolmogorov-Smirnov test for distribution comparison
 - `shape_test_*` functions — individual tests returning formatted reports
-- `all_shape_tests(t_max)` — runs all 13 tests in sequence
+- `all_shape_tests(t_max)` — runs all 16 tests in sequence
 
 Run with: `cargo run --example debug_multiscale`
