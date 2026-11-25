@@ -4737,6 +4737,7 @@ pub fn all_shape_tests(t_max: f64) -> String {
     report.push_str(&shape_test_predictive_power(t_max));
     report.push_str(&shape_test_rich_feature_prediction(t_max));
     report.push_str(&shape_test_geometric_state_learning(t_max));
+    report.push_str(&shape_test_zero_terrain_embeddings(t_max));
     
     report.push_str(&format!("\n{}\n", "=".repeat(70)));
     report.push_str("SUMMARY: Which shapes survived?\n");
@@ -5409,3 +5410,208 @@ distributions, then the terrain has memory, and we can exploit it.
 ");
     report
 }
+
+/// SHAPE TEST 23 — Zero Terrain Embeddings
+///
+/// Question: What does the terrain look like when it's about to produce a zero?
+/// Extract structured embeddings from local geometry and analyze shape families.
+fn shape_test_zero_terrain_embeddings(t_max: f64) -> String {
+    let trajectory = count_trajectory(t_max);
+    if trajectory.len() < 200 {
+        return "Insufficient data for terrain embeddings".to_string();
+    }
+
+    let zeros = find_zeros_rs(10.0, t_max, 0.5);
+    if zeros.len() < 50 {
+        return "Insufficient zeros for terrain embeddings".to_string();
+    }
+
+    // For each zero, extract a local terrain fingerprint
+    struct TerrainFingerprint {
+        zero_t: f64,
+        wh_ratio: f64,
+        curvature: f64,
+        peak_height: f64,
+        trough_depth: f64,
+        asymmetry: f64,
+        slope_magnitude: f64,
+        symmetry_score: f64,
+    }
+
+    let mut fingerprints: Vec<TerrainFingerprint> = Vec::new();
+
+    for &zero_t in &zeros {
+        // Find trajectory point closest to this zero
+        let mut best_idx = 0;
+        let mut best_dist = f64::MAX;
+        for (i, &(t, _)) in trajectory.iter().enumerate() {
+            let dist = (t - zero_t).abs();
+            if dist < best_dist {
+                best_dist = dist;
+                best_idx = i;
+            }
+        }
+
+        // Window around the zero
+        let window_size = 8;
+        let start = best_idx.saturating_sub(window_size);
+        let end = (best_idx + window_size + 1).min(trajectory.len());
+        
+        if end - start < 5 {
+            continue;
+        }
+
+        // Extract features
+        let mut max_r = f64::MIN;
+        let mut min_r = f64::MAX;
+        let mut sum_r = 0.0_f64;
+        let mut count = 0;
+        
+        for j in start..end {
+            let r = trajectory[j].1;
+            if r > max_r { max_r = r; }
+            if r < min_r { min_r = r; }
+            sum_r += r;
+            count += 1;
+        }
+        
+        let mean_r = sum_r / count as f64;
+        let local_height = max_r - min_r;
+        let local_width = trajectory[end.saturating_sub(1)].0 - trajectory[start].0;
+        
+        let wh_ratio = if local_height > 0.01 { local_width / local_height } else { 0.0 };
+        
+        // Curvature: second derivative approximation at center
+        let mut curvature_sum = 0.0;
+        let mut curvature_count = 0;
+        for j in (start+1)..(end.saturating_sub(1)) {
+            let f_prev = trajectory[j-1].1;
+            let f_curr = trajectory[j].1;
+            let f_next = trajectory[j+1].1;
+            let dt = trajectory[j].0 - trajectory[j-1].0;
+            if dt > 0.0 {
+                let curvature = (f_next - 2.0*f_curr + f_prev) / (dt * dt);
+                curvature_sum += curvature.abs();
+                curvature_count += 1;
+            }
+        }
+        let curvature = if curvature_count > 0 { curvature_sum / curvature_count as f64 } else { 0.0 };
+        
+        // Peak height and trough depth relative to zero level
+        let peak_height = max_r - mean_r;
+        let trough_depth = mean_r - min_r;
+        
+        // Asymmetry: compare left and right halves
+        let mid = (start + end) / 2;
+        let mut left_sum = 0.0;
+        let mut right_sum = 0.0;
+        for j in start..mid {
+            left_sum += (trajectory[j].1 - mean_r).abs();
+        }
+        for j in mid..end {
+            right_sum += (trajectory[j].1 - mean_r).abs();
+        }
+        let total = left_sum + right_sum;
+        let asymmetry = if total > 0.0 { (left_sum - right_sum).abs() / total } else { 0.0 };
+        
+        // Slope magnitude
+        let mut slope_sum = 0.0;
+        for j in start..(end.saturating_sub(1)) {
+            let dt = trajectory[j+1].0 - trajectory[j].0;
+            if dt > 0.0 {
+                slope_sum += ((trajectory[j+1].1 - trajectory[j].1) / dt).abs();
+            }
+        }
+        let slope_magnitude = if count > 1 { slope_sum / (count as f64 - 1.0) } else { 0.0 };
+        
+        // Symmetry score (inverse of asymmetry)
+        let symmetry_score = 1.0 - asymmetry;
+        
+        fingerprints.push(TerrainFingerprint {
+            zero_t,
+            wh_ratio,
+            curvature,
+            peak_height,
+            trough_depth,
+            asymmetry,
+            slope_magnitude,
+            symmetry_score,
+        });
+    }
+
+    if fingerprints.len() < 10 {
+        return "Insufficient terrain fingerprints".to_string();
+    }
+
+    // Compute statistics
+    let n = fingerprints.len() as f64;
+    
+    let wh_mean: f64 = fingerprints.iter().map(|f| f.wh_ratio).sum::<f64>() / n;
+    let curv_mean: f64 = fingerprints.iter().map(|f| f.curvature).sum::<f64>() / n;
+    let peak_mean: f64 = fingerprints.iter().map(|f| f.peak_height).sum::<f64>() / n;
+    let trough_mean: f64 = fingerprints.iter().map(|f| f.trough_depth).sum::<f64>() / n;
+    let asym_mean: f64 = fingerprints.iter().map(|f| f.asymmetry).sum::<f64>() / n;
+    let sym_mean: f64 = fingerprints.iter().map(|f| f.symmetry_score).sum::<f64>() / n;
+
+    // Standard deviations
+    let wh_std: f64 = (fingerprints.iter().map(|f| (f.wh_ratio - wh_mean).powi(2)).sum::<f64>() / n).sqrt();
+    let curv_std: f64 = (fingerprints.iter().map(|f| (f.curvature - curv_mean).powi(2)).sum::<f64>() / n).sqrt();
+
+    // Correlation between curvature and symmetry
+    let cov_curv_sym: f64 = fingerprints.iter()
+        .map(|f| (f.curvature - curv_mean) * (f.symmetry_score - sym_mean))
+        .sum::<f64>() / n;
+    let corr_curv_sym = if curv_std > 0.0 && sym_mean > 0.0 {
+        cov_curv_sym / (curv_std * (n - 1.0).sqrt())
+    } else {
+        0.0
+    };
+
+    // Classify peaks as NARROW vs WIDE based on W/H ratio
+    let narrow_threshold = wh_mean;
+    let narrow: Vec<&TerrainFingerprint> = fingerprints.iter().filter(|f| f.wh_ratio < narrow_threshold).collect();
+    let wide: Vec<&TerrainFingerprint> = fingerprints.iter().filter(|f| f.wh_ratio >= narrow_threshold).collect();
+
+    let narrow_curv_mean = if !narrow.is_empty() {
+        narrow.iter().map(|f| f.curvature).sum::<f64>() / narrow.len() as f64
+    } else { 0.0 };
+    
+    let wide_curv_mean = if !wide.is_empty() {
+        wide.iter().map(|f| f.curvature).sum::<f64>() / wide.len() as f64
+    } else { 0.0 };
+
+    // Build report
+    let mut report = String::new();
+    report.push_str("SHAPE TEST 23 — Zero Terrain Embeddings\n");
+    report.push_str(&format!("{} zeros analyzed (T up to {})\n", fingerprints.len(), t_max as i64));
+    report.push_str("\n");
+    report.push_str("=== Terrain Fingerprint Statistics ===\n");
+    report.push_str(&format!("  W/H ratio:      mean={:.3}  std={:.3}\n", wh_mean, wh_std));
+    report.push_str(&format!("  Curvature:      mean={:.4}  std={:.4}\n", curv_mean, curv_std));
+    report.push_str(&format!("  Peak height:    mean={:.4}\n", peak_mean));
+    report.push_str(&format!("  Trough depth:   mean={:.4}\n", trough_mean));
+    report.push_str(&format!("  Asymmetry:      mean={:.3}\n", asym_mean));
+    report.push_str(&format!("  Symmetry score: mean={:.3}\n", sym_mean));
+    report.push_str("\n");
+    report.push_str("=== Correlation Analysis ===\n");
+    report.push_str(&format!("  Curvature vs Symmetry: r = {:.3}\n", corr_curv_sym));
+    report.push_str("\n");
+    report.push_str("=== Shape Family Classification ===\n");
+    report.push_str(&format!("  NARROW peaks (W/H < {:.2}): {} zeros, mean curvature={:.4}\n", narrow_threshold, narrow.len(), narrow_curv_mean));
+    report.push_str(&format!("  WIDE peaks   (W/H >= {:.2}): {} zeros, mean curvature={:.4}\n", narrow_threshold, wide.len(), wide_curv_mean));
+    report.push_str("\n");
+    
+    if narrow_curv_mean > curv_mean * 1.2 {
+        report.push_str("[v] NARROW peaks show significantly higher curvature than average.\n");
+        report.push_str("  Sharp terrain configurations are associated with more zeros.\n");
+    }
+    
+    if wide_curv_mean < curv_mean * 0.8 {
+        report.push_str("[v] WIDE peaks show significantly lower curvature than average.\n");
+        report.push_str("  Broad terrain configurations are associated with fewer, more regular zeros.\n");
+    }
+
+    report.push_str("\n");
+    report
+}
+
