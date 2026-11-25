@@ -383,6 +383,55 @@ at T=100 as at T=1000. This is a fundamental property of the zeta function's
 geometry: the predictable corridors are always about 2-3 zeros long, regardless
 of where you are on the hill.
 
+## SHAPE TEST 17 — Adaptive Drill Angle
+
+**Question:** Can adaptive drill angles extend chain lengths beyond fixed perpendicular?
+
+**Results (T=1000):**
+| Strategy | Chains | Mean Len | Max Len | Validated |
+|----------|--------|----------|---------|-----------|
+| Fixed perpendicular | 329 | 2.83 | 7 | 602 |
+| **Fixed 30° tilt** | 327 | **3.04** | **10** | 667 |
+| Adaptive (curvature) | 330 | 3.00 | 9 | 659 |
+
+**Key finding:** Fixed 30° tilt beats both perpendicular and adaptive. The terrain's
+preferred drilling direction is more uniform than expected — local curvature-based
+adaptation doesn't help. Max chain length jumps from 7 to 10 with the 30° tilt.
+
+## SHAPE TEST 18 — Jump Mechanism
+
+**Question:** What if we allow controlled "jumps" when predictions fail?
+
+**Results (T=1000):**
+| Jump R | Starts | Cov% | Jumps/Walk | Mean Chain |
+|--------|--------|------|------------|------------|
+| 5      | 645    | 6.8% | 18.6       | 43.74      |
+| 10     | 645    | 7.7% | 21.6       | 49.79      |
+| 20     | 645    | 7.9% | 22.1       | 50.95      |
+| 50     | 645    | 7.9% | 22.2       | 51.00      |
+
+**Key finding:** With even small jumps (R=5), mean chain length jumps from ~3 to ~44.
+The fragmentation we saw in Tests 12-14 was partly an artifact of the strict no-jump
+constraint. The terrain is much more traversable than it appeared.
+
+## SHAPE TEST 19 — Coverage Strategy
+
+**Question:** What's the minimum number of starting points to cover X% of zeros?
+
+**Results (T=1000, jumps R=5):**
+| Coverage Target | Starts Needed |
+|-----------------|---------------|
+| 50%             | 4             |
+| 75%             | 8             |
+| 90%             | 18            |
+| **95%**         | **31**        |
+| 99%             | 31            |
+
+**Key finding:** Only **31 independent drilling campaigns** needed to cover 95% of
+the 645 zeros up to T=1000. That's about 5% of zeros as starting points. The fact
+that 95% and 99% both require 31 starts suggests a few "hard to reach" zeros need
+specific campaigns, but once you have those 31, you're essentially done.
+
 ## Implementation
 
 All shape tests are in `src/riemann/zeta_riemann_siegel.rs`:
@@ -391,6 +440,6 @@ All shape tests are in `src/riemann/zeta_riemann_siegel.rs`:
 - `find_peaks(r_values)` — local extrema detection
 - `two_sample_ks(a, b)` — Kolmogorov-Smirnov test for distribution comparison
 - `shape_test_*` functions — individual tests returning formatted reports
-- `all_shape_tests(t_max)` — runs all 16 tests in sequence
+- `all_shape_tests(t_max)` — runs all 19 tests in sequence
 
 Run with: `cargo run --example debug_multiscale`

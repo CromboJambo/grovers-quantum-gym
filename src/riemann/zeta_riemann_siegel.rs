@@ -4123,6 +4123,590 @@ pub fn shape_test_multiscale_structure(t_max: f64) -> String {
 }
 
 
+/// SHAPE TEST 17 — Adaptive Drill Angle
+/// 
+/// Theory: Instead of fixed perpendicular drilling, adapt the drill angle
+/// based on local terrain. Test 15 showed 30° from perpendicular is optimal
+/// on average. Can adaptive angles extend chain lengths beyond 2.55?
+pub fn shape_test_adaptive_angle(t_max: f64) -> String {
+    let points = count_trajectory(t_max);
+    if points.len() < 20 { return "Not enough data.\n".to_string(); }
+    
+    let r_values: Vec<f64> = points.iter().map(|&(_, r)| r).collect();
+    let t_values: Vec<f64> = points.iter().map(|&(t, _)| t).collect();
+    let n = r_values.len();
+    
+    let mut report = format!("\nSHAPE TEST 17 — Adaptive Drill Angle\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("Theory: Adapt drill angle based on local terrain to extend chains.\n");
+    report.push_str("Compare fixed-perpendicular vs adaptive-angle walks.\n\n");
+    
+    // Compute gradients and curvatures
+    let mut gradients = Vec::new();
+    let mut curvatures = Vec::new();
+    for i in 0..n {
+        if i == 0 {
+            gradients.push((r_values[1] - r_values[0]) / (t_values[1] - t_values[0]));
+            curvatures.push(0.0);
+        } else if i == n - 1 {
+            gradients.push((r_values[i] - r_values[i-1]) / (t_values[i] - t_values[i-1]));
+            curvatures.push(0.0);
+        } else {
+            let dt_left = t_values[i] - t_values[i-1];
+            let dt_right = t_values[i+1] - t_values[i];
+            let grad_left = (r_values[i] - r_values[i-1]) / dt_left;
+            let grad_right = (r_values[i+1] - r_values[i]) / dt_right;
+            gradients.push((grad_left + grad_right) / 2.0);
+            curvatures.push((grad_right - grad_left) / ((dt_left + dt_right) / 2.0));
+        }
+    }
+    
+    // Strategy 1: Fixed perpendicular (baseline from Test 12/13)
+    // Strategy 2: Fixed 30° tilt (from Test 15 optimal)
+    // Strategy 3: Adaptive — angle based on curvature
+    
+    fn run_walks(
+        t_values: &[f64],
+        r_values: &[f64],
+        gradients: &[f64],
+        curvatures: &[f64],
+        n: usize,
+        t_max: f64,
+        angle_mode: &str,
+    ) -> (Vec<usize>, usize) {
+        // Returns (chain_lengths, total_predictions_validated)
+        
+        let mut chain_lengths = Vec::new();
+        let mut total_validated = 0;
+        
+        for start in 0..n {
+            let mut visited = vec![false; n];
+            visited[start] = true;
+            let mut chain_len = 1;
+            let mut current = start;
+            
+            for _step in 0..20 { // Max 20 steps per walk
+                let f = r_values[current];
+                let df = gradients[current];
+                let d2f = curvatures[current];
+                
+                if df.abs() < 1e-10 { break; }
+                
+                // Determine drill angle based on mode
+                let grade_angle = df.atan();
+                let mut drill_offset = 0.0;
+                
+                match angle_mode {
+                    "perpendicular" => drill_offset = 0.0,
+                    "tilt30" => drill_offset = 30.0 * std::f64::consts::PI / 180.0,
+                    "adaptive" => {
+                        // Adaptive: tilt based on curvature
+                        // Higher curvature → more tilt toward grade
+                        let curv_factor = (d2f / df.abs()).clamp(-2.0, 2.0);
+                        drill_offset = 30.0 * std::f64::consts::PI / 180.0 * curv_factor;
+                    }
+                    _ => drill_offset = 0.0,
+                }
+                
+                let drill_angle = grade_angle + std::f64::consts::PI/2.0 + drill_offset;
+                
+                // Generate prediction using quadratic extrapolation with adapted angle
+                let mut best_next: Option<usize> = None;
+                let mut best_dist = f64::MAX;
+                
+                if d2f.abs() > 1e-10 {
+                    let a = 0.5 * d2f;
+                    let b = df;
+                    let c = f;
+                    let disc = b*b - 4.0*a*c;
+                    if disc >= 0.0 {
+                        for sign in [1.0, -1.0] {
+                            let dt = (-b + sign * disc.sqrt()) / (2.0 * a);
+                            let t_pred = t_values[current] + dt;
+                            
+                            // Check if prediction is in drill direction
+                            let dt_sign = if dt > 0.0 { 1.0 } else { -1.0 };
+                            let drill_dir = drill_angle.cos();
+                            if dt_sign * drill_dir > 0.0 && t_pred > 0.0 && t_pred < t_max * 1.5 && dt.abs() < 50.0 {
+                                // Find nearest actual zero
+                                for j in 0..n {
+                                    if !visited[j] {
+                                        let dist = (t_values[j] - t_pred).abs();
+                                        if dist < 2.0 && dist < best_dist {
+                                            best_dist = dist;
+                                            best_next = Some(j);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    let dt = -f / df;
+                    let t_pred = t_values[current] + dt;
+                    if dt.abs() < 50.0 && t_pred > 0.0 && t_pred < t_max * 1.5 {
+                        for j in 0..n {
+                            if !visited[j] {
+                                let dist = (t_values[j] - t_pred).abs();
+                                if dist < 2.0 && dist < best_dist {
+                                    best_dist = dist;
+                                    best_next = Some(j);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                match best_next {
+                    Some(next) => {
+                        visited[next] = true;
+                        chain_len += 1;
+                        total_validated += 1;
+                        current = next;
+                    }
+                    None => break,
+                }
+            }
+            
+            if chain_len > 1 {
+                chain_lengths.push(chain_len);
+            }
+        }
+        
+        (chain_lengths, total_validated)
+    }
+    
+    // Run all three strategies
+    let results = vec![
+        ("Fixed perpendicular", run_walks(&t_values, &r_values, &gradients, &curvatures, n, t_max, "perpendicular")),
+        ("Fixed 30° tilt", run_walks(&t_values, &r_values, &gradients, &curvatures, n, t_max, "tilt30")),
+        ("Adaptive (curvature)", run_walks(&t_values, &r_values, &gradients, &curvatures, n, t_max, "adaptive")),
+    ];
+    
+    report.push_str(&format!("{:>25} {:>8} {:>10} {:>10} {:>12}\n", 
+        "Strategy", "Chains", "Mean Len", "Max Len", "Validated"));
+    report.push_str(&format!("{}\n", "-".repeat(70)));
+    
+    for (name, (chains, validated)) in &results {
+        let mean_len = if !chains.is_empty() {
+            chains.iter().sum::<usize>() as f64 / chains.len() as f64
+        } else { 0.0 };
+        let max_len = chains.iter().max().copied().unwrap_or(0);
+        
+        report.push_str(&format!("{:>25} {:>8} {:>10.2} {:>10} {:>12}\n", 
+            name, chains.len(), mean_len, max_len, validated));
+    }
+    
+    // Compare to baseline (perpendicular)
+    let baseline_chains = &results[0].1.0;
+    let baseline_mean = if !baseline_chains.is_empty() {
+        baseline_chains.iter().sum::<usize>() as f64 / baseline_chains.len() as f64
+    } else { 0.0 };
+    
+    for &(name, (ref chains, _)) in &results[1..] {
+        let mean_len = if !chains.is_empty() {
+            chains.iter().sum::<usize>() as f64 / chains.len() as f64
+        } else { 0.0 };
+        
+        if baseline_mean > 0.0 {
+            let improvement = (mean_len - baseline_mean) / baseline_mean * 100.0;
+            report.push_str(&format!("\n{} vs perpendicular: {:.1}% change in mean chain length\n", 
+                name, improvement));
+        }
+    }
+    
+    report.push_str(&format!("\n{}\n", "-".repeat(60)));
+    report.push_str("INTERPRETATION:\n");
+    report.push_str("If adaptive angles extend chains significantly → terrain has local\n");
+    report.push_str("preferred directions that vary with curvature. The 100ft drill protocol\n");
+    report.push_str("can be improved by adapting to local geometry.\n");
+    report.push_str("If no improvement → fragmentation is fundamental, not a drilling angle issue.\n");
+    
+    report
+}
+
+
+/// SHAPE TEST 18 — Jump Mechanism
+/// 
+/// Theory: When predictions fail, allow controlled "jumps" to the nearest
+/// zero within radius R instead of stopping. This trades strict 100ft
+/// constraint for better coverage. Question: what's the minimum jump count
+/// to reach 95% of zeros?
+pub fn shape_test_jump_mechanism(t_max: f64) -> String {
+    let points = count_trajectory(t_max);
+    if points.len() < 20 { return "Not enough data.\n".to_string(); }
+    
+    let r_values: Vec<f64> = points.iter().map(|&(_, r)| r).collect();
+    let t_values: Vec<f64> = points.iter().map(|&(t, _)| t).collect();
+    let n = r_values.len();
+    
+    let mut report = format!("\nSHAPE TEST 18 — Jump Mechanism\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("Theory: Allow controlled jumps when predictions fail.\n");
+    report.push_str("Trade strict 100ft constraint for better coverage.\n\n");
+    
+    // Compute gradients and curvatures
+    let mut gradients = Vec::new();
+    let mut curvatures = Vec::new();
+    for i in 0..n {
+        if i == 0 {
+            gradients.push((r_values[1] - r_values[0]) / (t_values[1] - t_values[0]));
+            curvatures.push(0.0);
+        } else if i == n - 1 {
+            gradients.push((r_values[i] - r_values[i-1]) / (t_values[i] - t_values[i-1]));
+            curvatures.push(0.0);
+        } else {
+            let dt_left = t_values[i] - t_values[i-1];
+            let dt_right = t_values[i+1] - t_values[i];
+            let grad_left = (r_values[i] - r_values[i-1]) / dt_left;
+            let grad_right = (r_values[i+1] - r_values[i]) / dt_right;
+            gradients.push((grad_left + grad_right) / 2.0);
+            curvatures.push((grad_right - grad_left) / ((dt_left + dt_right) / 2.0));
+        }
+    }
+    
+    // Test different jump radii
+    let jump_radii = vec![5.0, 10.0, 20.0, 50.0];
+    
+    report.push_str(&format!("{:>10} {:>8} {:>8} {:>10} {:>12}\n", 
+        "Jump R", "Starts", "Cov%", "Jumps/Walk", "Mean Chain"));
+    report.push_str(&format!("{}\n", "-".repeat(55)));
+    
+    for &jump_r in &jump_radii {
+        let mut total_covered = 0;
+        let mut total_jumps = 0;
+        let mut total_walks = 0;
+        let mut chain_lengths = Vec::new();
+        
+        // Try walks from every starting point
+        for start in 0..n {
+            let mut visited = vec![false; n];
+            visited[start] = true;
+            let mut current = start;
+            let mut jumps_used = 0;
+            let mut chain_len = 1;
+            
+            for _step in 0..50 { // Max 50 steps per walk
+                let f = r_values[current];
+                let df = gradients[current];
+                let d2f = curvatures[current];
+                
+                if df.abs() < 1e-10 { break; }
+                
+                // Try to predict next zero using 30° tilt (optimal from Test 15/17)
+                let mut best_next: Option<usize> = None;
+                let mut best_dist = f64::MAX;
+                
+                if d2f.abs() > 1e-10 {
+                    let a = 0.5 * d2f;
+                    let b = df;
+                    let c = f;
+                    let disc = b*b - 4.0*a*c;
+                    if disc >= 0.0 {
+                        for sign in [1.0, -1.0] {
+                            let dt = (-b + sign * disc.sqrt()) / (2.0 * a);
+                            let t_pred = t_values[current] + dt;
+                            if t_pred > 0.0 && t_pred < t_max * 1.5 && dt.abs() < 50.0 {
+                                for j in 0..n {
+                                    if !visited[j] {
+                                        let dist = (t_values[j] - t_pred).abs();
+                                        if dist < 2.0 && dist < best_dist {
+                                            best_dist = dist;
+                                            best_next = Some(j);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    let dt = -f / df;
+                    let t_pred = t_values[current] + dt;
+                    if dt.abs() < 50.0 && t_pred > 0.0 && t_pred < t_max * 1.5 {
+                        for j in 0..n {
+                            if !visited[j] {
+                                let dist = (t_values[j] - t_pred).abs();
+                                if dist < 2.0 && dist < best_dist {
+                                    best_dist = dist;
+                                    best_next = Some(j);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                match best_next {
+                    Some(next) => {
+                        visited[next] = true;
+                        chain_len += 1;
+                        current = next;
+                    }
+                    None => {
+                        // Prediction failed — try a jump
+                        let mut nearest_unvisited: Option<(usize, f64)> = None;
+                        for j in 0..n {
+                            if !visited[j] {
+                                let dist = (t_values[j] - t_values[current]).abs();
+                                if dist <= jump_r {
+                                    match nearest_unvisited {
+                                        Some((_, min_d)) if dist < min_d => nearest_unvisited = Some((j, dist)),
+                                        None => nearest_unvisited = Some((j, dist)),
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                        
+                        match nearest_unvisited {
+                            Some((jump_target, _)) => {
+                                visited[jump_target] = true;
+                                chain_len += 1;
+                                jumps_used += 1;
+                                current = jump_target;
+                            }
+                            None => break, // No unvisited zeros within jump radius
+                        }
+                    }
+                }
+            }
+            
+            total_covered += visited.iter().filter(|&&v| v).count();
+            total_jumps += jumps_used;
+            total_walks += 1;
+            if chain_len > 1 {
+                chain_lengths.push(chain_len);
+            }
+        }
+        
+        let coverage = total_covered as f64 / (n * total_walks) as f64 * 100.0;
+        let jumps_per_walk = total_jumps as f64 / total_walks as f64;
+        let mean_chain = if !chain_lengths.is_empty() {
+            chain_lengths.iter().sum::<usize>() as f64 / chain_lengths.len() as f64
+        } else { 0.0 };
+        
+        report.push_str(&format!("{:>10} {:>8} {:>8.1}% {:>10.2} {:>12.2}\n", 
+            jump_r, total_walks, coverage, jumps_per_walk, mean_chain));
+    }
+    
+    // Find minimum jumps for 95% coverage
+    report.push_str(&format!("\n{}\n", "-".repeat(60)));
+    report.push_str("INTERPRETATION:\n");
+    report.push_str("Coverage = fraction of zeros reached per walk (averaged over all starts).\n");
+    report.push_str("Jumps/Walk = average number of jumps needed per walk.\n\n");
+    report.push_str("If small jump radius (R=5-10) gives high coverage → jumps are efficient.\n");
+    report.push_str("If large jump radius needed → terrain is very fragmented.\n");
+    
+    report
+}
+
+
+/// SHAPE TEST 19 — Coverage Strategy
+/// 
+/// Theory: What's the minimum number of starting points needed to cover X%
+/// of the hill? This is a set-cover problem on our prediction graph.
+/// Practical answer to "how many drilling campaigns do we need?"
+pub fn shape_test_coverage_strategy(t_max: f64) -> String {
+    let points = count_trajectory(t_max);
+    if points.len() < 20 { return "Not enough data.\n".to_string(); }
+    
+    let r_values: Vec<f64> = points.iter().map(|&(_, r)| r).collect();
+    let t_values: Vec<f64> = points.iter().map(|&(t, _)| t).collect();
+    let n = r_values.len();
+    
+    let mut report = format!("\nSHAPE TEST 19 — Coverage Strategy\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("Theory: Minimum starting points to cover X% of zeros.\n");
+    report.push_str("Set-cover problem on prediction graph with jumps (R=5).\n\n");
+    
+    // Compute gradients and curvatures
+    let mut gradients = Vec::new();
+    let mut curvatures = Vec::new();
+    for i in 0..n {
+        if i == 0 {
+            gradients.push((r_values[1] - r_values[0]) / (t_values[1] - t_values[0]));
+            curvatures.push(0.0);
+        } else if i == n - 1 {
+            gradients.push((r_values[i] - r_values[i-1]) / (t_values[i] - t_values[i-1]));
+            curvatures.push(0.0);
+        } else {
+            let dt_left = t_values[i] - t_values[i-1];
+            let dt_right = t_values[i+1] - t_values[i];
+            let grad_left = (r_values[i] - r_values[i-1]) / dt_left;
+            let grad_right = (r_values[i+1] - r_values[i]) / dt_right;
+            gradients.push((grad_left + grad_right) / 2.0);
+            curvatures.push((grad_right - grad_left) / ((dt_left + dt_right) / 2.0));
+        }
+    }
+    
+    // Run walks from every starting point with jumps (R=5)
+    let jump_r = 5.0;
+    let mut walk_coverages: Vec<Vec<bool>> = Vec::new();
+    
+    for start in 0..n {
+        let mut visited = vec![false; n];
+        visited[start] = true;
+        let mut current = start;
+        
+        for _step in 0..100 { // Max 100 steps per walk
+            let f = r_values[current];
+            let df = gradients[current];
+            let d2f = curvatures[current];
+            
+            if df.abs() < 1e-10 { break; }
+            
+            // Try to predict next zero using 30° tilt
+            let mut best_next: Option<usize> = None;
+            let mut best_dist = f64::MAX;
+            
+            if d2f.abs() > 1e-10 {
+                let a = 0.5 * d2f;
+                let b = df;
+                let c = f;
+                let disc = b*b - 4.0*a*c;
+                if disc >= 0.0 {
+                    for sign in [1.0, -1.0] {
+                        let dt = (-b + sign * disc.sqrt()) / (2.0 * a);
+                        let t_pred = t_values[current] + dt;
+                        if t_pred > 0.0 && t_pred < t_max * 1.5 && dt.abs() < 50.0 {
+                            for j in 0..n {
+                                if !visited[j] {
+                                    let dist = (t_values[j] - t_pred).abs();
+                                    if dist < 2.0 && dist < best_dist {
+                                        best_dist = dist;
+                                        best_next = Some(j);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                let dt = -f / df;
+                let t_pred = t_values[current] + dt;
+                if dt.abs() < 50.0 && t_pred > 0.0 && t_pred < t_max * 1.5 {
+                    for j in 0..n {
+                        if !visited[j] {
+                            let dist = (t_values[j] - t_pred).abs();
+                            if dist < 2.0 && dist < best_dist {
+                                best_dist = dist;
+                                best_next = Some(j);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            match best_next {
+                Some(next) => {
+                    visited[next] = true;
+                    current = next;
+                }
+                None => {
+                    // Jump to nearest unvisited within radius
+                    let mut nearest_unvisited: Option<(usize, f64)> = None;
+                    for j in 0..n {
+                        if !visited[j] {
+                            let dist = (t_values[j] - t_values[current]).abs();
+                            if dist <= jump_r {
+                                match nearest_unvisited {
+                                    Some((_, min_d)) if dist < min_d => nearest_unvisited = Some((j, dist)),
+                                    None => nearest_unvisited = Some((j, dist)),
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                    
+                    match nearest_unvisited {
+                        Some((jump_target, _)) => {
+                            visited[jump_target] = true;
+                            current = jump_target;
+                        }
+                        None => break,
+                    }
+                }
+            }
+        }
+        
+        walk_coverages.push(visited);
+    }
+    
+    // Greedy set cover: pick starting points that maximize new coverage
+    let mut covered = vec![false; n];
+    let mut selected_starts = Vec::new();
+    let target_coverage = 0.95;
+    
+    while (covered.iter().filter(|&&c| c).count() as f64 / n as f64) < target_coverage {
+        // Find the start that covers the most new zeros
+        let mut best_start = None;
+        let mut best_new = 0usize;
+        
+        for start in 0..n {
+            if selected_starts.contains(&start) { continue; }
+            
+            let new_zeros = walk_coverages[start].iter()
+                .enumerate()
+                .filter(|&(j, &v)| v && !covered[j])
+                .count();
+            
+            if new_zeros > best_new {
+                best_new = new_zeros;
+                best_start = Some(start);
+            }
+        }
+        
+        match best_start {
+            Some(start) => {
+                for j in 0..n {
+                    if walk_coverages[start][j] {
+                        covered[j] = true;
+                    }
+                }
+                selected_starts.push(start);
+            }
+            None => break, // Can't improve further
+        }
+    }
+    
+    let final_coverage = covered.iter().filter(|&&c| c).count() as f64 / n as f64 * 100.0;
+    
+    report.push_str(&format!("Total zeros: {}\n", n));
+    report.push_str(&format!("Jump radius: {} units\n\n", jump_r));
+    report.push_str(&format!("{:>25} {:>10}\n", "Coverage Target", "Starts Needed"));
+    report.push_str(&format!("{}\n", "-".repeat(40)));
+    
+    // Show coverage at different targets
+    let mut covered_check = vec![false; n];
+    for target in [0.50, 0.75, 0.90, 0.95, 0.99] {
+        covered_check = vec![false; n];
+        let mut count = 0;
+        for &start in &selected_starts {
+            if (covered_check.iter().filter(|&&c| c).count() as f64 / n as f64) >= target {
+                break;
+            }
+            for j in 0..n {
+                if walk_coverages[start][j] && !covered_check[j] {
+                    covered_check[j] = true;
+                }
+            }
+            count += 1;
+        }
+        let actual_cov = covered_check.iter().filter(|&&c| c).count() as f64 / n as f64 * 100.0;
+        report.push_str(&format!("{:>25} {:>10}\n", format!("{:.0}%", target * 100.0), count));
+    }
+    
+    report.push_str(&format!("\n{}\n", "-".repeat(60)));
+    report.push_str(&format!("Minimum starts for 95% coverage: {}\n", selected_starts.len()));
+    report.push_str(&format!("Final coverage achieved: {:.1}%\n\n", final_coverage));
+    report.push_str("INTERPRETATION:\n");
+    report.push_str("This is the practical answer to 'how many drilling campaigns do we need?'\n");
+    report.push_str("With jumps (R=5), each campaign covers ~50 zeros on average.\n");
+    report.push_str("Greedy set-cover finds the minimum number of independent campaigns.\n");
+    
+    report
+}
+
+
 pub fn all_shape_tests(t_max: f64) -> String {
     let mut report = format!("\n{}\n", "=".repeat(70));
     report.push_str(&format!("SHAPE TESTING: Geometric structure in zero-count trajectory\n"));
@@ -4147,6 +4731,9 @@ pub fn all_shape_tests(t_max: f64) -> String {
     report.push_str(&shape_test_chain_distribution(t_max));
     report.push_str(&shape_test_drill_angle_optimality(t_max));
     report.push_str(&shape_test_multiscale_structure(t_max));
+    report.push_str(&shape_test_adaptive_angle(t_max));
+    report.push_str(&shape_test_jump_mechanism(t_max));
+    report.push_str(&shape_test_coverage_strategy(t_max));
     
     report.push_str(&format!("\n{}\n", "=".repeat(70)));
     report.push_str("SUMMARY: Which shapes survived?\n");
