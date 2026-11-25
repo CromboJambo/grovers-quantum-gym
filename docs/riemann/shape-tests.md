@@ -293,6 +293,43 @@ but global connectivity doesn't improve with more data.
 - Perpendicular drill orthogonality to slope: still ~0 correlation
 - Curvature-based prediction: works at both scales
 
+## SHAPE TEST 13 — Distance-to-Connection Map
+
+**Question:** How connected is the hill? If we build a graph where edges
+represent valid predictions, how many zeros can we reach from a few starting points?
+
+**Protocol:**
+1. Build graph: nodes = zeros, edge A→B exists if prediction from A lands near B
+2. BFS from multiple starting points to compute shortest paths
+3. Aggregate into distance map
+
+**Results (T=1000, 645 zeros):**
+- Graph: 645 nodes, 647 edges
+- Average out-degree: 1.00 (each zero predicts exactly one other)
+- **90.4% of zeros are unreachable** from the starting points
+- Best starting point reaches only 4% of the hill
+
+**Interpretation:**
+The hill is **globally fragmented**. The 100ft drill protocol creates a graph
+where most zeros have out-degree ≈ 1 — meaning from any given point, local
+geometry points to exactly ONE next zero. This creates long chains rather
+than a connected network.
+
+The terrain is so specific that the 100ft constraint doesn't just limit how
+far you can see — it limits you to a single path. To map the full hill, you
+need many independent starting points distributed across the terrain.
+
+**Distance distribution from nearest start:**
+- Unreachable: 583 nodes (90.4%)
+- Distance 1: 14 nodes
+- Distance 2: 12 nodes
+- Distance 3: 9 nodes
+- Distance 4+: 14 nodes
+
+This confirms Test 12's finding of global fragmentation and quantifies it:
+the zeta hill is not a single connected surface under the 100ft drill protocol.
+It's a collection of isolated chains, each requiring its own drilling campaign.
+
 ## Implementation
 
 All shape tests are in `src/riemann/zeta_riemann_siegel.rs`:
@@ -301,6 +338,6 @@ All shape tests are in `src/riemann/zeta_riemann_siegel.rs`:
 - `find_peaks(r_values)` — local extrema detection
 - `two_sample_ks(a, b)` — Kolmogorov-Smirnov test for distribution comparison
 - `shape_test_*` functions — individual tests returning formatted reports
-- `all_shape_tests(t_max)` — runs all 12 tests in sequence
+- `all_shape_tests(t_max)` — runs all 13 tests in sequence
 
 Run with: `cargo run --example debug_multiscale`

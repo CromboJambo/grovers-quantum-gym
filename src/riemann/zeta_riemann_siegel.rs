@@ -3401,6 +3401,211 @@ pub fn shape_test_connected_walk(t_max: f64) -> String {
     report
 }
 
+
+/// SHAPE TEST 13 — Distance-to-Connection Map
+/// 
+/// Protocol: Build a graph where nodes are zeros and edges represent valid
+/// predictions (from zero A, can we predict zero B using local geometry?).
+/// Then compute shortest paths from multiple starting points to create a
+/// "distance map" of the hill.
+/// 
+/// This reveals the connectivity structure: which regions are easily reachable
+/// via connected walks, and which require many independent starting points.
+pub fn shape_test_distance_map(t_max: f64) -> String {
+    let points = count_trajectory(t_max);
+    if points.len() < 20 { return "Not enough data.\n".to_string(); }
+    
+    let r_values: Vec<f64> = points.iter().map(|&(_, r)| r).collect();
+    let t_values: Vec<f64> = points.iter().map(|&(t, _)| t).collect();
+    let n = r_values.len();
+    
+    let mut report = format!("\nSHAPE TEST 13 — Distance-to-Connection Map\n");
+    report.push_str(&format!("{}\n", "-".repeat(60)));
+    report.push_str("Builds graph: nodes=zeros, edges=valid predictions.\n");
+    report.push_str("Computes shortest paths to map connectivity structure.\n\n");
+    
+    // Compute local gradients and curvatures
+    let mut gradients = Vec::new();
+    let mut curvatures = Vec::new();
+    
+    for i in 0..n {
+        if i == 0 {
+            let grad = (r_values[1] - r_values[0]) / (t_values[1] - t_values[0]);
+            gradients.push(grad);
+            curvatures.push(0.0);
+        } else if i == n - 1 {
+            let grad = (r_values[i] - r_values[i-1]) / (t_values[i] - t_values[i-1]);
+            gradients.push(grad);
+            curvatures.push(0.0);
+        } else {
+            let dt_left = t_values[i] - t_values[i-1];
+            let dt_right = t_values[i+1] - t_values[i];
+            let grad_left = (r_values[i] - r_values[i-1]) / dt_left;
+            let grad_right = (r_values[i+1] - r_values[i]) / dt_right;
+            let grad = (grad_left + grad_right) / 2.0;
+            let curv = (grad_right - grad_left) / ((dt_left + dt_right) / 2.0);
+            gradients.push(grad);
+            curvatures.push(curv);
+        }
+    }
+    
+    // Build adjacency list: from each node, which nodes can we predict?
+    // Edge exists if prediction from i lands within 2 units of some zero j
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut total_edges = 0;
+    
+    for i in 0..n {
+        let f = r_values[i];
+        let df = gradients[i];
+        let d2f = curvatures[i];
+        
+        if df.abs() < 1e-10 { continue; }
+        
+        // Predict next zero using quadratic extrapolation
+        let mut predictions: Vec<f64> = Vec::new();
+        
+        if d2f.abs() > 1e-10 {
+            let a = 0.5 * d2f;
+            let b = df;
+            let c = f;
+            let disc = b*b - 4.0*a*c;
+            if disc >= 0.0 {
+                let sqrt_disc = disc.sqrt();
+                let dt1 = (-b + sqrt_disc) / (2.0 * a);
+                let dt2 = (-b - sqrt_disc) / (2.0 * a);
+                
+                for &dt in &[dt1, dt2] {
+                    let t_pred = t_values[i] + dt;
+                    if t_pred > 0.0 && t_pred < t_max * 1.5 && dt.abs() < 50.0 {
+                        predictions.push(t_pred);
+                    }
+                }
+            }
+        } else {
+            let dt = -f / df;
+            let t_pred = t_values[i] + dt;
+            if dt.abs() < 50.0 && t_pred > 0.0 && t_pred < t_max * 1.5 {
+                predictions.push(t_pred);
+            }
+        }
+        
+        // For each prediction, find which actual zeros it matches
+        for &t_pred in &predictions {
+            for j in 0..n {
+                if i != j && (t_values[j] - t_pred).abs() < 2.0 {
+                    if !adj[i].contains(&j) {
+                        adj[i].push(j);
+                        total_edges += 1;
+                    }
+                    break; // Only match first zero within tolerance
+                }
+            }
+        }
+    }
+    
+    report.push_str(&format!("Graph: {} nodes, {} edges\n", n, total_edges));
+    report.push_str(&format!("Average out-degree: {:.2}\n\n", total_edges as f64 / n as f64));
+    
+    // BFS from multiple starting points to compute distance maps
+    let start_points: Vec<usize> = (0..n).step_by(50).collect();
+    
+    fn bfs_distances(adj: &[Vec<usize>], start: usize, n: usize) -> Vec<Option<usize>> {
+        let mut dist = vec![None; n];
+        dist[start] = Some(0);
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(start);
+        
+        while let Some(u) = queue.pop_front() {
+            let d = dist[u].unwrap();
+            for &v in &adj[u] {
+                if dist[v].is_none() {
+                    dist[v] = Some(d + 1);
+                    queue.push_back(v);
+                }
+            }
+        }
+        
+        dist
+    }
+    
+    // Compute distances from each starting point
+    let mut all_distances: Vec<Vec<Option<usize>>> = Vec::new();
+    for &start in &start_points {
+        let dists = bfs_distances(&adj, start, n);
+        all_distances.push(dists);
+    }
+    
+    // Aggregate: for each node, what's the minimum distance from any starting point?
+    let mut min_dist_from_start: Vec<Option<usize>> = vec![None; n];
+    for dists in &all_distances {
+        for i in 0..n {
+            if let Some(d) = dists[i] {
+                match min_dist_from_start[i] {
+                    None => min_dist_from_start[i] = Some(d),
+                    Some(current) if d < current => min_dist_from_start[i] = Some(d),
+                    _ => {}
+                }
+            }
+        }
+    }
+    
+    // Count reachable nodes from each starting point
+    report.push_str("Reachability from starting points:\n");
+    for (idx, (&start, dists)) in start_points.iter().zip(all_distances.iter()).enumerate() {
+        let reachable = dists.iter().filter(|d| d.is_some()).count();
+        let max_dist = dists.iter().filter_map(|d| *d).max().unwrap_or(0);
+        report.push_str(&format!("  Start {} (T={:.2}): {} reachable, max distance {}\n", 
+            idx + 1, t_values[start], reachable, max_dist));
+    }
+    
+    // Distance distribution across all nodes
+    let mut dist_counts = std::collections::HashMap::new();
+    for &d in &min_dist_from_start {
+        if let Some(dist) = d {
+            *dist_counts.entry(dist).or_insert(0) += 1;
+        }
+    }
+    
+    let unreachable = min_dist_from_start.iter().filter(|d| d.is_none()).count();
+    
+    report.push_str(&format!("\nDistance-to-nearest-start distribution:\n"));
+    report.push_str(&format!("  Unreachable: {} nodes ({:.1}%)\n", 
+        unreachable, unreachable as f64 / n as f64 * 100.0));
+    
+    let mut sorted_dists: Vec<(usize, usize)> = dist_counts.into_iter().collect();
+    sorted_dists.sort_by_key(|&(k, _)| k);
+    for (dist, count) in &sorted_dists {
+        report.push_str(&format!("  Distance {}: {} nodes\n", dist, count));
+    }
+    
+    // Interpretation
+    report.push_str(&format!("\n{}\n", "-".repeat(60)));
+    report.push_str("INTERPRETATION:\n");
+    
+    if unreachable == 0 {
+        report.push_str("→ All zeros are reachable from at least one starting point.\n");
+        report.push_str("  The hill is fully connected via the 100ft drill protocol.\n");
+    } else {
+        report.push_str(&format!("→ {}% of zeros are unreachable from any starting point.\n", 
+            unreachable as f64 / n as f64 * 100.0));
+        report.push_str("  These regions require their own independent starting points\n");
+        report.push_str("  — the hill has disconnected components under this protocol.\n");
+    }
+    
+    if let Some(max_reach) = start_points.iter().zip(all_distances.iter())
+        .map(|(_, dists)| dists.iter().filter(|d| d.is_some()).count())
+        .max() {
+        report.push_str(&format!("→ Best starting point reaches {}% of the hill.\n", 
+            max_reach as f64 / n as f64 * 100.0));
+    }
+    
+    report.push_str("\nThe distance map reveals the \"connectivity landscape\" of the zeta\n");
+    report.push_str("hill: some regions are easily mapped from a few starting points,\n");
+    report.push_str("while others are isolated and require dedicated drilling campaigns.\n");
+    
+    report
+}
+
 pub fn all_shape_tests(t_max: f64) -> String {
     let mut report = format!("\n{}\n", "=".repeat(70));
     report.push_str(&format!("SHAPE TESTING: Geometric structure in zero-count trajectory\n"));
@@ -3421,6 +3626,7 @@ pub fn all_shape_tests(t_max: f64) -> String {
     report.push_str(&shape_test_perpendicular_grade(t_max));
     report.push_str(&shape_test_gradient_zero_finding(t_max));
     report.push_str(&shape_test_connected_walk(t_max));
+    report.push_str(&shape_test_distance_map(t_max));
     
     report.push_str(&format!("\n{}\n", "=".repeat(70)));
     report.push_str("SUMMARY: Which shapes survived?\n");
