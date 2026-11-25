@@ -4738,6 +4738,7 @@ pub fn all_shape_tests(t_max: f64) -> String {
     report.push_str(&shape_test_rich_feature_prediction(t_max));
     report.push_str(&shape_test_geometric_state_learning(t_max));
     report.push_str(&shape_test_zero_terrain_embeddings(t_max));
+    report.push_str(&shape_test_terrain_embedding_prediction(t_max));
     
     report.push_str(&format!("\n{}\n", "=".repeat(70)));
     report.push_str("SUMMARY: Which shapes survived?\n");
@@ -5614,4 +5615,277 @@ fn shape_test_zero_terrain_embeddings(t_max: f64) -> String {
     report.push_str("\n");
     report
 }
+
+/// SHAPE TEST 24 — Terrain Embedding Prediction
+///
+/// Question: Can terrain fingerprints predict where zeros are?
+/// Extract embeddings at many points and see if "zero-like" shapes correlate with actual zeros.
+fn shape_test_terrain_embedding_prediction(t_max: f64) -> String {
+    let trajectory = count_trajectory(t_max);
+    if trajectory.len() < 500 {
+        return "Insufficient data for embedding prediction".to_string();
+    }
+
+    let zeros = find_zeros_rs(10.0, t_max, 0.5);
+    if zeros.len() < 50 {
+        return "Insufficient zeros for embedding prediction".to_string();
+    }
+
+    // Step 1: Extract fingerprints at regular intervals (not just near zeros)
+    struct PointFingerprint {
+        t: f64,
+        r: f64,
+        wh_ratio: f64,
+        curvature: f64,
+        asymmetry: f64,
+        symmetry_score: f64,
+        slope_magnitude: f64,
+    }
+
+    let window_size = 8;
+    let step = 5; // Sample every 5th point to reduce computation
+    let mut all_fingerprints: Vec<PointFingerprint> = Vec::new();
+
+    for i in (0..trajectory.len()).step_by(step) {
+        let start = i.saturating_sub(window_size);
+        let end = (i + window_size + 1).min(trajectory.len());
+        
+        if end - start < 5 || i == 0 {
+            continue;
+        }
+
+        // Compute features for this point
+        let mut max_r = f64::MIN;
+        let mut min_r = f64::MAX;
+        let mut sum_r = 0.0_f64;
+        let mut count = 0;
+        
+        for j in start..end {
+            let r = trajectory[j].1;
+            if r > max_r { max_r = r; }
+            if r < min_r { min_r = r; }
+            sum_r += r;
+            count += 1;
+        }
+        
+        let mean_r = sum_r / count as f64;
+        let local_height = max_r - min_r;
+        let local_width = trajectory[end.saturating_sub(1)].0 - trajectory[start].0;
+        let wh_ratio = if local_height > 0.01 { local_width / local_height } else { 0.0 };
+        
+        // Curvature at center point
+        let mut curvature = 0.0;
+        if i > start && i + 1 < end {
+            let f_prev = trajectory[i-1].1;
+            let f_curr = trajectory[i].1;
+            let f_next = trajectory[i+1].1;
+            let dt = trajectory[i].0 - trajectory[i-1].0;
+            if dt > 0.0 {
+                curvature = (f_next - 2.0*f_curr + f_prev) / (dt * dt);
+            }
+        }
+        
+        // Asymmetry
+        let mid = i;
+        let mut left_sum = 0.0;
+        let mut right_sum = 0.0;
+        for j in start..mid {
+            left_sum += (trajectory[j].1 - mean_r).abs();
+        }
+        for j in (mid+1)..end {
+            right_sum += (trajectory[j].1 - mean_r).abs();
+        }
+        let total = left_sum + right_sum;
+        let asymmetry = if total > 0.0 { (left_sum - right_sum).abs() / total } else { 0.0 };
+        let symmetry_score = 1.0 - asymmetry;
+        
+        // Slope magnitude
+        let mut slope_sum = 0.0;
+        for j in start..(end.saturating_sub(1)) {
+            let dt = trajectory[j+1].0 - trajectory[j].0;
+            if dt > 0.0 {
+                slope_sum += ((trajectory[j+1].1 - trajectory[j].1) / dt).abs();
+            }
+        }
+        let slope_magnitude = if count > 1 { slope_sum / (count as f64 - 1.0) } else { 0.0 };
+        
+        all_fingerprints.push(PointFingerprint {
+            t: trajectory[i].0,
+            r: trajectory[i].1,
+            wh_ratio,
+            curvature,
+            asymmetry,
+            symmetry_score,
+            slope_magnitude,
+        });
+    }
+
+    if all_fingerprints.len() < 50 {
+        return "Insufficient sampled fingerprints".to_string();
+    }
+
+    // Step 2: Label each point — is there a zero within ±3 units?
+    let zero_tolerance = 0.5;
+
+    // Store the label properly
+    struct LabeledFingerprint {
+        t: f64,
+        wh_ratio: f64,
+        curvature: f64,
+        asymmetry: f64,
+        symmetry_score: f64,
+        slope_magnitude: f64,
+        has_zero_nearby: bool,
+    }
+
+    let mut labeled: Vec<LabeledFingerprint> = Vec::new();
+    for fp in &all_fingerprints {
+        let has_zero = zeros.iter().any(|&z| (z - fp.t).abs() < zero_tolerance);
+        labeled.push(LabeledFingerprint {
+            t: fp.t,
+            wh_ratio: fp.wh_ratio,
+            curvature: fp.curvature,
+            asymmetry: fp.asymmetry,
+            symmetry_score: fp.symmetry_score,
+            slope_magnitude: fp.slope_magnitude,
+            has_zero_nearby: has_zero,
+        });
+    }
+
+    let n_total = labeled.len();
+    let n_with_zero = labeled.iter().filter(|l| l.has_zero_nearby).count();
+    let n_without_zero = n_total - n_with_zero;
+
+    if n_with_zero < 10 || n_without_zero < 10 {
+        return "Insufficient positive/negative samples".to_string();
+    }
+
+    // Step 3: Compare feature distributions between zero-nearby and non-zero points
+    let with_zeros: Vec<&LabeledFingerprint> = labeled.iter().filter(|l| l.has_zero_nearby).collect();
+    let without_zeros: Vec<&LabeledFingerprint> = labeled.iter().filter(|l| !l.has_zero_nearby).collect();
+
+    let mean_wh_with = with_zeros.iter().map(|l| l.wh_ratio).sum::<f64>() / with_zeros.len() as f64;
+    let mean_wh_without = without_zeros.iter().map(|l| l.wh_ratio).sum::<f64>() / without_zeros.len() as f64;
+    
+    let mean_curv_with = with_zeros.iter().map(|l| l.curvature.abs()).sum::<f64>() / with_zeros.len() as f64;
+    let mean_curv_without = without_zeros.iter().map(|l| l.curvature.abs()).sum::<f64>() / without_zeros.len() as f64;
+    
+    let mean_asym_with = with_zeros.iter().map(|l| l.asymmetry).sum::<f64>() / with_zeros.len() as f64;
+    let mean_asym_without = without_zeros.iter().map(|l| l.asymmetry).sum::<f64>() / without_zeros.len() as f64;
+    
+    let mean_slope_with = with_zeros.iter().map(|l| l.slope_magnitude).sum::<f64>() / with_zeros.len() as f64;
+    let mean_slope_without = without_zeros.iter().map(|l| l.slope_magnitude).sum::<f64>() / without_zeros.len() as f64;
+
+    // Step 4: Simple prediction — score each point by distance to "zero fingerprint" centroid
+    // Use z-scores for normalization
+    let all_wh: Vec<f64> = labeled.iter().map(|l| l.wh_ratio).collect();
+    let all_curv: Vec<f64> = labeled.iter().map(|l| l.curvature.abs()).collect();
+    let all_asym: Vec<f64> = labeled.iter().map(|l| l.asymmetry).collect();
+    let all_slope: Vec<f64> = labeled.iter().map(|l| l.slope_magnitude).collect();
+
+    let mean_wh_all = all_wh.iter().sum::<f64>() / all_wh.len() as f64;
+    let std_wh_all = (all_wh.iter().map(|x| (x - mean_wh_all).powi(2)).sum::<f64>() / all_wh.len() as f64).sqrt();
+    
+    let mean_curv_all = all_curv.iter().sum::<f64>() / all_curv.len() as f64;
+    let std_curv_all = (all_curv.iter().map(|x| (x - mean_curv_all).powi(2)).sum::<f64>() / all_curv.len() as f64).sqrt();
+
+    // Score: how "zero-like" is each point? (higher = more zero-like)
+    // Use features that differ between with/without zeros
+    let mut scores: Vec<(f64, bool)> = Vec::new(); // (score, actual_label)
+    
+    for l in &labeled {
+        let z_wh = if std_wh_all > 0.0 { (l.wh_ratio - mean_wh_all) / std_wh_all } else { 0.0 };
+        let z_curv = if std_curv_all > 0.0 { (l.curvature.abs() - mean_curv_all) / std_curv_all } else { 0.0 };
+        
+        // Weight based on which features show the biggest difference
+        let weight_wh = (mean_wh_with - mean_wh_without).abs();
+        let weight_curv = (mean_curv_with - mean_curv_without).abs();
+        
+        let total_weight = weight_wh + weight_curv;
+        if total_weight > 0.0 {
+            let score = (z_wh * weight_wh + z_curv * weight_curv) / total_weight;
+            scores.push((score, l.has_zero_nearby));
+        }
+    }
+
+    // Step 5: Evaluate prediction quality using proper AUC (Mann-Whitney U)
+    let mut sorted_scores = scores.clone();
+    sorted_scores.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+    
+    // Count how many positive samples score higher than negative samples
+    let pos_scores: Vec<f64> = scores.iter().filter(|(_, is_pos)| *is_pos).map(|(s, _)| *s).collect();
+    let neg_scores: Vec<f64> = scores.iter().filter(|(_, is_pos)| !*is_pos).map(|(s, _)| *s).collect();
+    
+    let mut concordant = 0.0;
+    for &ps in &pos_scores {
+        for &ns in &neg_scores {
+            if ps > ns {
+                concordant += 1.0;
+            } else if ps == ns {
+                concordant += 0.5;
+            }
+        }
+    }
+    
+    let auc = if !pos_scores.is_empty() && !neg_scores.is_empty() {
+        concordant / (pos_scores.len() as f64 * neg_scores.len() as f64)
+    } else {
+        0.5
+    };
+
+    // Also compute a simpler metric: top-quartile precision
+    let quartile_size = sorted_scores.len() / 4;
+    let top_quartile: Vec<bool> = sorted_scores.iter().take(quartile_size).map(|(_, is_pos)| *is_pos).collect();
+    let top_precision = if !top_quartile.is_empty() {
+        top_quartile.iter().filter(|&&b| b).count() as f64 / top_quartile.len() as f64
+    } else {
+        0.0
+    };
+
+    // Baseline: random precision would be n_with_zero / n_total
+    let baseline_precision = n_with_zero as f64 / n_total as f64;
+
+    // Build report
+    let mut report = String::new();
+    report.push_str("SHAPE TEST 24 — Terrain Embedding Prediction\n");
+    report.push_str(&format!("{} points sampled, {} with zeros nearby (within ±{})\n", 
+        n_total, n_with_zero, zero_tolerance));
+    report.push_str("\n");
+    report.push_str("=== Feature Differences (Zero-nearby vs Others) ===\n");
+    report.push_str(&format!("  W/H ratio:      {:.3} vs {:.3}  (diff={:.3})\n", 
+        mean_wh_with, mean_wh_without, mean_wh_with - mean_wh_without));
+    report.push_str(&format!("  |Curvature|:    {:.4} vs {:.4}  (diff={:.4})\n", 
+        mean_curv_with, mean_curv_without, mean_curv_with - mean_curv_without));
+    report.push_str(&format!("  Asymmetry:      {:.3} vs {:.3}  (diff={:.3})\n", 
+        mean_asym_with, mean_asym_without, mean_asym_with - mean_asym_without));
+    report.push_str(&format!("  Slope magnitude:{:.4} vs {:.4}  (diff={:.4})\n", 
+        mean_slope_with, mean_slope_without, mean_slope_with - mean_slope_without));
+    report.push_str("\n");
+    report.push_str("=== Prediction Quality ===\n");
+    report.push_str(&format!("  AUC score: {:.3} (0.5 = random, 1.0 = perfect)\n", auc));
+    report.push_str(&format!("  Top-quartile precision: {:.3}\n", top_precision));
+    report.push_str(&format!("  Baseline (random) precision: {:.3}\n", baseline_precision));
+    report.push_str("\n");
+    
+    if auc > 0.6 {
+        report.push_str("[v] Terrain embeddings have predictive power for zero locations.\n");
+        report.push_str("  Local geometry contains information about where zeros are likely to be.\n");
+    } else if auc > 0.55 {
+        report.push_str("[~] Weak predictive signal in terrain embeddings.\n");
+        report.push_str("  Some information exists but is not strong enough for reliable prediction.\n");
+    } else {
+        report.push_str("[x] Terrain embeddings do NOT predict zero locations.\n");
+        report.push_str("  Local geometry alone cannot tell us where zeros are.\n");
+    }
+
+    if top_precision > baseline_precision * 1.5 {
+        report.push_str(&format!(
+            "\n[v] Top-scoring points are significantly enriched in zeros ({:.1}x baseline).\n",
+            top_precision / baseline_precision));
+    }
+
+    report.push_str("\n");
+    report
+}
+
 
