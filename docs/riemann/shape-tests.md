@@ -488,6 +488,45 @@ Error growth (step 1 → step 4): 1.40× (sub-linear)
 
 **Significance:** This confirms that the 100ft drill protocol isn't just following noise. The local geometry (peaks, troughs, curvature) genuinely contains information about where future zeros will be. This validates the "connected walks" hypothesis: you can traverse the hill using only local information because the local structure is predictive of the global structure.
 
+## SHAPE TEST 21 — Rich Feature Prediction
+
+**Question:** Does the full 100ft drill protocol (W/H, curvature, slope) predict zero locations better than just average spacing?
+
+**Protocol:**
+- For each trajectory point, compute local features: W/H ratio, curvature, slope
+- Use these to adjust the spacing-based prediction
+- Compare accuracy to Test 20 baseline (average spacing only)
+
+**Results at T=1000 (645 points):**
+```
+Prediction Method          Mean Error    Within ½ Spacing    vs Baseline
+------------------------------------------------------------
+  Average spacing only       0.3362      80.8%              (baseline)
+  + W/H ratio adjustment     0.3345      —                  0.5%
+  + Curvature adjustment     0.3343      —                  0.6%
+  Full rich protocol         0.3353      80.3%              0.3%
+```
+
+**Results at T=5000 (4312 points):**
+```
+Prediction Method          Mean Error    Within ½ Spacing    vs Baseline
+------------------------------------------------------------
+  Average spacing only       0.3515      80.6%              (baseline)
+  + W/H ratio adjustment     0.3704      —                  -5.4%
+  + Curvature adjustment     0.3493      —                  0.6%
+  Full rich protocol         0.3661      77.6%              -4.1%
+```
+
+**Interpretation:**
+- Rich geometric features do **NOT** improve location prediction over average spacing
+- At T=5000, the rich protocol actually performs slightly *worse* (-4.1%)
+- W/H adjustment makes predictions worse at larger scales (-5.4%)
+- Curvature is roughly neutral (+0.6%)
+
+**Significance:** This tells us that geometric features like W/H ratios and curvature are **descriptive, not predictive** of zero locations. They describe the shape of the terrain *around* zeros but don't help predict where the next zero will be. The average spacing already captures the relevant local information for location prediction.
+
+This is consistent with the theoretical understanding that zeta zeros follow a specific statistical distribution (GUE-like), and their positions are determined by deep number-theoretic properties rather than local geometric features. The 100ft drill measures the *consequences* of the zero pattern, not its causes.
+
 ## Multi-Scale Verification (T=1000 vs T=5000 vs T=10000)
 
 All findings from Tests 17-19 hold up across scales, with interesting trends:

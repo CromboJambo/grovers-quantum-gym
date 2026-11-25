@@ -4735,6 +4735,7 @@ pub fn all_shape_tests(t_max: f64) -> String {
     report.push_str(&shape_test_jump_mechanism(t_max));
     report.push_str(&shape_test_coverage_strategy(t_max));
     report.push_str(&shape_test_predictive_power(t_max));
+    report.push_str(&shape_test_rich_feature_prediction(t_max));
     
     report.push_str(&format!("\n{}\n", "=".repeat(70)));
     report.push_str("SUMMARY: Which shapes survived?\n");
@@ -4996,3 +4997,206 @@ Error growth rate (step 1 vs step 4):
 ");
     report
 }
+
+/// SHAPE TEST 21 — Rich Feature Prediction
+///
+/// Question: Does the full 100ft drill protocol (W/H, curvature, slope) predict
+/// better than just average spacing?
+fn shape_test_rich_feature_prediction(t_max: f64) -> String {
+    let trajectory = count_trajectory(t_max);
+    if trajectory.len() < 200 {
+        return "Insufficient data for rich feature prediction".to_string();
+    }
+
+    // Use trajectory points directly (each point is near a zero or extremum)
+    let n = trajectory.len();
+    
+    let mut baseline_errors: Vec<f64> = Vec::new();
+    let mut rich_errors: Vec<f64> = Vec::new();
+    let mut wh_adjusted_errors: Vec<f64> = Vec::new();
+    let mut curvature_adjusted_errors: Vec<f64> = Vec::new();
+
+    for i in 5..n.saturating_sub(10) {
+        let t_current = trajectory[i].0;
+        let r_current = trajectory[i].1;
+        
+        // Window of trajectory points around current position
+        let window_start = i - 5;
+        let window_end = i + 6;
+        
+        if window_end >= n {
+            break;
+        }
+
+        // Compute local average t-spacing between trajectory points
+        let spacings: Vec<f64> = (window_start..window_end.saturating_sub(1))
+            .map(|j| trajectory[j + 1].0 - trajectory[j].0)
+            .filter(|s| *s > 0.0 && *s < 10.0)
+            .collect();
+        
+        if spacings.len() < 3 {
+            continue;
+        }
+        
+        let avg_spacing = spacings.iter().sum::<f64>() / spacings.len() as f64;
+        
+        // Compute local W/H ratio from trajectory in window
+        let mut max_r = 0.0_f64;
+        let mut min_r = 1e10_f64;
+        for j in window_start..window_end {
+            let r = trajectory[j].1;
+            if r > max_r { max_r = r; }
+            if r < min_r { min_r = r; }
+        }
+        let local_height = max_r - min_r;
+        
+        // Width is the t-range of the window
+        let local_width = trajectory[window_end.saturating_sub(1)].0 - trajectory[window_start].0;
+        
+        let wh_ratio = if local_height > 0.01 {
+            local_width / local_height
+        } else {
+            2.0 // neutral default
+        };
+
+        // Compute local curvature (second difference of r)
+        let mut curvature_sum = 0.0_f64;
+        let mut curvature_count = 0;
+        for j in (window_start + 1)..(window_end.saturating_sub(1)) {
+            let d2 = trajectory[j + 1].1 - 2.0 * trajectory[j].1 + trajectory[j - 1].1;
+            curvature_sum += d2.abs();
+            curvature_count += 1;
+        }
+        let local_curvature = if curvature_count > 0 {
+            curvature_sum / curvature_count as f64
+        } else {
+            0.0
+        };
+
+        // Compute local slope
+        let t_start = trajectory[window_start].0;
+        let t_end = trajectory[window_end.saturating_sub(1)].0;
+        let r_start = trajectory[window_start].1;
+        let r_end = trajectory[window_end.saturating_sub(1)].1;
+        let local_slope = if (t_end - t_start).abs() > 0.001 {
+            (r_end - r_start) / (t_end - t_start)
+        } else {
+            0.0
+        };
+
+        // Predict next trajectory point's t-value
+        let baseline_pred = t_current + avg_spacing;
+        
+        // Rich prediction with geometric adjustments
+        let wh_factor = 1.0 - 0.05 * (wh_ratio - 2.0).clamp(-3.0, 3.0);
+        let curvature_factor = 1.0 - 0.02 * local_curvature.clamp(0.0, 5.0);
+        let slope_factor = 1.0 + 0.03 * local_slope.clamp(-3.0, 3.0);
+        
+        let rich_pred = t_current + avg_spacing * wh_factor * curvature_factor * slope_factor;
+        let wh_only_pred = t_current + avg_spacing * wh_factor;
+        let curvature_only_pred = t_current + avg_spacing * curvature_factor;
+
+        // Actual next point
+        let actual_next_t = trajectory[i + 1].0;
+        
+        baseline_errors.push((baseline_pred - actual_next_t).abs());
+        rich_errors.push((rich_pred - actual_next_t).abs());
+        wh_adjusted_errors.push((wh_only_pred - actual_next_t).abs());
+        curvature_adjusted_errors.push((curvature_only_pred - actual_next_t).abs());
+    }
+
+    if baseline_errors.is_empty() {
+        return "No valid predictions could be made".to_string();
+    }
+
+    let mean_spacing = (trajectory[n-1].0 - trajectory[0].0) / (n - 1) as f64;
+    
+    let baseline_mean = baseline_errors.iter().sum::<f64>() / baseline_errors.len() as f64;
+    let rich_mean = rich_errors.iter().sum::<f64>() / rich_errors.len() as f64;
+    let wh_mean = wh_adjusted_errors.iter().sum::<f64>() / wh_adjusted_errors.len() as f64;
+    let curvature_mean = curvature_adjusted_errors.iter().sum::<f64>() / curvature_adjusted_errors.len() as f64;
+
+    let baseline_within_half = baseline_errors.iter().filter(|&&e| e < 0.5 * mean_spacing).count() as f64 / baseline_errors.len() as f64;
+    let rich_within_half = rich_errors.iter().filter(|&&e| e < 0.5 * mean_spacing).count() as f64 / rich_errors.len() as f64;
+
+    let mut report = format!(r#"
+SHAPE TEST 21 — Rich Feature Prediction
+------------------------------------------------------------
+Question: Does the full 100ft drill protocol predict better than average spacing?
+Features used: W/H ratio, local curvature, local slope.
+
+Total trajectory points: {}
+Valid predictions: {}
+Mean t-spacing between points: {:.4} units
+
+Prediction Method          Mean Error    Within ½ Spacing    vs Baseline
+------------------------------------------------------------
+"#, n, baseline_errors.len(), mean_spacing);
+
+    report.push_str(&format!(
+        "  Average spacing only       {:.4}      {:.1}%              (baseline)
+",
+        baseline_mean, baseline_within_half * 100.0
+    ));
+    
+    let wh_improvement = if baseline_mean > 0.0 {
+        (baseline_mean - wh_mean) / baseline_mean * 100.0
+    } else { 0.0 };
+    report.push_str(&format!(
+        "  + W/H ratio adjustment     {:.4}      —                  {:.1}%
+",
+        wh_mean, wh_improvement
+    ));
+    
+    let curv_improvement = if baseline_mean > 0.0 {
+        (baseline_mean - curvature_mean) / baseline_mean * 100.0
+    } else { 0.0 };
+    report.push_str(&format!(
+        "  + Curvature adjustment     {:.4}      —                  {:.1}%
+",
+        curvature_mean, curv_improvement
+    ));
+    
+    let rich_improvement = if baseline_mean > 0.0 {
+        (baseline_mean - rich_mean) / baseline_mean * 100.0
+    } else { 0.0 };
+    report.push_str(&format!(
+        "  Full rich protocol         {:.4}      {:.1}%              {:.1}%
+",
+        rich_mean, rich_within_half * 100.0, rich_improvement
+    ));
+
+    report.push_str(r#"
+------------------------------------------------------------
+INTERPRETATION:
+If rich protocol error < baseline error → geometric features add predictive value.
+If W/H adjustment helps most → peak shape is the key predictor.
+If curvature adjustment helps most → local bending tells us about point density.
+If no improvement → average spacing already captures all available local info.
+"#);
+
+    if rich_mean < baseline_mean * 0.95 {
+        report.push_str("
+✓ Rich protocol PREDICTS BETTER than average spacing alone.
+");
+    } else if rich_mean < baseline_mean * 1.05 {
+        report.push_str("
+≈ Rich protocol is roughly equivalent to average spacing.
+");
+    } else {
+        report.push_str("
+✗ Rich protocol does NOT improve over average spacing.
+");
+    }
+
+    report.push_str(&format!(r#"
+Key insight: If geometric features (W/H, curvature) add predictive power beyond
+simple spacing statistics, it means the 100ft drill is measuring something real
+about the terrain's structure — not just counting oscillations.
+"#));
+
+    report.push_str("
+");
+    report
+}
+
