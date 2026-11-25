@@ -432,6 +432,28 @@ the 645 zeros up to T=1000. That's about 5% of zeros as starting points. The fac
 that 95% and 99% both require 31 starts suggests a few "hard to reach" zeros need
 specific campaigns, but once you have those 31, you're essentially done.
 
+## Multi-Scale Verification (T=1000 vs T=5000 vs T=10000)
+
+All findings from Tests 17-19 hold up across scales, with interesting trends:
+
+| Test | Metric | T=1000 | T=5000 | T=10000 | Trend |
+|------|--------|--------|--------|---------|-------|
+| 17   | 30° tilt advantage | +7.4% | +4.2% | +3.1% | Decreases with scale |
+| 18   | Mean chain (jumps R=5) | ~44 | ~49 | ~50 | Stabilizes at ~50 |
+| 19   | Starts for 95% coverage | 31/645 (4.8%) | 352/4312 (8.2%) | 1055/9524 (11.1%) | Increases slowly |
+
+**Interpretation:**
+- The 30° tilt advantage shrinks at large T — terrain becomes more uniform, 
+  so the fixed optimal angle matters less
+- Mean chain length with jumps stabilizes around 50 — this is a natural limit 
+  based on zero spacing and jump radius
+- Coverage percentage needed grows slowly (~logarithmic) — still a small 
+  fraction of zeros needed as starting points even at T=10000
+
+**Conclusion:** The 30° tilt + jumps (R=5) protocol is robust across scales.
+At T=10000, we need ~11% of zeros as starting points for 95% coverage — 
+practical and scalable.
+
 ## Implementation
 
 All shape tests are in `src/riemann/zeta_riemann_siegel.rs`:
