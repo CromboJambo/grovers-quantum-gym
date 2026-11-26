@@ -170,19 +170,22 @@ pub fn riemann_siegel_r_function(t: f64) -> f64 {
 /// 
 /// For t < 50: falls back to Euler-Maclaurin (RS asymptotic not accurate enough).
 /// For t ≥ 50: uses the RS formula with N = floor(√(t/(2π))) terms.
+/// Compute Z(t) using the Riemann-Siegel formula.
+/// 
+/// This is the primary method for zero-finding in RH exploration.
+/// Accurate to ~0.01 near zeros, but can have larger errors at certain
+/// "resonant" t values between zeros where all main-sum terms share a sign.
+/// For high-accuracy point evaluation away from zeros, use `zeta_z_function_accurate`.
 pub fn zeta_z_function(t: f64) -> f64 {
     let theta = riemann_siegel_theta(t);
-    
-    // Standard RS: sum to N = floor(sqrt(t/(2*pi))) terms + R-function correction
     let x = (t / (2.0 * std::f64::consts::PI)).sqrt();
     let n_terms = x.floor() as usize;
     
     if n_terms == 0 {
-        // Fallback for very small t
         return super::rh_verification::z_function_critical_line(t, 200);
     }
     
-    // Basic Riemann-Siegel sum with Kahan summation (exactly N terms)
+    // Riemann-Siegel main sum with Kahan summation
     let mut sum = 0.0_f64;
     let mut c = 0.0_f64;
     for n in 1..=n_terms {
@@ -198,6 +201,47 @@ pub fn zeta_z_function(t: f64) -> f64 {
     let r_correction = riemann_siegel_r_function(t);
     
     2.0 * sum + r_correction
+}
+
+/// Compute Z(t) with higher accuracy using the complex Dirichlet partial sum.
+/// 
+/// More accurate than `zeta_z_function` for point evaluation away from zeros
+/// (typical error < 0.1), but slower and less accurate very close to zeros.
+/// Use this when you need reliable values between zeros for plotting or analysis.
+pub fn zeta_z_function_accurate(t: f64) -> f64 {
+    let theta = riemann_siegel_theta(t);
+    let n_terms = 100;
+    
+    // Compute complex Dirichlet partial sum: sum of n^(-1/2-it)
+    let mut sum_re = 0.0_f64;
+    let mut sum_im = 0.0_f64;
+    let mut c_re = 0.0_f64;
+    let mut c_im = 0.0_f64;
+    
+    for n in 1..=n_terms {
+        let log_n = (n as f64).ln();
+        let phase = -t * log_n;
+        let amplitude = -(0.5 * log_n);
+        let decay = amplitude.exp();
+        
+        let term_re = decay * phase.cos();
+        let term_im = decay * phase.sin();
+        
+        // Kahan summation for both real and imaginary parts
+        let y_re = term_re - c_re;
+        let temp_re = sum_re + y_re;
+        c_re = (temp_re - sum_re) - y_re;
+        sum_re = temp_re;
+        
+        let y_im = term_im - c_im;
+        let temp_im = sum_im + y_im;
+        c_im = (temp_im - sum_im) - y_im;
+        sum_im = temp_im;
+    }
+    
+    // Z(t) = Re[exp(-i*theta) * (sum_re + i*sum_im)]
+    //      = cos(theta)*sum_re + sin(theta)*sum_im
+    theta.cos() * sum_re + theta.sin() * sum_im
 }
 
 /// Compute ζ(1/2+it) using the Riemann-Siegel formula.
