@@ -53,6 +53,7 @@ that are either interesting or not.
 | Claude Shannon: Information Theory | 1948 | Entropy computation, Huffman coding, compression limits |
 | Lempel-Ziv Compression | 1977 | LZ77/LZ78 dictionary-based compression, offset analysis for period detection |
 | Positional Tracing | 2026 | Third compression level: structural relationships → displacement/references (stores HOW) |
+| Matrix Multiplication Exponent | 1969-2026 | Naive O(n³) vs Strassen O(n^2.807) benchmarks; the ω ≤ 9/4 breakthrough (OpenAI Math Family 107, Lean-verified Nov 2026); theory vs practice gap for LLM inference GEMMs |
 
 
 ## Riemann Hypothesis Station — The Layers
@@ -103,6 +104,7 @@ src/
 ├── problems.rs            # NP-hard problem instances (subset sum, SAT, TSP)
 ├── benchmarks.rs          # Classical vs Grover performance comparison
 ├── lovelace.rs            # Ada Lovelace Station (Bernoulli numbers)
+├── matmul_exponent.rs     # Matrix Multiplication Exponent Station (O(n³) → ω ≤ 9/4)
 ├── euler.rs               # Euler: The Structural Unifier
 ├── turing.rs              # Universal Turing Machine & Halting Problem
 ├── fft.rs                 # Cooley-Tukey FFT
@@ -163,7 +165,7 @@ Each station carries its own version and formalization status (see `StationMeta`
 | `0.1.0` | Key mathematical claims have Lean 4 formalization (losslessness, error bounds) |
 | `1.0.0` | Full theorem coverage for the station's core claims |
 
-**Current status**: 1 of 26 stations formally verified (`positional_tracing` — PositionalCompress + KvCacheCompress theorems). All others are `0.0.1` simulations grounded in established mathematics but without formal proofs in this repository.
+**Current status**: 1 of 27 stations formally verified (`positional_tracing` — PositionalCompress + KvCacheCompress theorems). All others are `0.0.1` simulations grounded in established mathematics but without formal proofs in this repository.
 
 The goal: as Lean formalizations are completed for each station's core claims, that station's version bumps. The code doesn't claim more than it can prove.
 

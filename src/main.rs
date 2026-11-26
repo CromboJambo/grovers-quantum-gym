@@ -193,6 +193,9 @@ fn main() {
     println!();
     shor_grover_exploration::positional_tracing::show_positional_tracing_station();
 
+    println!("\n--- MATRIX MULTIPLICATION EXPONENT STATION ---");
+    shor_grover_exploration::matmul_exponent::show_matmul_station();
+
     println!("\n=== EXPLORATION COMPLETE ===");
 
     // Station version summary
@@ -226,6 +229,7 @@ fn main() {
         (&shor_grover_exploration::yang_mills::STATION),
         (&shor_grover_exploration::relativity::STATION),
         (&shor_grover_exploration::rovelli::STATION),
+        (&shor_grover_exploration::matmul_exponent::STATION),
     ];
     for meta in stations {
         println!("  {}", meta.display());

@@ -42,6 +42,7 @@ pub mod game_theory;
 pub mod godel;
 pub mod kripke_platek;
 pub mod lemper_ziv;
+pub mod matmul_exponent;
 pub mod shannon;
 pub mod grover;
 pub mod lovelace;
