@@ -174,7 +174,38 @@ pub fn show_p_vs_np_station() {
     println!("  - Some problems are inherently hard to solve (but easy to check)");
     println!("  - We must accept approximation algorithms for NP-hard problems\n");
 
-    println!("\n--- RELATED WORK: ALGEBRAIC COMPLEXITY ---\n");
+    println!("\n--- EXPERIMENT 4: THE EXPONENTIAL WALL IS CRACKING (2026) ---");
+    println!("The Exponential Time Hypothesis (ETH) claimed SAT requires 2^Ω(n) time.");
+    println!("This underpinned the 'exponential wall' narrative in complexity theory.\n");
+    println!("OpenAI Math Family 378 (Lean-verified, Oct 2026) DISPROVES ETH:");
+    println!();
+    println!("  Deterministic algorithm counts k-SAT satisfying assignments in time:");
+    println!("    (n+m)^O_k(1) · 2^(n / (log n)^(1/2+o(1)))");
+    println!();
+    println!("  For k=3, n=1000 variables:");
+    println!("    ETH predicted: ~2^1000 ≈ 10^301 operations");
+    
+    // Calculate the actual sub-exponential bound
+    let n: f64 = 1000.0;
+    let log_n = n.ln();
+    let exponent = n / (log_n.sqrt());  // Approximation of n/(log n)^(1/2)
+    let actual_ops_log10 = exponent / 3.32_f64;  // Convert from base 2 to base 10
+    println!("    Actual bound:  ~2^{:.0} ≈ 10^{:.0} operations", exponent, actual_ops_log10);
+    println!();
+    let orders_saved = (301.0_f64 - actual_ops_log10).max(0.0_f64) as u32;
+    println!("  That's 10^{} times FEWER operations than ETH predicted!", orders_saved);
+    println!();
+    println!("WHAT THIS MEANS:");
+    println!("  ✓ SAT is sub-exponential — the 'exponential wall' has a crack");
+    println!("  ✗ Does NOT resolve P vs NP (still super-polynomial time)");
+    println!("  ✗ Cryptographic RSA remains safe (needs factoring, not SAT)");
+    println!("  ✓ Many problems previously assumed exponential may be more tractable");
+    println!();
+    println!("  Paper:   The Exponential Time Hypothesis is False (Oct 25, 2026)");
+    println!("  Formal:  Lean-verified at lean/docs/378.md");
+    println!("  Source:  https://github.com/openai/math\n");
+
+    println!("--- RELATED WORK: ALGEBRAIC COMPLEXITY ---\n");
     println!("VP != VNP over every field (2026): a superpolynomial lower bound for");
     println!("general arithmetic circuits computing the permanent (char != 2) and the");
     println!("unsigned Hamiltonian-cycle polynomial (all fields). Formalized in Lean 4.");

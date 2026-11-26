@@ -54,6 +54,7 @@ that are either interesting or not.
 | Lempel-Ziv Compression | 1977 | LZ77/LZ78 dictionary-based compression, offset analysis for period detection |
 | Positional Tracing | 2026 | Third compression level: structural relationships → displacement/references (stores HOW) |
 | Matrix Multiplication Exponent | 1969-2026 | Naive O(n³) vs Strassen O(n^2.807) benchmarks; the ω ≤ 9/4 breakthrough (OpenAI Math Family 107, Lean-verified Nov 2026); theory vs practice gap for LLM inference GEMMs |
+| Quantum Circuit Complexity | 2026 | Parity NOT in QAC⁰ (Family 274), exact quantum factoring (Family 279), quartic R(f)/Q(f) separation (Family 284); where quantum helps and where it fundamentally cannot |
 
 
 ## Riemann Hypothesis Station — The Layers
@@ -105,6 +106,7 @@ src/
 ├── benchmarks.rs          # Classical vs Grover performance comparison
 ├── lovelace.rs            # Ada Lovelace Station (Bernoulli numbers)
 ├── matmul_exponent.rs     # Matrix Multiplication Exponent Station (O(n³) → ω ≤ 9/4)
+├── quantum_circuit_complexity.rs  # Quantum Circuit Complexity Station (QAC⁰, factoring, query separation)
 ├── euler.rs               # Euler: The Structural Unifier
 ├── turing.rs              # Universal Turing Machine & Halting Problem
 ├── fft.rs                 # Cooley-Tukey FFT
@@ -165,7 +167,7 @@ Each station carries its own version and formalization status (see `StationMeta`
 | `0.1.0` | Key mathematical claims have Lean 4 formalization (losslessness, error bounds) |
 | `1.0.0` | Full theorem coverage for the station's core claims |
 
-**Current status**: 1 of 27 stations formally verified (`positional_tracing` — PositionalCompress + KvCacheCompress theorems). All others are `0.0.1` simulations grounded in established mathematics but without formal proofs in this repository.
+**Current status**: 1 of 28 stations formally verified (`positional_tracing` — PositionalCompress + KvCacheCompress theorems). All others are `0.0.1` simulations grounded in established mathematics but without formal proofs in this repository.
 
 The goal: as Lean formalizations are completed for each station's core claims, that station's version bumps. The code doesn't claim more than it can prove.
 

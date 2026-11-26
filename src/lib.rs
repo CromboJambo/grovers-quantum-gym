@@ -49,6 +49,7 @@ pub mod lovelace;
 pub mod navier_stokes;
 pub mod positional_tracing;
 pub mod p_vs_np;
+pub mod quantum_circuit_complexity;
 pub mod relativity;
 pub mod eth;
 pub mod problems;

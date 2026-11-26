@@ -196,6 +196,9 @@ fn main() {
     println!("\n--- MATRIX MULTIPLICATION EXPONENT STATION ---");
     shor_grover_exploration::matmul_exponent::show_matmul_station();
 
+    println!("\n--- QUANTUM CIRCUIT COMPLEXITY STATION ---");
+    shor_grover_exploration::quantum_circuit_complexity::show_quantum_circuit_complexity_station();
+
     println!("\n=== EXPLORATION COMPLETE ===");
 
     // Station version summary
@@ -230,6 +233,7 @@ fn main() {
         (&shor_grover_exploration::relativity::STATION),
         (&shor_grover_exploration::rovelli::STATION),
         (&shor_grover_exploration::matmul_exponent::STATION),
+        (&shor_grover_exploration::quantum_circuit_complexity::STATION),
     ];
     for meta in stations {
         println!("  {}", meta.display());
