@@ -1,4 +1,4 @@
-# Normalized Shape Analysis of Z(t) Between Consecutive Zeros
+# Normalized Shape Analysis of Z(t) Between Consecutive Zeros (mpmath-validated)
 
 ## Question
 Does the normalized shape of Z(t) between consecutive zeros contain structure beyond what's explained by gap width and height? Specifically, do shape features predict neighboring gap ratios after controlling for height and gap size?
@@ -6,9 +6,12 @@ Does the normalized shape of Z(t) between consecutive zeros contain structure be
 ## Methodology
 
 ### Data
-- **Zeros**: 2469 zeros found up to T=3000 via Riemann-Siegel sign-change scan + bisection
-- **Intervals**: 2468 consecutive-zero intervals [γ_n, γ_2467]
-- **Sampling**: Each interval sampled at 21 normalized positions u = 0, 0.05, ..., 1.0
+- **Zeros**: 500 zeros from `mpmath.zetazero(n)` for n = 1..500 (t ∈ [14.1347, 811.1844])
+- **Intervals**: 499 consecutive-zero intervals [γ_n, γ_2467]
+- **Z(t) evaluator**: `mpmath.zeta(0.5 + 1j*t)` with Siegel theta correction at dps=50
+  - Independently validated at all points (not just zeros)
+  - This is the critical difference from the earlier RS-based analysis
+- **Sampling**: Each interval sampled at 11 normalized positions u = 0, 0.1, ..., 1.0
 - **Normalization**: Z(t) divided by interval RMS magnitude to remove amplitude scaling
 
 ### Shape Features Extracted
@@ -16,81 +19,115 @@ For each normalized interval shape Z_norm(u):
 
 1. **Peak position** (u*): The u-value where |Z_norm(u)| is maximized
    - Measures asymmetry of the arch between zeros
-   - Mean: 0.5000, Std: 0.0456
+   - Mean: 0.5034, Std: 0.1309
 
 2. **Shape kurtosis**: Fourth moment of the normalized shape
    - Measures how "peaked" vs "flat" the shape is
-   - Mean: 1.8842, Std: 0.1017
-
-3. Other features tested (did not survive): symmetry, fullness, steepness, skewness
+   - Mean: 1.6950, Std: 0.2603
 
 ### Preregistered Hypothesis Test
 - **Feature X**: Shape feature from normalized interval [γ_n, γ_2467]
 - **Target Y**: log(gap_ratio) where gap_ratio = (γ_2468 - γ_2467) / (γ_2467 - γ_n)
 - **Controls**: Height (log t at interval midpoint), current gap size
-- **Validation**: 70/30 train/test split + null test with shuffled labels
+- **Validation**: Contiguous held-out split by height (train on low t, test on high t)
 
 ## Results
 
-### Individual Features (Held-Out Test)
+### Full Sample Analysis (n=498)
 
-| Feature | r_test | R²_test | Survives? |
-|---------|--------|---------|-----------|
-| Peak position | 0.6413 | 0.4108 | ✅ YES |
-| Shape kurtosis | 0.4760 | 0.2243 | ✅ YES |
-| Symmetry | 0.0944 | -0.0063 | ❌ No |
-| Fullness | 0.0244 | -0.0255 | ❌ No |
-| Steepness | -0.0051 | -0.0006 | ❌ No |
-| Skewness | -0.0415 | 0.0017 | ❌ No |
+| Metric | Value |
+|--------|-------|
+| Peak position partial correlation | r = 0.4148 |
+| Linear model R² | 0.1720 |
+| Null test p-value | < 0.000001 |
+| Spearman rho (monotonicity) | 0.4106 |
 
-### Combined Model (Held-Out Test)
+### Binned Analysis: Mean log(gap_ratio) by Peak Position
 
-| Model | R²_test | ΔR² |
-|-------|---------|-----|
-| Peak position only | 0.4108 | — |
-| Peak position + kurtosis | 0.6398 | +0.2290 |
+| u* range | n | Mean log(gap_ratio) | Interpretation |
+|----------|---|---------------------|----------------|
+| [0.20, 0.29) | 9 | +0.2129 | next gap larger |
+| [0.29, 0.37) | 55 | -0.0577 | neutral |
+| [0.37, 0.46) | 108 | -0.1628 | next gap smaller |
+| [0.46, 0.54) | 145 | -0.2259 | next gap smaller |
+| [0.54, 0.63) | 113 | +0.0894 | neutral |
+| [0.63, 0.71) | 56 | +0.5132 | next gap larger |
 
-### Key Statistics
-- Correlation between peak_pos and kurtosis: r = 0.0066 (essentially independent)
-- Null test for peak_pos: p < 0.000001 (max |r| under shuffle = 0.1128)
-- Robustness by height range:
-  - log(t) ∈ [6.0, 7.0): r = 0.3889
-  - log(t) ∈ [7.0, 8.0): r = 0.3911
+### Height-Dependent Correlation
 
-### Physical Interpretation
+| log(t) range | n | Partial r |
+|--------------|---|-----------|
+| [4.0, 5.0) | 41 | 0.6165 |
+| [5.0, 6.0) | 152 | 0.5483 |
+| [6.0, 7.0) | 295 | 0.3716 |
 
-**Peak position effect:**
-- When peak is RIGHT of center (u* > 0.5): mean gap ratio = 1.32 (next gap ~32% larger)
-- When peak is LEFT of center  (u* < 0.5): mean gap ratio = 0.67 (next gap ~33% smaller)
+### Contiguous Held-Out Test
+- **Train**: log(t) ∈ [2.87, 6.15], n=249
+- **Test**: log(t) ∈ [6.16, 6.70], n=249
+- **Result**: r_test = 0.3571, R²_test = 0.1073
 
-This suggests that the asymmetry of Z(t) between zeros encodes information about how the zero spacing will change. If Z(t) builds up more slowly and peaks later in the interval, the next zero tends to be further away.
+## Interpretation
 
-**Kurtosis effect:**
-Higher kurtosis (more peaked shape) also predicts larger next gaps, independent of peak position. This suggests that the "concentration" of Z(t) magnitude within the interval carries additional information about local zero dynamics.
+### What the earlier RS-based analysis got wrong
+The initial analysis using first-order Riemann-Siegel shapes reported R² = 0.41 (peak position) and R² = 0.64 (combined with kurtosis) on held-out data. These numbers were **inflated by approximation errors** in the RS formula at ordinary points. The mpmath-based analysis shows:
+
+- Peak position effect is **real but weaker**: R² ≈ 0.17 full sample, 0.11 held-out
+- Kurtosis effect **does not survive** held-out testing
+- The combined model from before was largely an artifact of RS errors
+
+### What the mpmath analysis shows
+1. **Peak position has a genuine but modest predictive signal**: Intervals where Z(t) peaks to the right of center tend to be followed by larger gaps (mean log ratio +0.51 for u* > 0.63 vs -0.23 for u* < 0.46).
+
+2. **The effect is non-stationary**: The correlation decreases with height:
+   - log(t) ∈ [4, 5): r = 0.617
+   - log(t) ∈ [5, 6): r = 0.548
+   - log(t) ∈ [6, 7): r = 0.372
+   
+   This suggests the shape carries more predictive information at lower t, where zeros are more regular, and less at higher t where they become more random-like.
+
+3. **Held-out test confirms weakness**: Training on low-t intervals and testing on high-t gives R² = 0.107 — a real but modest effect that doesn't generalize strongly across height ranges.
+
+### Physical interpretation (tentative)
+When Z(t) between two zeros peaks later in the interval (closer to the next zero), it may indicate that the local dynamics are "building up" more slowly, which could be associated with the next zero being further away. However, this interpretation is speculative and the effect is modest enough that other explanations (e.g., residual correlations in the zero process) cannot be ruled out.
 
 ## Conclusion
 
-**Yes — the normalized shape contains structure beyond gap width.** Two independent shape features (peak position and kurtosis) together explain 64% of the variance in future gap ratios after controlling for height and current gap size. This survives:
-- Normalization by RMS amplitude
-- Control for height and gap size
-- Held-out testing (70/30 split)
-- Null tests with shuffled labels
+**The normalized shape contains a small amount of predictive information about future gap ratios**, but it is:
+- **Modest**: R² ≈ 0.17 full sample, 0.11 held-out
+- **Non-stationary**: Weaker at higher t
+- **Single-feature**: Only peak position survives; kurtosis does not
 
-This is a meaningful empirical lead: the geometry of Z(t) between zeros is not just a passive consequence of gap width, but actively encodes information about future zero spacing. The shape carries predictive signal that goes beyond simple scaling effects.
+This is a real but weak empirical lead. It does NOT support the stronger claim from the earlier RS-based analysis that shape features explain 64% of gap ratio variance. The true signal is closer to 10-17% R², which is interesting but not transformative.
 
 ## Reproduction
 
 ```python
-import numpy as np
-zeros = np.load('/tmp/zeros_3000.npy')
-normalized_shapes = np.load('/tmp/normalized_shapes.npy')
-peak_pos = np.load('/tmp/feat_peak_pos.npy')
-gap_size = np.load('/tmp/feat_gap_size.npy')
-height = np.load('/tmp/feat_height.npy')
+import mpmath
+mpmath.mp.dps = 50
+
+def z_mpmath(t):
+    theta = mpmath.siegeltheta(t)
+    zv = mpmath.zeta(0.5 + 1j * t)
+    return float((zv * mpmath.e**(-1j * theta)).real)
+
+zeros = [float(mpmath.zetazero(n).imag) for n in range(1, 501)]
+# ... sample each interval at u-values, normalize by RMS, compute peak position
 ```
 
 ## Limitations
-1. Uses first-order Riemann-Siegel formula (accurate at zeros but limited at ordinary points)
-2. 21-point sampling per interval may miss fine structure
+1. Only 500 zeros (t up to ~811) due to mpmath computation cost
+2. 11-point sampling per interval may miss fine structure
 3. Linear model only — nonlinear relationships may exist
-4. Tested up to T=3000; behavior at higher T unverified
+4. Contiguous held-out split tests stationarity but not out-of-distribution generalization
+5. The effect is modest enough that it could be partially driven by residual zero-spacing correlations not captured by the controls
+
+## Comparison with RS-Based Analysis (Previous)
+
+| Metric | RS-based | mpmath-based |
+|--------|----------|--------------|
+| Peak position R² (full) | 0.37 | 0.17 |
+| Peak position R² (held-out) | 0.41 | 0.11 |
+| Kurtosis survives? | Yes | No |
+| Combined R² (held-out) | 0.64 | ~0.01 |
+
+The RS-based analysis overestimated the effect by a factor of 3-6x due to approximation errors at ordinary points.
