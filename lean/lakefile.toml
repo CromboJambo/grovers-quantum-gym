@@ -17,3 +17,12 @@ name = "KvCacheCompress"
 
 [[lean_lib]]
 name = "PvsNP"
+
+[[lean_lib]]
+name = "RiemannHypothesis"
+
+[[lean_lib]]
+name = "VPvsVNP"
+
+[[lean_lib]]
+name = "NumberTheoryRSA"

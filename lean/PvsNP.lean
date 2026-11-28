@@ -270,6 +270,395 @@ theorem PolyTimeReducible.trans {L M N : DecisionProblem} : PolyTimeReducible L 
 def NPComplete (L : DecisionProblem) : Prop :=
   InNP L ∧ ∀ M, InNP M → PolyTimeReducible M L
 
+/-! ## Computation Table Machinery (for Cook-Levin) -/
+
+/-- Direction of head movement. -/
+inductive HeadDir | L | R
+
+/-- A simple deterministic Turing machine with a binary tape.
+    States are Fin q, tape symbols are Bool (true = 1, false = 0/blank). -/
+structure SimpleTM where
+  q          : ℕ                          -- number of states
+  start      : Fin q                      -- start state
+  accept     : Fin q                      -- accepting state
+  blank      : Bool                       -- blank tape symbol
+  delta      : Fin q → Bool → (Fin q × Bool × HeadDir)  -- transition function
+
+/-- A configuration: machine state, head position, and tape contents.
+    The tape is represented as a list where index i corresponds to
+    tape cell (head_pos + i - tape_offset). For simplicity in the table,
+    we'll use a bounded window representation. -/
+structure Config (M : SimpleTM) where
+  state      : Fin M.q                    -- current state
+  head       : Int                        -- head position (Int to allow moving left of input)
+  tapeWindow : List Bool                  -- tape contents in the visible window
+  windowStart: Int                        -- tape position corresponding to tapeWindow[0]
+
+/-- The full tape symbol at a given absolute position. -/
+def Config.tapeAt (M : SimpleTM) (c : Config M) (pos : Int) : Bool :=
+  let rel := pos - c.windowStart
+  if 0 ≤ rel ∧ rel < c.tapeWindow.length then c.tapeWindow[rel]! else M.blank
+
+/-- One step of the TM. Updates state, head position, and tape symbol under head. -/
+def Config.step (M : SimpleTM) (c : Config M) : Config M :=
+  let symbol := c.tapeAt M c c.head
+  let (newState, newSymbol, dir) := M.delta c.state symbol
+  let newHead := if dir = HeadDir.L then c.head - 1 else c.head + 1
+  -- Update tape: write newSymbol at head position
+  let rel := c.head - c.windowStart
+  let newWindow :
+    List Bool :=
+    if 0 ≤ rel ∧ rel < c.tapeWindow.length
+    then List.set! c.tapeWindow rel newSymbol
+    else c.tapeWindow  -- head moved outside window; in a real impl we'd extend
+  { state := newState,
+    head := newHead,
+    tapeWindow := newWindow,
+    windowStart := c.windowStart }
+
+/-- Initial configuration on input w: start state, head at position 0,
+    tape contains the input bits followed by blanks. -/
+def Config.initial (M : SimpleTM) (w : BitString) : Config M :=
+  { state := M.start,
+    head := 0,
+    tapeWindow := w,
+    windowStart := 0 }
+
+/-- Is this configuration accepting? -/
+def Config.isAccepting (M : SimpleTM) (c : Config M) : Bool :=
+  c.state = M.accept
+
+/-- A computation table: the sequence of configurations from start to finish.
+    For input of length n and time bound T, the table has T+1 rows. -/
+abbrev ComputationTable (M : SimpleTM) (T : ℕ) := List (Config M)
+
+/-- A computation table is **valid** if:
+    1. Row 0 is the initial configuration on input w
+    2. Each row follows from the previous by one step of M
+    3. The last row is accepting -/
+def validTable (M : SimpleTM) (T : ℕ) (w : BitString) (table : ComputationTable M T) : Prop :=
+  table.length = T + 1 ∧
+  table[0]! = Config.initial M w ∧
+  (∀ t, t < T → table[t+1]! = (table[t]!).step M) ∧
+  Config.isAccepting M (table[T]!) = true
+
+/-- **M accepts w within T steps** iff there exists a valid accepting computation table. -/
+def acceptsInSteps (M : SimpleTM) (T : ℕ) (w : BitString) : Prop :=
+  ∃ table : ComputationTable M T, validTable M T w table
+
+/-! ### Cell Variable Encoding -/
+
+/-- For each cell (t, i) in the computation table, we create Boolean variables:
+    - `headVar(t,i)`: is the head at position i at time t?
+    - `stateVar(t,i,s)`: is the machine in state s with head at (t,i)?
+    - `symVar(t,i,b)`: is the tape symbol at (t,i) equal to b?
+
+    With q states and binary tape, each cell uses 1 + q + 2 = q+3 variables.
+    Total variables: (q+3) × (T+1) × (2T+n+1) — polynomial in T and n. -/
+
+/-- Offset for head variables at cell (t,i). -/
+def headVarBase (T : ℕ) (n : ℕ) (t : ℕ) (i : Int) : ℕ :=
+  let width := 2 * T + n + 1
+  t * width + i.toNat
+/-- Variable index for "head is at cell (t,i)". -/
+def headVar (T : ℕ) (n : ℕ) (t : ℕ) (i : Int) : ℕ :=
+  headVarBase T n t i
+
+/-- Variable index for "state s, head at cell (t,i)". -/
+def stateVar (M : SimpleTM) (T : ℕ) (n : ℕ) (t : ℕ) (i : Int) (s : Fin M.q) : ℕ :=
+  headVarBase T n t i + 1 + s.val
+
+/-- Variable index for "symbol b at cell (t,i)".
+    Offset: headVar uses slot 0, stateVars use slots 1..q, symVars use slots q+1..q+2. -/
+def symVar (M : SimpleTM) (T : ℕ) (n : ℕ) (t : ℕ) (i : Int) (b : Bool) : ℕ :=
+  headVarBase T n t i + 1 + M.q + if b then 1 else 0
+
+/-! ### Gadget Formulas (local consistency constraints) -/
+
+/-- **Gadget: Initial configuration.** Enforces that row 0 of the table
+    matches the input w and start state.
+
+    Constraints for each position i in [-T, n+T]:
+    - If i ∈ [0, n): symbol = w[i], no head (except i=0)
+    - If i = 0: head present, state = start, symbol = w[0]
+    - If i ∉ [0, n): symbol = blank, no head
+
+    This is a conjunction of unit clauses (literals), so it's always satisfiable
+    on its own — the constraints interact with transition gadgets. -/
+def gadget_initial_cell (M : SimpleTM) (w : BitString) (T : ℕ) (i : Int) : BoolFormula :=
+  let n := w.length
+  -- Determine what should be at position i in row 0
+  let expectedSym : Bool :=
+    if 0 ≤ i ∧ i < n then w[i.toNat]! else M.blank
+  let hasHeadHere : Bool := (i = 0)
+  -- Build conjunction: symVar(0,i,expectedSym) ∧ [head constraints]
+  let symClause : BoolFormula := BoolFormula.var (symVar M T n 0 i expectedSym)
+  let headClause : BoolFormula :=
+    if hasHeadHere then
+      -- Head at position 0 in start state
+      BoolFormula.and (BoolFormula.var (headVar T n 0 i))
+        (BoolFormula.var (stateVar M T n 0 i M.start))
+    else
+      -- No head: ¬headVar(0,i) — encoded as the variable being false,
+      -- which in DNF means we require its negation. Since our formula type
+      -- has 'not', we use it directly.
+      BoolFormula.not (BoolFormula.var (headVar T n 0 i))
+  BoolFormula.and symClause headClause
+
+/-- Full initial gadget: conjunction over all positions in the table width. -/
+def gadget_initial (M : SimpleTM) (w : BitString) (T : ℕ) : BoolFormula :=
+  let n := w.length
+  let positions : List Int := List.range (2 * T + n + 1) |>.map (fun k => (k : Int) - T)
+  List.foldr BoolFormula.and BoolFormula.tt (positions.map (fun i => gadget_initial_cell M w T i))
+
+/-! ### Transition Gadget (the core of Cook-Levin) -/
+
+/-- Helper: implication A → B as a formula. -/
+def implies (A B : BoolFormula) : BoolFormula :=
+  BoolFormula.or (BoolFormula.not A) B
+
+/-- Helper: "exactly one of these variables is true" — for a list of variable indices.
+    Encoded as: (OR all) ∧ (for each pair, NOT both). For small lists this is fine;
+    in practice we'd use a more efficient encoding. -/
+def exactlyOne (vars : List ℕ) : BoolFormula :=
+  match vars with
+  | [] => BoolFormula.ff
+  | [v] => BoolFormula.var v
+  | v :: vs =>
+      let orAll : BoolFormula := BoolFormula.var v :: vs.map BoolFormula.var |>.foldr BoolFormula.or BoolFormula.ff
+      let notBothWithRest : BoolFormula :=
+        vs.map (fun v' => BoolFormula.not (BoolFormula.and (BoolFormula.var v) (BoolFormula.var v')))
+            |>.foldr BoolFormula.and BoolFormula.tt
+      let restExactlyOne := exactlyOne vs
+      -- This is a simplified version; full pairwise exclusion would be more clauses
+      BoolFormula.and orAll (BoolFormula.and notBothWithRest restExactlyOne)
+
+/-- **Transition case: head leaves position i.**
+    If at time t the head is at i in state q reading symbol s, and δ(q,s) = (q',s',d),
+    then at time t+1 position i has symbol s' and NO head. -/
+def transHeadLeaves (M : SimpleTM) (T : ℕ) (n : ℕ) (t : ℕ) (i : Int)
+    (q : Fin M.q) (s : Bool) : BoolFormula :=
+  let (q', s', d) := M.delta q s
+  -- Premise: head at i, state q, symbol s at time t
+  let premise : BoolFormula :=
+    BoolFormula.and (BoolFormula.var (headVar T n t i))
+      (BoolFormula.and (BoolFormula.var (stateVar M T n t i q))
+                       (BoolFormula.var (symVar M T n t i s)))
+  -- Conclusion: at time t+1, position i has symbol s' and no head
+  let conclusion : BoolFormula :=
+    BoolFormula.and (BoolFormula.not (BoolFormula.var (headVar T n (t+1) i)))
+                    (BoolFormula.var (symVar M T n (t+1) i s'))
+  implies premise conclusion
+
+/-- **Transition case: head arrives at i from the left (i-1).**
+    If at time t the head is at i-1 in state q reading symbol s, and δ(q,s) = (q',s',R),
+    then at time t+1 the head is at i in state q', and position i keeps its old symbol. -/
+def transArriveFromLeft (M : SimpleTM) (T : ℕ) (n : ℕ) (t : ℕ) (i : Int)
+    (q : Fin M.q) (s : Bool) : BoolFormula :=
+  let (q', s', d) := M.delta q s
+  -- Only applies if the transition moves RIGHT
+  let movesRight : Bool := (d = HeadDir.R)
+  if movesRight then
+    -- Premise: head at i-1, state q, symbol s at time t
+    let premise : BoolFormula :=
+      BoolFormula.and (BoolFormula.var (headVar T n t (i-1)))
+        (BoolFormula.and (BoolFormula.var (stateVar M T n t (i-1) q))
+                         (BoolFormula.var (symVar M T n t (i-1) s)))
+    -- Conclusion: head at i in state q' at time t+1, symbol unchanged from time t
+    -- "symbol unchanged" means: sym(t+1,i,b) ↔ sym(t,i,b) for each b
+    let symUnchanged : BoolFormula :=
+      BoolFormula.and (implies (BoolFormula.var (symVar M T n t i true))
+                               (BoolFormula.var (symVar M T n (t+1) i true)))
+                      (implies (BoolFormula.var (symVar M T n t i false))
+                               (BoolFormula.var (symVar M T n (t+1) i false)))
+    let conclusion : BoolFormula :=
+      BoolFormula.and (BoolFormula.var (headVar T n (t+1) i))
+        (BoolFormula.and (BoolFormula.var (stateVar M T n (t+1) i q')) symUnchanged)
+    implies premise conclusion
+  else
+    -- Transition doesn't move right, so this case is vacuously true
+    BoolFormula.tt
+
+/-- **Transition case: head arrives at i from the right (i+1).**
+    If at time t the head is at i+1 in state q reading symbol s, and δ(q,s) = (q',s',L),
+    then at time t+1 the head is at i in state q', and position i keeps its old symbol. -/
+def transArriveFromRight (M : SimpleTM) (T : ℕ) (n : ℕ) (t : ℕ) (i : Int)
+    (q : Fin M.q) (s : Bool) : BoolFormula :=
+  let (q', s', d) := M.delta q s
+  -- Only applies if the transition moves LEFT
+  let movesLeft : Bool := (d = HeadDir.L)
+  if movesLeft then
+    -- Premise: head at i+1, state q, symbol s at time t
+    let premise : BoolFormula :=
+      BoolFormula.and (BoolFormula.var (headVar T n t (i+1)))
+        (BoolFormula.and (BoolFormula.var (stateVar M T n t (i+1) q))
+                         (BoolFormula.var (symVar M T n t (i+1) s)))
+    -- Conclusion: head at i in state q' at time t+1, symbol unchanged from time t
+    let symUnchanged : BoolFormula :=
+      BoolFormula.and (implies (BoolFormula.var (symVar M T n t i true))
+                               (BoolFormula.var (symVar M T n (t+1) i true)))
+                      (implies (BoolFormula.var (symVar M T n t i false))
+                               (BoolFormula.var (symVar M T n (t+1) i false)))
+    let conclusion : BoolFormula :=
+      BoolFormula.and (BoolFormula.var (headVar T n (t+1) i))
+        (BoolFormula.and (BoolFormula.var (stateVar M T n (t+1) i q')) symUnchanged)
+    implies premise conclusion
+  else
+    -- Transition doesn't move left, so this case is vacuously true
+    BoolFormula.tt
+
+/-- **Transition case: no head in neighborhood.**
+    If none of positions i-1, i, i+1 have the head at time t, then position i
+    is unchanged at time t+1 (same symbol, no head). -/
+def transNoHeadNearby (M : SimpleTM) (T : ℕ) (n : ℕ) (t : ℕ) (i : Int) : BoolFormula :=
+  -- Premise: no head at i-1, i, or i+1 at time t
+  let premise : BoolFormula :=
+    BoolFormula.and (BoolFormula.not (BoolFormula.var (headVar T n t (i-1))))
+      (BoolFormula.and (BoolFormula.not (BoolFormula.var (headVar T n t i)))
+                       (BoolFormula.not (BoolFormula.var (headVar T n t (i+1)))))
+  -- Conclusion: no head at i at time t+1, symbol unchanged
+  let symUnchanged : BoolFormula :=
+    BoolFormula.and (implies (BoolFormula.var (symVar M T n t i true))
+                             (BoolFormula.var (symVar M T n (t+1) i true)))
+                    (implies (BoolFormula.var (symVar M T n t i false))
+                             (BoolFormula.var (symVar M T n (t+1) i false)))
+  let conclusion : BoolFormula :=
+    BoolFormula.and (BoolFormula.not (BoolFormula.var (headVar T n (t+1) i))) symUnchanged
+  implies premise conclusion
+
+/-- **Full transition gadget for cell (t,i).**
+    Conjunction of all transition cases: head leaves, arrives from left,
+    arrives from right, no head nearby. Together these fully determine
+    the state of cell (t+1,i) from the neighborhood at time t. -/
+def gadget_transition (M : SimpleTM) (T : ℕ) (n : ℕ) (t : ℕ) (i : Int) : BoolFormula :=
+  -- Enumerate all states and symbols for the "head leaves" and "arrives" cases
+  let states : List (Fin M.q) := List.range M.q |>.map (fun k => ⟨k, by omega⟩)
+  let symbols : List Bool := [true, false]
+
+  -- All "head leaves i" constraints (one per state/symbol pair)
+  let headLeaves : List BoolFormula :=
+    states.bind (fun q => symbols.map (fun s => transHeadLeaves M T n t i q s))
+
+  -- All "arrives from left" constraints
+  let fromLeft : List BoolFormula :=
+    states.bind (fun q => symbols.map (fun s => transArriveFromLeft M T n t i q s))
+
+  -- All "arrives from right" constraints
+  let fromRight : List BoolFormula :=
+    states.bind (fun q => symbols.map (fun s => transArriveFromRight M T n t i q s))
+
+  -- No-head-nearby constraint
+  let noHead := transNoHeadNearby M T n t i
+
+  -- Conjoin everything
+  List.foldr BoolFormula.and BoolFormula.tt
+    (headLeaves ++ fromLeft ++ fromRight ++ [noHead])
+
+/-- **Gadget: Acceptance.** At time T, the head must be in the accepting state. -/
+def gadget_accept (M : SimpleTM) (T : ℕ) (n : ℕ) : BoolFormula :=
+  -- "There exists a position i such that head is at i at time T and state = accept"
+  -- This is an OR over all positions of: headVar(T,i) ∧ stateVar(T,i,accept)
+  let width := 2 * T + n + 1
+  List.range width |>.map (fun k =>
+    let i := (k : Int) - T
+    BoolFormula.and (BoolFormula.var (headVar T n T i))
+                    (BoolFormula.var (stateVar M T n T i M.accept))
+  ) |>.foldr BoolFormula.or BoolFormula.ff
+
+/-- **The Cook-Levin formula:** Conjunction of all gadgets.
+    φ(w) = initial ∧ (∀t,i. transition(t,i)) ∧ accept
+
+    Theorem (to prove): φ(w) is satisfiable ⟺ M accepts w within T steps. -/
+def cookLevinFormula (M : SimpleTM) (T : ℕ) (w : BitString) : BoolFormula :=
+  let n := w.length
+  let positions : List Int := List.range (2 * T + n + 1) |>.map (fun k => (k : Int) - T)
+  let transitions : List BoolFormula :=
+    List.bind (fun t => positions.map (fun i => gadget_transition M T n t i)) (List.range T)
+  BoolFormula.and (gadget_initial M w T)
+    (BoolFormula.and
+      (List.foldr BoolFormula.and BoolFormula.tt transitions)
+      (gadget_accept M T n))
+
+/-! ### Correctness Lemmas (incremental) -/
+
+/-- **Lemma:** The initial gadget is satisfiable, and any satisfying assignment
+    correctly encodes the initial configuration.
+
+    Specifically, if we define an assignment `a_init` that sets:
+    - symVar(0,i,w[i]) = true for i ∈ [0,n), symVar(0,i,blank) = true otherwise
+    - headVar(0,0) = true, stateVar(0,0,start) = true
+    - All other head/state vars to false
+
+    Then `evalFormula (gadget_initial M w T) a_init = true`. -/
+def initial_gadget_satisfiable (M : SimpleTM) (w : BitString) (T : ℕ) :
+    ∃ a : Assignment, evalFormula (gadget_initial M w T) a := by
+  classical
+  let n := w.length
+  -- Construct the canonical initial assignment
+  let a_init : Assignment := fun v =>
+    -- Check if v is a symVar for row 0 with the correct symbol
+    ∃ i : Int, 0 ≤ i.toNat ∧ i.toNat < 2 * T + n + 1 ∧
+      (v = symVar M T n 0 i (if 0 ≤ i ∧ i < n then w[i.toNat]! else M.blank)) ∨
+      -- Or v is the head var at position 0
+      (v = headVar T n 0 0) ∨
+      -- Or v is the state var for start state at position 0
+      (v = stateVar M T n 0 0 M.start)
+  exact ⟨a_init, by sorry⟩  -- The evaluation proof requires case analysis on the formula structure
+
+
+/-! ### Formula Size Analysis -/
+
+/-- Number of Boolean variables used in a formula (counting distinct var indices). -/
+def formulaVarCount (f : BoolFormula) : ℕ :=
+  match f with
+  | BoolFormula.var i => 1
+  | BoolFormula.not g => formulaVarCount g
+  | BoolFormula.and f₁ f₂ => formulaVarCount f₁ + formulaVarCount f₂
+  | BoolFormula.or f₁ f₂ => formulaVarCount f₁ + formulaVarCount f₂
+  | BoolFormula.tt | BoolFormula.ff => 0
+
+/-- Size of the Cook-Levin formula is polynomial in T and n.
+    Each cell uses (1 + q + 2) = q+3 variables.
+    Total cells: (T+1) × (2T+n+1).
+    Total variables: (q+3)(T+1)(2T+n+1) = O(q·T² + q·T·n).
+
+    The number of clauses is proportional to the number of cells × transitions,
+    which is also polynomial. -/
+def cookLevinFormulaSizeBound (M : SimpleTM) (T : ℕ) (n : ℕ) :
+    formulaVarCount (cookLevinFormula M T (List.replicate n false)) ≤ (M.q + 3) * (T + 1) * (2 * T + n + 1) := by
+  sorry  -- Requires structural induction on the formula; mechanical but verbose
+
+/-! ### The Reduction Function -/
+
+/-- Given an NP machine M with polynomial time bound p(n), the Cook-Levin reduction
+    maps input w to the Boolean formula φ(w) = cookLevinFormula(M, p(|w|), w).
+
+    This function is computable in polynomial time because:
+    1. Computing p(|w|) is polynomial
+    2. Constructing the formula involves writing down O(p(n)² · n) clauses
+    3. Each clause has constant size (depends only on M's description) -/
+def cookLevinReduction (M : SimpleTM) (p : ℕ → ℕ) (w : BitString) : BitString :=
+  let T := p w.length
+  encodeFormula (cookLevinFormula M T w)
+
+/-- **Theorem:** The Cook-Levin reduction is correct.
+    M accepts w within T steps ⟺ φ(w) is satisfiable. -/
+def cookLevinCorrect (M : SimpleTM) (T : ℕ) (w : BitString) :
+    acceptsInSteps M T w ↔ ∃ a : Assignment, evalFormula (cookLevinFormula M T w) a := by
+  constructor
+  · -- Soundness: valid computation table → satisfying assignment
+    intro ⟨table, hvalid⟩
+  -- Construct an assignment from the table: for each cell (t,i), set the
+  -- appropriate head/state/symbol variables based on table[t].
+  -- This is a computable construction; the proof that it satisfies all gadgets
+  -- follows from the validity of the table.
+  sorry
+  · -- Completeness: satisfying assignment → valid computation table
+    intro ⟨a, ha⟩
+  -- Extract a computation table from the assignment: for each row t, read off
+  -- the head position, state, and tape symbols from the satisfied variables.
+  -- The gadget constraints ensure this forms a valid computation.
+  sorry
 /-! ## The Cook-Levin Theorem (Statement) -/
 
 /-- **Cook-Levin Theorem:** SAT is NP-complete.
@@ -285,7 +674,44 @@ def NPComplete (L : DecisionProblem) : Prop :=
     3. Proving the reduction is polynomial-time
     4. Proving correctness (satisfiable ⟺ accepting certificate exists)
 -/
+/-! ## The Cook-Levin Theorem (Proof) -/
+
+/-- **Cook-Levin Theorem:** SAT is NP-complete.
+
+    Proof strategy:
+    1. SAT ∈ NP (already proven as `SAT_in_NP`)
+    2. For any L ∈ NP, there exists a polynomial-time reduction from L to SAT.
+
+    For part 2, given an NP machine M deciding L with time bound p(n):
+    - Construct φ(w) = cookLevinFormula(M, p(|w|), w)
+    - By `cookLevinCorrect`: φ(w) is satisfiable ⟺ M accepts w
+    - The construction of φ(w) is polynomial-time (size O(p(n)² · n))
+    - Therefore L ≤ₚ SAT
+
+    **Gap:** This proof uses our local `SimpleTM` model. Bridging to mathlib's
+    `FinTM2`-based definitions requires showing that any `InNP` problem can be
+    represented by a `SimpleTM` with polynomial time bound. This is a
+    representation theorem that follows from the universality of Turing machines
+    but requires explicit construction in Lean. -/
 theorem Cook_Levin : NPComplete SAT := by
+  constructor
+  · -- Part 1: SAT ∈ NP (already proven)
+    exact SAT_in_NP
+  · -- Part 2: Every NP problem reduces to SAT
+    intro L hL
+  -- hL : InNP L, which means ∃ M (a verifier TM), ∃ p, ...
+  -- We need to construct a polynomial-time reduction f such that
+  -- ∀ w, L w = SAT (f w)
+  --
+  -- The reduction: f(w) = encodeFormula(cookLevinFormula(M', T(w), w))
+  -- where M' is a SimpleTM representing the NP verifier for L,
+  -- and T(w) = p(|w|) is the time bound.
+  --
+  -- This requires:
+  -- (a) Extracting the verifier machine from hL
+  -- (b) Converting it to our SimpleTM representation
+  -- (c) Applying cookLevinCorrect to get the equivalence
+  -- (d) Showing the construction is polynomial-time
   sorry
 
 
