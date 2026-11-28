@@ -1288,11 +1288,24 @@ def cookLevinCorrect (M : SimpleTM) (T : ℕ) (w : BitString) :
     intro ⟨table, hvalid⟩
     let n := w.length
     let a := tableAssignment M T n table
-    -- Need to show evalFormula (cookLevinFormula M T w) a = true
-    -- cookLevinFormula = initial ∧ transitions ∧ accept
-    -- We have lemmas for each part (currently sorry, but the structure is clear)
     refine ⟨a, ?_⟩
-    sorry
+    dsimp [cookLevinFormula] at *
+    simp [evalFormula, BoolFormula.and]
+    constructor
+    · -- Initial gadget satisfied
+      exact tableAssignment_satisfies_initial M w T table hvalid
+    · constructor
+      · -- All transition gadgets satisfied
+        apply evalFoldrAnd_true
+        intro x hx
+        -- x is a gadget_transition M T n t i for some t < T and i in positions
+        rcases List.mem_bind.mp hx with ⟨t, ht, i, hi, rfl⟩
+        rcases List.mem_range.mp ht with ⟨_, hlt⟩
+        apply tableAssignment_satisfies_transition M T n t i table
+        intro ht'
+        exact hvalid.2 ht' (by omega)
+      · -- Accept gadget satisfied
+        exact tableAssignment_satisfies_accept M T n table hvalid
   · -- Completeness: satisfying assignment → valid table
     intro ⟨a, ha⟩
     -- Extract a table from the assignment:
