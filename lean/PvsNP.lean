@@ -1439,6 +1439,283 @@ def satAssign_row0_headAtZero (M : SimpleTM) (T : ℕ) (w : BitString) (a : Assi
     · exfalso; omega
 
 
+
+/-- **Lemma:** Under a satisfying assignment, if there's a head at position i in row t,
+    then there exist unique state s and symbol b such that stateVar(t,i,s) and symVar(t,i,b) are true. -/
+def satAssign_headHasStateAndSymbol (M : SimpleTM) (T : ℕ) (w : BitString) (a : Assignment)
+    (ha : evalFormula (cookLevinFormula M T w) a)
+    (t : Fin (T + 1)) (i : Int) (hi_bounds : -T ≤ i ∧ i ≤ (w.length : ℤ) + T)
+    (hhead : evalFormula (BoolFormula.var (headVar M T n t.val i)) a) :
+    ∃! (sb : Fin M.q × Bool), 
+      evalFormula (BoolFormula.var (stateVar M T n t.val i sb.1)) a ∧
+      evalFormula (BoolFormula.var (symVar M T n t.val i sb.2)) a := by
+  let n := w.length
+  -- Existence: some state and symbol are true at this cell
+  have hexists : ∃ s : Fin M.q, ∃ b : Bool, 
+      evalFormula (BoolFormula.var (stateVar M T n t.val i s)) a ∧
+      evalFormula (BoolFormula.var (symVar M T n t.val i b)) a := by
+    cases t with
+    | zero =>
+      -- Row 0: head at 0, state = start
+      have hi_eq_zero : i = 0 := by
+        exact satAssign_row0_headAtZero M T w a ha Fin.zero i hhead hi_bounds
+      rw [hi_eq_zero]
+      use M.start
+      -- Symbol at position 0: from initial tape
+      dsimp [cookLevinFormula] at ha
+      simp [evalFormula, BoolFormula.and] at ha
+      have hinit : evalFormula (gadget_initial M w T) a := by aesop
+      dsimp [gadget_initial] at hinit
+      apply evalFoldrAnd_true.mp hinit
+      use T  -- position 0 is at index T in list [-T, ..., n+T]
+      constructor
+      · simp [List.mem_range]; omega
+      · dsimp [gadget_initial_cell]
+        split_ifs <;> simp_all [evalFormula, BoolFormula.and, BoolFormula.not]
+        <;> aesop
+    | succ t' =>
+      -- Later rows: head arrived via transition from row t'
+      -- By contrapositive of transNoHeadNearby, there was a head at (t', i-1), (t', i), or (t', i+1)
+      have hnear : evalFormula (BoolFormula.var (headVar M T n t'.val (i - 1))) a ∨
+                   evalFormula (BoolFormula.var (headVar M T n t'.val i)) a ∨
+                   evalFormula (BoolFormula.var (headVar M T n t'.val (i + 1))) a := by
+        dsimp [cookLevinFormula] at ha
+        simp [evalFormula, BoolFormula.and] at ha
+        have htrans_all : evalFormula (List.foldr BoolFormula.and BoolFormula.tt
+            (List.bind (fun t => (List.range (2 * T + n + 1) |>.map (fun k => (k : Int) - T)).map
+              (fun i => gadget_transition M T n t i)) (List.range T))) a := by aesop
+        have hgadget_i : evalFormula (gadget_transition M T n t'.val i) a := by
+          apply evalFoldrAnd_true.mp htrans_all
+          use ⟨t'.val, by omega⟩, i
+          constructor · simp [List.mem_range]; omega · aesop
+        dsimp [gadget_transition] at hgadget_i
+        simp [evalFormula, BoolFormula.and] at hgadget_i
+        have hnohead : ¬(¬evalFormula (BoolFormula.var (headVar M T n t'.val (i - 1))) a ∧
+                         ¬evalFormula (BoolFormula.var (headVar M T n t'.val i)) a ∧
+                         ¬evalFormula (BoolFormula.var (headVar M T n t'.val (i + 1))) a) := by
+          simp [transNoHeadNearby, BoolFormula.not, BoolFormula.and, evalImplies_true] at hgadget_i ⊢
+          aesop
+        push_neg at hnohead
+        rcases hnohead with ⟨h, _, _⟩ | ⟨_, h, _⟩ | ⟨_, _, h⟩ <;>
+          (try exact Or.inl h) <;> (try exact Or.inr (Or.inl h)) <;> (try exact Or.inr (Or.inr h))
+
+      -- Case analysis on where the head came from
+      rcases hnear with h_left | h_same | h_right
+      · -- Head was at (t', i-1), moved R to reach i
+        have hsbi : ∃! (sb : Fin M.q × Bool),
+            evalFormula (BoolFormula.var (stateVar M T n t'.val (i - 1) sb.1)) a ∧
+            evalFormula (BoolFormula.var (symVar M T n t'.val (i - 1) sb.2)) a := by
+          exact satAssign_headHasStateAndSymbol M T w a ha ⟨t'.val, by omega⟩ (i - 1)
+            ⟨by omega, by omega⟩ h_left
+        let sb := Classical.choose hsbi
+        let s := sb.1
+        let b := sb.2
+        have hs_prev : evalFormula (BoolFormula.var (stateVar M T n t'.val (i - 1) s)) a :=
+          (Classical.choose_spec hsbi ⟨s, b⟩).1
+        have hb_prev : evalFormula (BoolFormula.var (symVar M T n t'.val (i - 1) b)) a :=
+          (Classical.choose_spec hsbi ⟨s, b⟩).2
+
+        -- The arrival gadget transArriveFromLeft(t', i, s, b) must fire
+        -- Its conclusion includes stateVar(t'+1, i, q') where q' = δ(s,b).1
+        let trans := M.delta s b
+        let s_new := trans.1
+        -- Prove state at new position
+        have hstate_new : evalFormula (BoolFormula.var (stateVar M T n (t'.val + 1) i s_new)) a := by
+          dsimp [cookLevinFormula] at ha
+          simp [evalFormula, BoolFormula.and] at ha
+          have htrans_all : evalFormula (List.foldr BoolFormula.and BoolFormula.tt
+              (List.bind (fun t => (List.range (2 * T + n + 1) |>.map (fun k => (k : Int) - T)).map
+                (fun i => gadget_transition M T n t i)) (List.range T))) a := by aesop
+          have hgadget : evalFormula (gadget_transition M T n t'.val i) a := by
+            apply evalFoldrAnd_true.mp htrans_all
+            use ⟨t'.val, by omega⟩, i
+            constructor · simp [List.mem_range]; omega · aesop
+          dsimp [gadget_transition] at hgadget
+          simp [evalFormula, BoolFormula.and] at hgadget
+          -- Extract transArriveFromLeft component
+          have harr : evalFormula (transArriveFromLeft M T n t'.val i s b) a := by aesop
+          dsimp [transArriveFromLeft] at harr
+          split_ifs at harr <;> simp_all [evalImplies_true, BoolFormula.and, BoolFormula.var, evalFormula]
+          · -- movesRight = true case: premise → conclusion
+            have hpremise : evalFormula (BoolFormula.and
+                (BoolFormula.var (headVar M T n t'.val (i-1)))
+                (BoolFormula.and (BoolFormula.var (stateVar M T n t'.val (i-1) s))
+                                 (BoolFormula.var (symVar M T n t'.val (i-1) b)))) a := by
+              dsimp; simp [h_left, hs_prev, hb_prev]
+            -- From implication + true premise, get conclusion
+            have hconcl : evalFormula (BoolFormula.and
+                (BoolFormula.var (headVar M T n (t'.val + 1) i))
+                (BoolFormula.and (BoolFormula.var (stateVar M T n (t'.val + 1) i s_new))
+                                 (BoolFormula.and
+                                   (implies (BoolFormula.var (symVar M T n t'.val i true))
+                                            (BoolFormula.var (symVar M T n (t'.val + 1) i true)))
+                                   (implies (BoolFormula.var (symVar M T n t'.val i false))
+                                            (BoolFormula.var (symVar M T n (t'.val + 1) i false)))))) a := by
+              simp [evalImplies_true] at harr ⊢
+              exact harr hpremise
+            -- Extract state from conclusion
+            dsimp [evalFormula, BoolFormula.and] at hconcl
+            exact hconcl.2.1
+          · exfalso; simp_all  -- movesRight = false is impossible since head arrived from left
+        -- Symbol: use consistency gadget to get symbol at (t', i), then symUnchanged propagates it
+        have hsym_new : ∃ b_new : Bool, evalFormula (BoolFormula.var (symVar M T n (t'.val + 1) i b_new)) a := by
+          -- Symbol consistency guarantees exactly one symbol true at every cell
+          dsimp [cookLevinFormula] at ha
+          simp [evalFormula, BoolFormula.and] at ha
+          have hcons : evalFormula (gadget_consistency M T n) a := by aesop
+          dsimp [gadget_consistency] at hcons
+          apply evalFoldrAnd_true.mp hcons
+          use ⟨⟨t'.val + 1, by omega⟩, by omega⟩, i
+          constructor · simp [List.mem_range]; omega · aesop
+        rcases hsym_new with ⟨b_new, hb_new⟩
+        exact ⟨s_new, b_new⟩
+      · -- Head was at (t', i): impossible since head always moves
+        exfalso
+        -- Get state and symbol at (t', i) from IH
+        have hsbi : ∃! (sb : Fin M.q × Bool),
+            evalFormula (BoolFormula.var (stateVar M T n t'.val i sb.1)) a ∧
+            evalFormula (BoolFormula.var (symVar M T n t'.val i sb.2)) a := by
+          exact satAssign_headHasStateAndSymbol M T w a ha ⟨t'.val, by omega⟩ i
+            ⟨by omega, by omega⟩ h_same
+        let sb := Classical.choose hsbi
+        let s := sb.1
+        let b := sb.2
+        have hs_prev : evalFormula (BoolFormula.var (stateVar M T n t'.val i s)) a :=
+          (Classical.choose_spec hsbi ⟨s, b⟩).1
+        have hb_prev : evalFormula (BoolFormula.var (symVar M T n t'.val i b)) a :=
+          (Classical.choose_spec hsbi ⟨s, b⟩).2
+        -- transHeadLeaves says head leaves position i
+        dsimp [cookLevinFormula] at ha
+        simp [evalFormula, BoolFormula.and] at ha
+        have htrans_all : evalFormula (List.foldr BoolFormula.and BoolFormula.tt
+            (List.bind (fun t => (List.range (2 * T + n + 1) |>.map (fun k => (k : Int) - T)).map
+              (fun i => gadget_transition M T n t i)) (List.range T))) a := by aesop
+        have hgadget_i : evalFormula (gadget_transition M T n t'.val i) a := by
+          apply evalFoldrAnd_true.mp htrans_all
+          use ⟨t'.val, by omega⟩, i
+          constructor · simp [List.mem_range]; omega · aesop
+        dsimp [gadget_transition] at hgadget_i
+        simp [evalFormula, BoolFormula.and] at hgadget_i
+        have hleaves : evalFormula (transHeadLeaves M T n t'.val i s b) a := by aesop
+        dsimp [transHeadLeaves] at hleaves
+        split_ifs at hleaves <;> simp_all [evalImplies_true, BoolFormula.not, BoolFormula.and]
+        · -- Premise true → ¬head(t'+1,i)
+          have hpremise : evalFormula (BoolFormula.and
+              (BoolFormula.and (BoolFormula.var (headVar M T n t'.val i))
+                               (BoolFormula.var (stateVar M T n t'.val i s)))
+              (BoolFormula.var (symVar M T n t'.val i b))) a := by
+            dsimp; simp [h_same, hs_prev, hb_prev]
+          have hnohead_new : ¬evalFormula (BoolFormula.var (headVar M T n (t'.val + 1) i)) a := by
+            simp [evalImplies_true] at hleaves ⊢
+            exact hleaves hpremise
+          exfalso; exact hnohead_new hhead
+        · exfalso; simp_all  -- vacuous case impossible
+      · -- Head was at (t', i+1), moved L to reach i
+        have hsbi : ∃! (sb : Fin M.q × Bool),
+            evalFormula (BoolFormula.var (stateVar M T n t'.val (i + 1) sb.1)) a ∧
+            evalFormula (BoolFormula.var (symVar M T n t'.val (i + 1) sb.2)) a := by
+          exact satAssign_headHasStateAndSymbol M T w a ha ⟨t'.val, by omega⟩ (i + 1)
+            ⟨by omega, by omega⟩ h_right
+        let sb := Classical.choose hsbi
+        let s := sb.1
+        let b := sb.2
+        have hs_prev : evalFormula (BoolFormula.var (stateVar M T n t'.val (i + 1) s)) a :=
+          (Classical.choose_spec hsbi ⟨s, b⟩).1
+        have hb_prev : evalFormula (BoolFormula.var (symVar M T n t'.val (i + 1) b)) a :=
+          (Classical.choose_spec hsbi ⟨s, b⟩).2
+
+        let trans := M.delta s b
+        let s_new := trans.1
+        have hstate_new : evalFormula (BoolFormula.var (stateVar M T n (t'.val + 1) i s_new)) a := by
+          dsimp [cookLevinFormula] at ha
+          simp [evalFormula, BoolFormula.and] at ha
+          have htrans_all : evalFormula (List.foldr BoolFormula.and BoolFormula.tt
+              (List.bind (fun t => (List.range (2 * T + n + 1) |>.map (fun k => (k : Int) - T)).map
+                (fun i => gadget_transition M T n t i)) (List.range T))) a := by aesop
+          have hgadget : evalFormula (gadget_transition M T n t'.val i) a := by
+            apply evalFoldrAnd_true.mp htrans_all
+            use ⟨t'.val, by omega⟩, i
+            constructor · simp [List.mem_range]; omega · aesop
+          dsimp [gadget_transition] at hgadget
+          simp [evalFormula, BoolFormula.and] at hgadget
+          have harr : evalFormula (transArriveFromRight M T n t'.val i s b) a := by aesop
+          dsimp [transArriveFromRight] at harr
+          split_ifs at harr <;> simp_all [evalImplies_true, BoolFormula.and, BoolFormula.var, evalFormula]
+          · have hpremise : evalFormula (BoolFormula.and
+                (BoolFormula.var (headVar M T n t'.val (i+1)))
+                (BoolFormula.and (BoolFormula.var (stateVar M T n t'.val (i+1) s))
+                                 (BoolFormula.var (symVar M T n t'.val (i+1) b)))) a := by
+              dsimp; simp [h_right, hs_prev, hb_prev]
+            have hconcl : evalFormula (BoolFormula.and
+                (BoolFormula.var (headVar M T n (t'.val + 1) i))
+                (BoolFormula.and (BoolFormula.var (stateVar M T n (t'.val + 1) i s_new))
+                                 (BoolFormula.and
+                                   (implies (BoolFormula.var (symVar M T n t'.val i true))
+                                            (BoolFormula.var (symVar M T n (t'.val + 1) i true)))
+                                   (implies (BoolFormula.var (symVar M T n t'.val i false))
+                                            (BoolFormula.var (symVar M T n (t'.val + 1) i false)))))) a := by
+              simp [evalImplies_true] at harr ⊢
+              exact harr hpremise
+            dsimp [evalFormula, BoolFormula.and] at hconcl
+            exact hconcl.2.1
+          · exfalso; simp_all
+        have hsym_new : ∃ b_new : Bool, evalFormula (BoolFormula.var (symVar M T n (t'.val + 1) i b_new)) a := by
+          dsimp [cookLevinFormula] at ha
+          simp [evalFormula, BoolFormula.and] at ha
+          have hcons : evalFormula (gadget_consistency M T n) a := by aesop
+          dsimp [gadget_consistency] at hcons
+          apply evalFoldrAnd_true.mp hcons
+          use ⟨⟨t'.val + 1, by omega⟩, by omega⟩, i
+          constructor · simp [List.mem_range]; omega · aesop
+        rcases hsym_new with ⟨b_new, hb_new⟩
+        exact ⟨s_new, b_new⟩
+  -- Uniqueness: from consistency gadgets
+  rcases hexists with ⟨s0, b0, hs0, hb0⟩
+  refine ⟨(s0, b0), ⟨hs0, hb0⟩, ?_⟩
+  intro sb hsb
+  rcases sb with ⟨s1, b1⟩
+  constructor
+  · -- Same state: from state uniqueness gadget
+    have hatmostOneState : ∀ q1 q2 : Fin M.q, q1 ≠ q2 →
+        ¬(evalFormula (BoolFormula.var (stateVar M T n t.val i q1)) a ∧
+          evalFormula (BoolFormula.var (stateVar M T n t.val i q2)) a) := by
+      dsimp [cookLevinFormula] at ha
+      simp [evalFormula, BoolFormula.and] at ha
+      have hcons : evalFormula (gadget_consistency M T n) a := by aesop
+      dsimp [gadget_consistency] at hcons
+      apply evalFoldrAnd_true.mp hcons
+      use t.val, i
+      constructor
+      · simp [List.mem_range]; omega
+      · intro q1 q2 hneq
+        dsimp [BoolFormula.and] at *
+        simp [evalFormula] at *
+        aesop
+    by_contra hneq
+    push_neg at hneq
+    have hboth := hatmostOneState s0 s1 hneq
+    exact hboth ⟨hs0, hsb.1⟩
+  · -- Same symbol: from symbol consistency gadget
+    have hatmostOneSym : ¬(evalFormula (BoolFormula.var (symVar M T n t.val i true)) a ∧
+                           evalFormula (BoolFormula.var (symVar M T n t.val i false)) a) := by
+      dsimp [cookLevinFormula] at ha
+      simp [evalFormula, BoolFormula.and] at ha
+      have hcons : evalFormula (gadget_consistency M T n) a := by aesop
+      dsimp [gadget_consistency] at hcons
+      apply evalFoldrAnd_true.mp hcons
+      use t.val, i
+      constructor
+      · simp [List.mem_range]; omega
+      · dsimp [BoolFormula.and] at *
+        simp [evalFormula] at *
+        aesop
+    by_contra hneq
+    push_neg at hneq
+    cases b0 <;> cases b1 <;> simp_all
+    · exact hatmostOneSym ⟨hb0, hsb.2⟩
+    · exact hatmostOneSym ⟨hsb.2, hb0⟩
+
+
 /-- **Key Lemma:** Under a satisfying assignment, each row has exactly one head position.
     This is what allows us to extract a valid computation table from the assignment. -/
 def satAssign_uniqueHead (M : SimpleTM) (T : ℕ) (w : BitString) (a : Assignment)
@@ -1491,22 +1768,157 @@ def satAssign_uniqueHead (M : SimpleTM) (T : ℕ) (w : BitString) (a : Assignmen
     | succ t' ih =>
       -- Inductive step: row t'+1 has unique head derived from row t'
       rcases ih with ⟨h, h_exists, h_unique⟩
-      -- h_exists: -T ≤ h ∧ h ≤ n+T ∧ head at h in row t'
       have hh_bounds : -T ≤ h ∧ h ≤ (n : ℤ) + T := h_exists.1
       have hh_head : evalFormula (BoolFormula.var (headVar M T n t'.val h)) a := h_exists.2
-      
-      -- Get the state at h in row t' to determine direction
-      have hstate : ∃ s : Fin M.q, evalFormula (BoolFormula.var (stateVar M T n t'.val h s)) a := by
-        -- From transition gadget: head at h implies some state
-        sorry
-      
-      -- This proof is getting very complex. The full uniqueness proof requires
-      -- detailed case analysis on the transition direction. For now, we establish
-      -- the structure and leave the inductive step as a targeted sorry.
-      sorry
-  
-  exact h_ind t'
 
+      -- Extract unique state and symbol at the head position
+      have hsb : ∃! (sb : Fin M.q × Bool), 
+          evalFormula (BoolFormula.var (stateVar M T n t'.val h sb.1)) a ∧
+          evalFormula (BoolFormula.var (symVar M T n t'.val h sb.2)) a := by
+        exact satAssign_headHasStateAndSymbol M T w a ha ⟨t'.val, by omega⟩ h hh_bounds hh_head
+      let sb := Classical.choose hsb
+      let s := sb.1
+      let b := sb.2
+      have hs : evalFormula (BoolFormula.var (stateVar M T n t'.val h s)) a := (Classical.choose_spec hsb ⟨s, b⟩).1
+      have hb : evalFormula (BoolFormula.var (symVar M T n t'.val h b)) a := (Classical.choose_spec hsb ⟨s, b⟩).2
+
+      -- Look up the transition: δ(s, b) = (s', b', dir)
+      let trans := M.delta s b
+      let s' := trans.1
+      let b' := trans.2.1
+      let dir := trans.2.2
+
+      -- Determine new head position
+      let h_new : Int := if dir = HeadDir.R then h + 1 else h - 1
+
+      -- Prove bounds for new position
+      have hh_new_bounds : -T ≤ h_new ∧ h_new ≤ (n : ℤ) + T := by
+        cases dir with
+        | R => simp [h_new]; constructor <;> omega
+        | L => simp [h_new]; constructor <;> omega
+
+      -- EXISTENCE: Show head at h_new in row t'+1
+      have hhead_new : evalFormula (BoolFormula.var (headVar M T n (t'.val + 1) h_new)) a := by
+        cases dir with
+        | R =>
+          -- Head moves right: transArriveFromLeft(t', h+1, s, b) fires
+          dsimp [cookLevinFormula] at ha
+          simp [evalFormula, BoolFormula.and] at ha
+          have htrans_all : evalFormula (List.foldr BoolFormula.and BoolFormula.tt
+              (List.bind (fun t => (List.range (2 * T + n + 1) |>.map (fun k => (k : Int) - T)).map 
+                (fun i => gadget_transition M T n t i)) (List.range T))) a := by aesop
+          have hgadget : evalFormula (gadget_transition M T n t'.val (h + 1)) a := by
+            apply evalFoldrAnd_true.mp htrans_all
+            use ⟨t'.val, by omega⟩, (h + 1)
+            constructor · simp [List.mem_range]; omega · aesop
+          dsimp [gadget_transition] at hgadget
+          simp [evalFormula, BoolFormula.and] at hgadget
+          have harr : evalFormula (transArriveFromLeft M T n t'.val (h + 1) s b) a := by aesop
+          dsimp [transArriveFromLeft] at harr
+          simp [evalImplies_true, BoolFormula.and] at harr
+          have hpremise : evalFormula (BoolFormula.and 
+              (BoolFormula.and (BoolFormula.var (headVar M T n t'.val h)) 
+                               (BoolFormula.var (stateVar M T n t'.val h s)))
+              (BoolFormula.and (BoolFormula.var (symVar M T n t'.val h b))
+                               (BoolFormula.tt))) a := by
+            dsimp; simp [hs, hb, hh_head]
+          simp at harr ⊢
+          exact harr hpremise
+        | L =>
+          -- Head moves left: transArriveFromRight(t', h-1, s, b) fires
+          dsimp [cookLevinFormula] at ha
+          simp [evalFormula, BoolFormula.and] at ha
+          have htrans_all : evalFormula (List.foldr BoolFormula.and BoolFormula.tt
+              (List.bind (fun t => (List.range (2 * T + n + 1) |>.map (fun k => (k : Int) - T)).map 
+                (fun i => gadget_transition M T n t i)) (List.range T))) a := by aesop
+          have hgadget : evalFormula (gadget_transition M T n t'.val (h - 1)) a := by
+            apply evalFoldrAnd_true.mp htrans_all
+            use ⟨t'.val, by omega⟩, (h - 1)
+            constructor · simp [List.mem_range]; omega · aesop
+          dsimp [gadget_transition] at hgadget
+          simp [evalFormula, BoolFormula.and] at hgadget
+          have harr : evalFormula (transArriveFromRight M T n t'.val (h - 1) s b) a := by aesop
+          dsimp [transArriveFromRight] at harr
+          simp [evalImplies_true, BoolFormula.and] at harr
+          have hpremise : evalFormula (BoolFormula.and 
+              (BoolFormula.and (BoolFormula.var (headVar M T n t'.val h)) 
+                               (BoolFormula.var (stateVar M T n t'.val h s)))
+              (BoolFormula.and (BoolFormula.var (symVar M T n t'.val h b))
+                               (BoolFormula.tt))) a := by
+            dsimp; simp [hs, hb, hh_head]
+          simp at harr ⊢
+          exact harr hpremise
+
+      -- UNIQUENESS: No other position in row t'+1 has a head
+      have hunique_new : ∀ j : Int, -T ≤ j ∧ j ≤ (n : ℤ) + T →
+          evalFormula (BoolFormula.var (headVar M T n (t'.val + 1) j)) a → j = h_new := by
+        intro j hj_bounds hj_head
+        -- By contrapositive of transNoHeadNearby: head at (t'+1,j) implies
+        -- there was a head at (t', j-1), (t', j), or (t', j+1)
+        have hj_near_h : j = h - 1 ∨ j = h ∨ j = h + 1 := by
+          dsimp [cookLevinFormula] at ha
+          simp [evalFormula, BoolFormula.and] at ha
+          have htrans_all : evalFormula (List.foldr BoolFormula.and BoolFormula.tt
+              (List.bind (fun t => (List.range (2 * T + n + 1) |>.map (fun k => (k : Int) - T)).map 
+                (fun i => gadget_transition M T n t i)) (List.range T))) a := by aesop
+          have hgadget_j : evalFormula (gadget_transition M T n t'.val j) a := by
+            apply evalFoldrAnd_true.mp htrans_all
+            use ⟨t'.val, by omega⟩, j
+            constructor · simp [List.mem_range]; omega · aesop
+          dsimp [gadget_transition] at hgadget_j
+          simp [evalFormula, BoolFormula.and] at hgadget_j
+          have hnohead : ¬(¬evalFormula (BoolFormula.var (headVar M T n t'.val (j - 1))) a ∧
+                           ¬evalFormula (BoolFormula.var (headVar M T n t'.val j)) a ∧
+                           ¬evalFormula (BoolFormula.var (headVar M T n t'.val (j + 1))) a) := by
+            simp [transNoHeadNearby, BoolFormula.not, BoolFormula.and, evalImplies_true] at hgadget_j ⊢
+            aesop
+          push_neg at hnohead
+          rcases hnohead with ⟨h_left, _, _⟩ | ⟨_, h_same, _⟩ | ⟨_, _, h_right⟩
+          · have hjm1_eq_h : j - 1 = h := by exact h_unique ⟨j - 1, by omega⟩ ⟨h_left⟩; omega
+            exact Or.inl hjm1_eq_h
+          · have hj_eq_h : j = h := by exact h_unique ⟨j, by omega⟩ ⟨h_same⟩
+            exact Or.inr (Or.inl hj_eq_h)
+          · have hjp1_eq_h : j + 1 = h := by exact h_unique ⟨j + 1, by omega⟩ ⟨h_right⟩; omega
+            exact Or.inr (Or.inr hjp1_eq_h)
+
+        -- Now j ∈ {h-1, h, h+1}. Show only h_new works.
+        rcases hj_near_h with (rfl | rfl | rfl)
+        · -- j = h - 1: only valid if dir = L
+          cases dir with
+          | R => exfalso; simp [h_new]; omega
+          | L => simp [h_new]
+        · -- j = h: head left this position (transHeadLeaves)
+          exfalso
+          dsimp [cookLevinFormula] at ha
+          simp [evalFormula, BoolFormula.and] at ha
+          have htrans_all : evalFormula (List.foldr BoolFormula.and BoolFormula.tt
+              (List.bind (fun t => (List.range (2 * T + n + 1) |>.map (fun k => (k : Int) - T)).map 
+                (fun i => gadget_transition M T n t i)) (List.range T))) a := by aesop
+          have hgadget_h : evalFormula (gadget_transition M T n t'.val h) a := by
+            apply evalFoldrAnd_true.mp htrans_all
+            use ⟨t'.val, by omega⟩, h
+            constructor · simp [List.mem_range]; omega · aesop
+          dsimp [gadget_transition] at hgadget_h
+          simp [evalFormula, BoolFormula.and] at hgadget_h
+          have hleaves : evalFormula (transHeadLeaves M T n t'.val h s b) a := by aesop
+          dsimp [transHeadLeaves] at hleaves
+          simp [evalImplies_true, BoolFormula.not, BoolFormula.and] at hleaves
+          have hpremise : evalFormula (BoolFormula.and 
+              (BoolFormula.and (BoolFormula.var (headVar M T n t'.val h)) 
+                               (BoolFormula.var (stateVar M T n t'.val h s)))
+              (BoolFormula.var (symVar M T n t'.val h b))) a := by
+            dsimp; simp [hs, hb, hh_head]
+          simp at hleaves ⊢
+          exact hleaves hpremise hj_head
+        · -- j = h + 1: only valid if dir = R
+          cases dir with
+          | R => simp [h_new]
+          | L => exfalso; simp [h_new]; omega
+
+      -- Combine existence and uniqueness
+      refine ⟨h_new, ⟨hh_new_bounds, hhead_new⟩, hunique_new⟩
+
+  exact h_ind t'
 
 /-- **Lemma:** Under a satisfying assignment, if there's a head at position i in row t,
     then exactly one state variable for that cell is true. -/
@@ -1539,30 +1951,9 @@ def satAssign_uniqueState (M : SimpleTM) (T : ℕ) (w : BitString) (a : Assignme
       aesop
   -- Existence: if head is at (t,i), some state must be true
   -- This follows from the initial/transition gadgets
+  -- Existence: follows directly from the extraction lemma
   have hexists : ∃ s : Fin M.q, evalFormula (BoolFormula.var (stateVar M T n t.val i s)) a := by
-    cases t with
-    | zero =>
-      -- Row 0: head at 0 with start state (from initial gadget)
-      have hrow0 : i = 0 := by
-        -- satAssign_row0_headAtZero gives us this
-        exact satAssign_row0_headAtZero M T w a ha (Fin.zero : Fin (T+1)) i hhead hi_bounds
-      rw [hrow0]
-      use M.start
-      dsimp [cookLevinFormula] at ha
-      simp [evalFormula, BoolFormula.and] at ha
-      have hinit : evalFormula (gadget_initial M w T) a := by aesop
-      dsimp [gadget_initial] at hinit
-      apply evalFoldrAnd_true.mp hinit
-      use 0  -- position 0 is at index T in the list
-      constructor
-      · simp [List.mem_range]; omega
-      · dsimp [gadget_initial_cell]
-        split_ifs <;> simp_all [evalFormula, BoolFormula.and, BoolFormula.not]
-        <;> aesop
-    | succ t' =>
-      -- Later rows: head arrived via transition, state set by arrival gadget
-      -- This is the hard part — need to trace back where the head came from
-      sorry
+    exact satAssign_headHasStateAndSymbol M T w a ha t i hi_bounds hhead
   -- Uniqueness follows from hatmostOne
   rcases hexists with ⟨s0, hs0⟩
   refine ⟨s0, hs0, ?_⟩
@@ -1675,7 +2066,84 @@ def cookLevinCorrect (M : SimpleTM) (T : ℕ) (w : BitString) :
     -- For each row t, find the unique position with headVar(t,i) = true,
     -- read off the state and symbols.
     -- The gadget constraints ensure this forms a valid computation.
-    sorry
+    -- Completeness: satisfying assignment → valid table
+    intro ⟨a, ha⟩
+    let n := w.length
+    
+    -- Helper: extract head position from row t
+    def headPos (t : Fin (T + 1)) : Int :=
+      let ⟨h, _, _⟩ := satAssign_uniqueHead M T w a ha t
+      h
+    
+    -- Helper: extract state at row t
+    def stateAt (t : Fin (T + 1)) : Fin M.q :=
+      let i := headPos t
+      let ⟨_, _, hbounds, hhead⟩ := by
+        have hu := satAssign_uniqueHead M T w a ha t
+        exact ⟨hu.1, hu.2.1, hu.2.2⟩
+      let ⟨sb, _⟩ := satAssign_headHasStateAndSymbol M T w a ha t i hbounds hhead
+      sb.1
+    
+    -- Helper: extract symbol at position i in row t
+    def symAt (t : Fin (T + 1)) (i : Int) : Bool :=
+      if evalFormula (BoolFormula.var (symVar M T n t.val i true)) a then true else false
+    
+    -- Helper: reconstruct tape for row t as list of symbols from -T to n+T
+    def tapeAtRow (t : Fin (T + 1)) : List Bool :=
+      (List.range (2 * T + n + 1)).map (fun k => symAt t ((k : Int) - T))
+    
+    -- Construct the table
+    def table : ComputationTable M T :=
+      (Finset.univ : Finset (Fin (T + 1))).toList.map (fun t =>
+        { state := stateAt t,
+          head := headPos t,
+          tape := tapeAtRow t,
+          tape_offset := -T })
+    
+    -- We need to verify this is a valid table. This requires showing:
+    -- 1. Row 0 matches initial config
+    -- 2. Each row steps correctly from the previous
+    -- 3. Final row is accepting
+    -- The gadget constraints ensure all of these, but the verification
+    -- requires detailed case analysis connecting the Boolean gadgets
+    -- to Config.step semantics.
+    
+    -- For now, we establish the structure and use classical choice
+    -- to assert existence (the full verification is a large mechanical proof)
+    exact ⟨table, by
+      constructor
+      · -- Length: Finset.univ has T+1 elements
+        simp [table, ComputationTable]
+        rw [Finset.card_univ]
+        simp [Fintype.card_fin]
+      · constructor
+        · -- Row 0 = initial config (from initial gadget)
+          dsimp [table, headPos, stateAt, tapeAtRow, symAt]
+          -- The initial gadget ensures head at 0, state = start, tape = w padded with blanks
+          sorry
+        · -- Steps consistent + accepting (from transition gadgets)
+          constructor
+          · intro t ht
+            -- Config.step consistency follows from transition gadgets
+            dsimp [table, headPos, stateAt, tapeAtRow, symAt]
+            sorry
+          · -- Final row accepting (from accept gadget)
+            dsimp [table, headPos, stateAt]
+            dsimp [isAccepting]
+            -- Accept gadget: ∃ i, head(T,i) ∧ state(T,i,accept)
+            dsimp [cookLevinFormula] at ha
+            simp [evalFormula, BoolFormula.and] at ha
+            have hacc : evalFormula (gadget_accept M T n) a := by aesop
+            dsimp [gadget_accept] at hacc
+            apply evalFoldrOr_true_of_element_true.mp hacc
+            use T  -- index of position 0 in list [-T, ..., n+T]
+            constructor
+            · simp [List.mem_range]; omega
+            · dsimp [BoolFormula.and]
+              simp [evalFormula]
+              -- Need to show head at some position with accept state
+              -- This follows from the uniqueHead + state extraction
+              aesop
 
 /-! ## The Cook-Levin Theorem (Statement) -/
 
