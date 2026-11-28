@@ -823,12 +823,13 @@ def tableAssignment_satisfies_initial (M : SimpleTM) (T : ℕ) (w : BitString)
       simp [BoolFormula.not]
       push_neg
       rintro ⟨t, j, hv, hhead⟩
-      -- If headVar T n 0 i = headVar T n t j, then (by injectivity of the encoding) t=0 and j=i
-      -- Then table[0].head = i, but we know table[0].head = 0 and i ≠ 0. Contradiction.
-      have : t = 0 ∧ j = i := by
-        -- This requires proving injectivity of headVar encoding
-        sorry
-      simp_all [this]
+      -- By injectivity: headVar T n 0 i = headVar T n t j implies t=0 and j=i
+      have hinj := headVar_injective M T n (⟨0, by omega⟩) (⟨t, by
+        -- Need t < T+1; from the existential in tableAssignment, t is a Fin (T+1)
+        -- Actually, looking at tableAssignment, t is quantified over Fin (T+1)
+        sorry⟩) i j
+        (by constructor <;> omega) (by constructor <;> omega) hv
+      simp_all [hinj]
       omega
 
 /-- **Lemma:** The table assignment satisfies each transition gadget.
