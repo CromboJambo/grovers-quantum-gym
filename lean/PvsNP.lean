@@ -641,24 +641,152 @@ def cookLevinReduction (M : SimpleTM) (p : ℕ → ℕ) (w : BitString) : BitStr
   let T := p w.length
   encodeFormula (cookLevinFormula M T w)
 
+
+/-! ### Cook-Levin Correctness Proof -/
+
+/-- **Assignment from a computation table.**
+    Given a valid table, define the Boolean assignment that encodes it:
+    - headVar(t,i) is true iff row t has the head at position i
+    - stateVar(t,i,s) is true iff row t has head at i in state s
+    - symVar(t,i,b) is true iff row t has symbol b at position i -/
+def tableAssignment (M : SimpleTM) (T : ℕ) (n : ℕ) (table : ComputationTable M T) : Assignment :=
+  fun v =>
+    -- Check if v corresponds to a head variable
+    (∃ t i, v = headVar T n t i ∧ table[t.toNat]!.head = i) ∨
+    -- Or a state variable
+    (∃ t i s, v = stateVar M T n t i s ∧ table[t.toNat]!.head = i ∧ table[t.toNat]!.state = s) ∨
+    -- Or a symbol variable
+    (∃ t i b, v = symVar M T n t i b ∧ table[t.toNat]!.tapeAt M (table[t.toNat]!) i = b)
+
+/-- **Lemma:** The table assignment satisfies the initial gadget.
+    If row 0 of the table is the correct initial configuration, then
+    every cell constraint in gadget_initial evaluates to true. -/
+def tableAssignment_satisfies_initial (M : SimpleTM) (T : ℕ) (w : BitString)
+    (table : ComputationTable M T) (hvalid : validTable M T w table) :
+    evalFormula (gadget_initial M w T) (tableAssignment M T w.length table) := by
+  -- The initial gadget is a conjunction of cell constraints.
+  -- For each position i in row 0:
+  --   - symVar(0,i,expectedSym) must be true
+  --   - If i=0: headVar(0,0) ∧ stateVar(0,0,start) must be true
+  --   - If i≠0: ¬headVar(0,i) must be true (i.e., headVar is false)
+  --
+  -- From hvalid, we know table[0] = Config.initial M w, which means:
+  --   - state = M.start, head = 0
+  --   - tapeWindow = w, windowStart = 0
+  -- So tapeAt(0,i) = w[i] for i ∈ [0,n), blank otherwise.
+  -- And head is only at position 0.
+  sorry
+
+/-- **Lemma:** The table assignment satisfies each transition gadget.
+    If row t+1 follows from row t by one step of M, then the local
+    constraints at every position are satisfied. -/
+def tableAssignment_satisfies_transition (M : SimpleTM) (T : ℕ) (n : ℕ)
+    (t : ℕ) (i : Int) (table : ComputationTable M T)
+    (hstep : t < T → table[t+1]! = (table[t]!).step M) :
+    evalFormula (gadget_transition M T n t i) (tableAssignment M T n table) := by
+  -- The transition gadget is a conjunction of implications:
+  --   "if [precondition about row t neighborhood] then [postcondition about row t+1]"
+  -- Since the table is valid, whenever a precondition holds, the corresponding
+  -- postcondition must also hold (by definition of Config.step).
+  --
+  -- Case analysis on where the head is relative to position i at time t:
+  --   1. Head at i: transHeadLeaves applies — step writes new symbol, head moves away
+  --   2. Head at i-1 moving R: transArriveFromLeft applies
+  --   3. Head at i+1 moving L: transArriveFromRight applies
+  --   4. No head nearby: transNoHeadNearby applies — cell unchanged
+  sorry
+
+/-- **Helper:** If a formula in a list evaluates to true under assignment a,
+    then the foldr-OR of the whole list also evaluates to true. -/
+def evalOrList_true_if_element_true {α} (fs : List BoolFormula) (a : Assignment) (i : ℕ)
+    (hi : i < fs.length) (htrue : evalFormula (fs[i]!) a) :
+    evalFormula (fs.foldr BoolFormula.or BoolFormula.ff) a := by
+  induction fs generalizing i hi with
+  | nil => exfalso; simp at hi
+  | cons f₁ fs ih =>
+    cases i with
+    | zero =>
+      simp [hi]
+      -- The OR tree is: f₁ ∨ (foldr or ff fs)
+      -- evalFormula gives: evalFormula f₁ a || evalFormula (rest) a
+      -- Since evalFormula f₁ a = true, the disjunction is true
+      simp_all [BoolFormula.or]
+      tauto
+    | succ i' =>
+      have hlen : i'.succ.succ ≤ f₁ :: fs.length := by omega
+      have hi' : i' < fs.length := by omega
+      have hh : (f₁ :: fs)[i'.succ]! = fs[i']! := by simp
+      rw [hh] at *
+      simp_all [List.getElem_cons_succ]
+      -- The OR tree is: f₁ ∨ (foldr or ff fs)
+      -- We need to show the right side (which contains our true element) makes it true
+      apply Or.inr
+      exact ih hi' htrue
+
+/-- **Lemma:** The table assignment satisfies the acceptance gadget.
+    If the last row is accepting, then some position has head in accept state. -/
+def tableAssignment_satisfies_accept (M : SimpleTM) (T : ℕ) (n : ℕ)
+    (table : ComputationTable M T) (haccept : Config.isAccepting M (table[T]!) = true) :
+    evalFormula (gadget_accept M T n) (tableAssignment M T n table) := by
+  -- Unfold gadget_accept: it's a foldr OR over positions
+  dsimp [gadget_accept]
+  -- The list of disjuncts is: for each k in range width, (headVar(T,i_k) ∧ stateVar(T,i_k,accept))
+  -- where i_k = k - T
+  -- We need to find the index k* corresponding to the head position h = table[T].head
+  let h := table[T]!.head
+  -- haccept tells us table[T].state = M.accept (by definition of isAccepting)
+  have hstate : table[T]!.state = M.accept := by
+    dsimp [Config.isAccepting] at haccept
+    simp_all
+  -- The head position h must be within the table range [-T, n+T]
+  -- (This should follow from the table being valid, but we take it as given for now)
+  let k_star := h.toNat + T  -- index in the list corresponding to position h
+  have hk_range : k_star < 2 * T + n + 1 := by
+    -- Head position is bounded by the computation width
+    sorry  -- Requires a lemma that valid tables keep head in bounds
+  -- The disjunct at index k_star is: headVar(T,h) ∧ stateVar(T,h,accept)
+  -- Under tableAssignment, both are true:
+  have hhead_true : evalFormula (BoolFormula.var (headVar T n T h)) (tableAssignment M T n table) := by
+    dsimp [tableAssignment, evalFormula]
+    -- Need to show ∃ t i, headVar T n T h = headVar T n t i ∧ table[t]!.head = i
+    use T, h
+    simp
+  have hstate_true : evalFormula (BoolFormula.var (stateVar M T n T h M.accept)) (tableAssignment M T n table) := by
+    dsimp [tableAssignment, evalFormula]
+    use T, h, M.accept
+    simp_all
+  -- So the AND at position k_star is true
+  have hand_true : evalFormula
+      (BoolFormula.and (BoolFormula.var (headVar T n T h))
+                       (BoolFormula.var (stateVar M T n T h M.accept)))
+      (tableAssignment M T n table) := by
+    dsimp [evalFormula]
+    exact And.intro hhead_true hstate_true
+  -- Now use the helper lemma: if one element in the OR list is true, the whole OR is true
+  sorry  -- Need to connect k_star to the actual list structure in gadget_accept
+
 /-- **Theorem:** The Cook-Levin reduction is correct.
     M accepts w within T steps ⟺ φ(w) is satisfiable. -/
 def cookLevinCorrect (M : SimpleTM) (T : ℕ) (w : BitString) :
     acceptsInSteps M T w ↔ ∃ a : Assignment, evalFormula (cookLevinFormula M T w) a := by
   constructor
-  · -- Soundness: valid computation table → satisfying assignment
+  · -- Soundness: valid table → satisfying assignment
     intro ⟨table, hvalid⟩
-  -- Construct an assignment from the table: for each cell (t,i), set the
-  -- appropriate head/state/symbol variables based on table[t].
-  -- This is a computable construction; the proof that it satisfies all gadgets
-  -- follows from the validity of the table.
-  sorry
-  · -- Completeness: satisfying assignment → valid computation table
+    let n := w.length
+    let a := tableAssignment M T n table
+    -- Need to show evalFormula (cookLevinFormula M T w) a = true
+    -- cookLevinFormula = initial ∧ transitions ∧ accept
+    -- We have lemmas for each part (currently sorry, but the structure is clear)
+    refine ⟨a, ?_⟩
+    sorry
+  · -- Completeness: satisfying assignment → valid table
     intro ⟨a, ha⟩
-  -- Extract a computation table from the assignment: for each row t, read off
-  -- the head position, state, and tape symbols from the satisfied variables.
-  -- The gadget constraints ensure this forms a valid computation.
-  sorry
+    -- Extract a table from the assignment:
+    -- For each row t, find the unique position with headVar(t,i) = true,
+    -- read off the state and symbols.
+    -- The gadget constraints ensure this forms a valid computation.
+    sorry
+
 /-! ## The Cook-Levin Theorem (Statement) -/
 
 /-- **Cook-Levin Theorem:** SAT is NP-complete.
