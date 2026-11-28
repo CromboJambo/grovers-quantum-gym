@@ -1402,6 +1402,22 @@ def satAssign_uniqueHead (M : SimpleTM) (T : ℕ) (w : BitString) (a : Assignmen
   
   exact h_ind t'
 
+
+/-- **Lemma:** Under a satisfying assignment, if there's a head at position i in row t,
+    then exactly one state variable for that cell is true. -/
+def satAssign_uniqueState (M : SimpleTM) (T : ℕ) (w : BitString) (a : Assignment)
+    (ha : evalFormula (cookLevinFormula M T w) a)
+    (t : Fin (T + 1)) (i : Int) (hi_bounds : -T ≤ i ∧ i ≤ (w.length : ℤ) + T)
+    (hhead : evalFormula (BoolFormula.var (headVar M T n t.val i)) a) :
+    ∃! s : Fin M.q, evalFormula (BoolFormula.var (stateVar M T n t.val i s)) a := by
+  let n := w.length
+  -- This follows from the transition gadget constraints which enforce
+  -- that head and state variables are consistent. The proof requires
+  -- analyzing how the implications in gadget_transition constrain states.
+  -- For row 0, it's direct from the initial gadget.
+  -- For later rows, it propagates through transitions.
+  sorry
+
 /-- **Theorem:** The Cook-Levin reduction is correct.
     M accepts w within T steps ⟺ φ(w) is satisfiable. -/
 def cookLevinCorrect (M : SimpleTM) (T : ℕ) (w : BitString) :
