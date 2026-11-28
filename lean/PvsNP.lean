@@ -907,24 +907,203 @@ def tableAssignment_symVar (M : SimpleTM) (T : ℕ) (n : ℕ) (table : Computati
 /-- **Lemma:** The table assignment satisfies each transition gadget.
     If row t+1 follows from row t by one step of M, then the local
     consistency constraint at cell (t,i) evaluates to true. -/
+
+/-- An implication P→Q evaluates to true unless P is true and Q is false. -/
+def evalImplies_true (P Q : BoolFormula) (a : Assignment) :
+    evalFormula (implies P Q) a ↔ ¬(evalFormula P a ∧ ¬evalFormula Q a) := by
+  simp [implies, evalFormula, BoolFormula.or, BoolFormula.not]
+  <;> by_cases hp : evalFormula P a <;> by_cases hq : evalFormula Q a <;> simp_all
+
+/-- A conjunction of implications is true iff each implication is true. -/
+def evalFoldrAnd_true (xs : List BoolFormula) (a : Assignment)
+    (h : ∀ x ∈ xs, evalFormula x a) :
+    evalFormula (List.foldr BoolFormula.and BoolFormula.tt xs) a := by
+  induction xs with
+  | nil => simp
+  | cons x xs ih =>
+    simp [List.foldr]
+    exact ⟨ih (fun y hy => h y (List.cons_mem y xs hy)), h x (List.mem_cons_self _ _ _)⟩
+
+
 def tableAssignment_satisfies_transition (M : SimpleTM) (T : ℕ) (n : ℕ)
     (t : ℕ) (i : Int) (table : ComputationTable M T)
     (hstep : t < T → table[t+1]! = (table[t]!).step M) :
     evalFormula (gadget_transition M T n t i) (tableAssignment M T n table) := by
-  -- The gadget is a foldr-AND of implications. Each implication P→Q evaluates to true
-  -- unless P is true and Q is false. We show that for each case type, if the premise
-  -- holds (under tableAssignment), then the conclusion also holds (by Config.step).
-  --
-  -- This proof is long and mechanical. We handle it by showing the conjunction
-  -- of all implications is satisfied. Given the complexity, we use a high-level
-  -- argument: the gadget was constructed to exactly mirror Config.step's behavior,
-  -- and tableAssignment faithfully encodes the table into variable assignments.
-  --
-  -- Full proof requires:
-  -- 1. stateVar_injective and symVar_injective lemmas
-  -- 2. Case analysis on each of the 4 transition types
-  -- 3. Arithmetic verification that head movement matches direction
-  sorry
+  -- The gadget is a foldr-AND of implications. We show each evaluates to true.
+  -- Key facts from Config.step:
+  --   • head moves ±1 each step (never stays)
+  --   • symbol at old head position becomes delta's output symbol
+  --   • all other positions keep their symbols
+  
+  have hstep_t : t < T → table[t+1]! = (table[t]!).step M := hstep
+  
+  -- Helper: if premise of an implication is false, the implication is true
+  -- So we only need to handle the case where the premise holds.
+  
+  -- We prove each type of transition clause separately.
+  
+  -- Case 1: transHeadLeaves(M,T,n,t,i,q,s)
+  -- Premise: head at i, state q, symbol s at time t
+  -- Conclusion: no head at i at t+1, symbol s' at i at t+1
+  have h_headLeaves : ∀ (q : Fin M.q) (s : Bool),
+      evalFormula (transHeadLeaves M T n t i q s) (tableAssignment M T n table) := by
+    intro q s
+    dsimp [transHeadLeaves] at *
+    have hdelta : ∃ (q' : Fin M.q) (s' : Bool) (d : HeadDir), M.delta q s = (q', s', d) := by
+      exact ⟨(M.delta q s).1, (M.delta q s).2.1, (M.delta q s).2.2⟩
+    rcases hdelta with ⟨q', s', d, rfl⟩
+    -- Now we need: ¬(premise ∧ ¬conclusion)
+    by_contra h
+    push_neg at h
+    simp [implies, evalFormula] at h
+    -- h says: premise is true AND conclusion is false
+    have hprem : table[t]!.head = i ∧ table[t]!.state = q ∧ table[t]!.tapeAt M (table[t]!) i = s := by
+      simp_all [tableAssignment_headVar, tableAssignment_stateVar, tableAssignment_symVar]
+      <;> aesop
+    have hconcl_false : ¬(¬evalFormula (BoolFormula.var (headVar M T n (t+1) i)) (tableAssignment M T n table) ∧
+                          evalFormula (BoolFormula.var (symVar M T n (t+1) i s')) (tableAssignment M T n table)) := by
+      tauto
+    -- From premise: head at i, state q, symbol s
+    have hhead_t : table[t]!.head = i := hprem.1
+    have hstate_t : table[t]!.state = q := hprem.2.1
+    have hsym_t : table[t]!.tapeAt M (table[t]!) i = s := hprem.2.2
+    -- After step: head moves to i±1, so not at i
+    have hstep' : table[t+1]! = (table[t]!).step M := by
+      apply hstep_t; omega
+    simp [hstep']
+    -- Head after step is i+1 or i-1, never i
+    have hhead_not_i : table[t+1]!.head ≠ i := by
+      simp only [Config.step, Config.tapeAt] at *
+      split_ifs at * <;> omega
+    -- Symbol at i after step: since head was at i and moved away, 
+    -- the tape window was updated with s' at position i
+    have hsym_t1 : table[t+1]!.tapeAt M (table[t+1]!) i = s' := by
+      simp only [Config.step, Config.tapeAt] at *
+      -- The step writes s' at the old head position (i) in the tape window
+      split_ifs at * <;> simp_all [List.set!] <;> omega
+    -- Now show conclusion holds: no head at i, symbol s'
+    have hconcl : evalFormula (BoolFormula.and 
+        (BoolFormula.not (BoolFormula.var (headVar M T n (t+1) i)))
+        (BoolFormula.var (symVar M T n (t+1) i s'))) (tableAssignment M T n table) := by
+      simp [evalFormula, BoolFormula.and]
+      constructor
+      · -- ¬headVar(t+1,i): head is not at i
+        rw [tableAssignment_headVar]
+        simp_all
+      · -- symVar(t+1,i,s'): symbol at i is s'
+        rw [tableAssignment_symVar]
+        simp_all
+    tauto
+
+  -- Case 2: transNoHeadNearby(M,T,n,t,i)
+  -- Premise: no head at i-1, i, or i+1 at time t
+  -- Conclusion: no head at i at t+1, symbol unchanged
+  have h_noHead : evalFormula (transNoHeadNearby M T n t i) (tableAssignment M T n table) := by
+    dsimp [transNoHeadNearby]
+    by_contra h
+    push_neg at h
+    simp [implies, evalFormula] at h
+    -- Premise true: no head at i-1, i, i+1
+    have hno_i : table[t]!.head ≠ i := by
+      rw [tableAssignment_headVar] at *
+      tauto
+    have hno_im1 : table[t]!.head ≠ i - 1 := by
+      rw [tableAssignment_headVar] at *
+      tauto
+    have hno_ip1 : table[t]!.head ≠ i + 1 := by
+      rw [tableAssignment_headVar] at *
+      tauto
+    -- After step, head moves ±1 from its position. Since it's not at i-1,i,i+1,
+    -- it can't reach i in one step.
+    have hstep' : table[t+1]! = (table[t]!).step M := by
+      apply hstep_t; omega
+    simp [hstep'] at *
+    have hhead_not_i : table[t+1]!.head ≠ i := by
+      simp only [Config.step, Config.tapeAt] at *
+      split_ifs at * <;> 
+        (try { intro heq; apply hno_im1; omega }) <;>
+        (try { intro heq; apply hno_ip1; omega }) <;>
+        (try { intro heq; apply hno_i; omega }) <;>
+        omega
+    -- Symbol unchanged at i (head never visited i)
+    have hsym_unchanged : table[t+1]!.tapeAt M (table[t+1]!) i = table[t]!.tapeAt M (table[t]!) i := by
+      simp only [Config.step, Config.tapeAt] at *
+      split_ifs at * <;> simp_all [List.set!] <;> omega
+    tauto
+
+  -- Cases 3&4: transArriveFromLeft/Right are similar in structure.
+  -- For brevity and given the mechanical nature, we use the same pattern.
+  
+  -- Combine all cases using the foldr-AND structure
+  dsimp [gadget_transition]
+  apply evalFoldrAnd_true
+  intro x hx
+  -- x is one of the transition clauses; by construction each is satisfied
+  rcases List.mem_def.mp hx with (h1 | h2 | h3 | h4)
+  · -- x ∈ headLeaves
+    rcases List.mem_bind.mp h1 with ⟨⟨q, _⟩, s, _, hmem⟩
+    exact h_headLeaves q s
+  · -- x ∈ fromLeft
+    rcases List.mem_bind.mp h2 with ⟨⟨q, _⟩, s, _, hmem⟩
+    -- Arrive from left: similar proof to headLeaves
+    exact by
+      dsimp [transArriveFromLeft] at *
+      have hdelta : ∃ (q' : Fin M.q) (s' : Bool) (d : HeadDir), M.delta q s = (q', s', d) := by
+        exact ⟨(M.delta q s).1, (M.delta q s).2.1, (M.delta q s).2.2⟩
+      rcases hdelta with ⟨q', s', d, rfl⟩
+      by_contra h; push_neg at h
+      simp [implies, evalFormula] at *
+      -- Premise: head at i-1, state q, symbol s, and d = R
+      have hprem : table[t]!.head = i - 1 ∧ table[t]!.state = q ∧ 
+                   table[t]!.tapeAt M (table[t]!) (i - 1) = s := by
+        simp_all [tableAssignment_headVar, tableAssignment_stateVar, tableAssignment_symVar]
+        <;> aesop
+      have hstep' : table[t+1]! = (table[t]!).step M := by apply hstep_t; omega
+      simp [hstep'] at *
+      -- After step with dir=R: head moves from i-1 to i
+      have hhead_i : table[t+1]!.head = i := by
+        simp only [Config.step, Config.tapeAt] at *
+        split_ifs at * <;> omega
+      -- State becomes q'
+      have hstate_qp : table[t+1]!.state = q' := by
+        simp only [Config.step, Config.tapeAt] at *
+        split_ifs at * <;> simp_all
+      -- Symbol at i unchanged (head was at i-1, not i)
+      have hsym_i : table[t+1]!.tapeAt M (table[t+1]!) i = table[t]!.tapeAt M (table[t]!) i := by
+        simp only [Config.step, Config.tapeAt] at *
+        split_ifs at * <;> simp_all [List.set!] <;> omega
+      simp_all [tableAssignment_headVar, tableAssignment_stateVar, tableAssignment_symVar]
+      <;> aesop
+  · -- x ∈ fromRight
+    rcases List.mem_bind.mp h3 with ⟨⟨q, _⟩, s, _, hmem⟩
+    exact by
+      dsimp [transArriveFromRight] at *
+      have hdelta : ∃ (q' : Fin M.q) (s' : Bool) (d : HeadDir), M.delta q s = (q', s', d) := by
+        exact ⟨(M.delta q s).1, (M.delta q s).2.1, (M.delta q s).2.2⟩
+      rcases hdelta with ⟨q', s', d, rfl⟩
+      by_contra h; push_neg at h
+      simp [implies, evalFormula] at *
+      have hprem : table[t]!.head = i + 1 ∧ table[t]!.state = q ∧ 
+                   table[t]!.tapeAt M (table[t]!) (i + 1) = s := by
+        simp_all [tableAssignment_headVar, tableAssignment_stateVar, tableAssignment_symVar]
+        <;> aesop
+      have hstep' : table[t+1]! = (table[t]!).step M := by apply hstep_t; omega
+      simp [hstep'] at *
+      have hhead_i : table[t+1]!.head = i := by
+        simp only [Config.step, Config.tapeAt] at *
+        split_ifs at * <;> omega
+      have hstate_qp : table[t+1]!.state = q' := by
+        simp only [Config.step, Config.tapeAt] at *
+        split_ifs at * <;> simp_all
+      have hsym_i : table[t+1]!.tapeAt M (table[t+1]!) i = table[t]!.tapeAt M (table[t]!) i := by
+        simp only [Config.step, Config.tapeAt] at *
+        split_ifs at * <;> simp_all [List.set!] <;> omega
+      simp_all [tableAssignment_headVar, tableAssignment_stateVar, tableAssignment_symVar]
+      <;> aesop
+  · -- x = noHead
+    rcases h4 with (rfl | _)
+    · exact h_noHead
+    · exfalso; simp_all
 
 
 /-- **Lemma:** In a T-step computation, the head can be at most T positions
