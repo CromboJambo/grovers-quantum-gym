@@ -186,6 +186,7 @@ fn main() {
         println!("\n--- RSA ENCRYPTION (1977) ---");
         shor_grover_exploration::rsa::demonstrate_rsa();
         shor_grover_exploration::rsa::demonstrate_prime_factorization_difficulty();
+        shor_grover_exploration::rsa::demonstrate_breakthrough_scenario();
     }
 
     if should_run(&cli.station, "sorting_bounds") {
