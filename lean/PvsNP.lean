@@ -360,23 +360,27 @@ def acceptsInSteps (M : SimpleTM) (T : ℕ) (w : BitString) : Prop :=
 /-- Offset a position to a non-negative index: i ∈ [-T, n+T] ↦ i+T ∈ [0, n+2T]. -/
 def posOffset (T : ℕ) (i : Int) : ℕ := (i + T).toNat
 
-/-- Base variable index for cell (t,i): row t, column offset(i).
+/-- Number of variables allocated per cell: 1 (head) + q (states) + 2 (symbols). -/
+def cellSize (M : SimpleTM) : ℕ := M.q + 3
+
+/-- Cell index for position (t,i): unique natural number for each table cell.
     Uses offset encoding so negative positions map correctly. -/
-def headVarBase (T : ℕ) (n : ℕ) (t : ℕ) (i : Int) : ℕ :=
+def cellIndex (T : ℕ) (n : ℕ) (t : ℕ) (i : Int) : ℕ :=
   let width := 2 * T + n + 1
   t * width + posOffset T i
-/-- Variable index for "head is at cell (t,i)". -/
-def headVar (T : ℕ) (n : ℕ) (t : ℕ) (i : Int) : ℕ :=
-  headVarBase T n t i
 
-/-- Variable index for "state s, head at cell (t,i)". -/
+/-- Variable index for "head is at cell (t,i)". Slot 0 of the cell block. -/
+def headVar (M : SimpleTM) (T : ℕ) (n : ℕ) (t : ℕ) (i : Int) : ℕ :=
+  cellIndex T n t i * cellSize M
+
+/-- Variable index for "state s, head at cell (t,i)". Slot 1+s.val of the cell block. -/
 def stateVar (M : SimpleTM) (T : ℕ) (n : ℕ) (t : ℕ) (i : Int) (s : Fin M.q) : ℕ :=
-  headVarBase T n t i + 1 + s.val
+  cellIndex T n t i * cellSize M + 1 + s.val
 
 /-- Variable index for "symbol b at cell (t,i)".
-    Offset: headVar uses slot 0, stateVars use slots 1..q, symVars use slots q+1..q+2. -/
+    Slot 1+q+(if b then 1 else 0) of the cell block. -/
 def symVar (M : SimpleTM) (T : ℕ) (n : ℕ) (t : ℕ) (i : Int) (b : Bool) : ℕ :=
-  headVarBase T n t i + 1 + M.q + if b then 1 else 0
+  cellIndex T n t i * cellSize M + 1 + M.q + if b then 1 else 0
 
 /-! ### Gadget Formulas (local consistency constraints) -/
 
@@ -401,13 +405,13 @@ def gadget_initial_cell (M : SimpleTM) (w : BitString) (T : ℕ) (i : Int) : Boo
   let headClause : BoolFormula :=
     if hasHeadHere then
       -- Head at position 0 in start state
-      BoolFormula.and (BoolFormula.var (headVar T n 0 i))
+      BoolFormula.and (BoolFormula.var (headVar M T n 0 i))
         (BoolFormula.var (stateVar M T n 0 i M.start))
     else
       -- No head: ¬headVar(0,i) — encoded as the variable being false,
       -- which in DNF means we require its negation. Since our formula type
       -- has 'not', we use it directly.
-      BoolFormula.not (BoolFormula.var (headVar T n 0 i))
+      BoolFormula.not (BoolFormula.var (headVar M T n 0 i))
   BoolFormula.and symClause headClause
 
 /-- Full initial gadget: conjunction over all positions in the table width. -/
@@ -446,12 +450,12 @@ def transHeadLeaves (M : SimpleTM) (T : ℕ) (n : ℕ) (t : ℕ) (i : Int)
   let (q', s', d) := M.delta q s
   -- Premise: head at i, state q, symbol s at time t
   let premise : BoolFormula :=
-    BoolFormula.and (BoolFormula.var (headVar T n t i))
+    BoolFormula.and (BoolFormula.var (headVar M T n t i))
       (BoolFormula.and (BoolFormula.var (stateVar M T n t i q))
                        (BoolFormula.var (symVar M T n t i s)))
   -- Conclusion: at time t+1, position i has symbol s' and no head
   let conclusion : BoolFormula :=
-    BoolFormula.and (BoolFormula.not (BoolFormula.var (headVar T n (t+1) i)))
+    BoolFormula.and (BoolFormula.not (BoolFormula.var (headVar M T n (t+1) i)))
                     (BoolFormula.var (symVar M T n (t+1) i s'))
   implies premise conclusion
 
@@ -466,7 +470,7 @@ def transArriveFromLeft (M : SimpleTM) (T : ℕ) (n : ℕ) (t : ℕ) (i : Int)
   if movesRight then
     -- Premise: head at i-1, state q, symbol s at time t
     let premise : BoolFormula :=
-      BoolFormula.and (BoolFormula.var (headVar T n t (i-1)))
+      BoolFormula.and (BoolFormula.var (headVar M T n t (i-1)))
         (BoolFormula.and (BoolFormula.var (stateVar M T n t (i-1) q))
                          (BoolFormula.var (symVar M T n t (i-1) s)))
     -- Conclusion: head at i in state q' at time t+1, symbol unchanged from time t
@@ -477,7 +481,7 @@ def transArriveFromLeft (M : SimpleTM) (T : ℕ) (n : ℕ) (t : ℕ) (i : Int)
                       (implies (BoolFormula.var (symVar M T n t i false))
                                (BoolFormula.var (symVar M T n (t+1) i false)))
     let conclusion : BoolFormula :=
-      BoolFormula.and (BoolFormula.var (headVar T n (t+1) i))
+      BoolFormula.and (BoolFormula.var (headVar M T n (t+1) i))
         (BoolFormula.and (BoolFormula.var (stateVar M T n (t+1) i q')) symUnchanged)
     implies premise conclusion
   else
@@ -495,7 +499,7 @@ def transArriveFromRight (M : SimpleTM) (T : ℕ) (n : ℕ) (t : ℕ) (i : Int)
   if movesLeft then
     -- Premise: head at i+1, state q, symbol s at time t
     let premise : BoolFormula :=
-      BoolFormula.and (BoolFormula.var (headVar T n t (i+1)))
+      BoolFormula.and (BoolFormula.var (headVar M T n t (i+1)))
         (BoolFormula.and (BoolFormula.var (stateVar M T n t (i+1) q))
                          (BoolFormula.var (symVar M T n t (i+1) s)))
     -- Conclusion: head at i in state q' at time t+1, symbol unchanged from time t
@@ -505,7 +509,7 @@ def transArriveFromRight (M : SimpleTM) (T : ℕ) (n : ℕ) (t : ℕ) (i : Int)
                       (implies (BoolFormula.var (symVar M T n t i false))
                                (BoolFormula.var (symVar M T n (t+1) i false)))
     let conclusion : BoolFormula :=
-      BoolFormula.and (BoolFormula.var (headVar T n (t+1) i))
+      BoolFormula.and (BoolFormula.var (headVar M T n (t+1) i))
         (BoolFormula.and (BoolFormula.var (stateVar M T n (t+1) i q')) symUnchanged)
     implies premise conclusion
   else
@@ -518,9 +522,9 @@ def transArriveFromRight (M : SimpleTM) (T : ℕ) (n : ℕ) (t : ℕ) (i : Int)
 def transNoHeadNearby (M : SimpleTM) (T : ℕ) (n : ℕ) (t : ℕ) (i : Int) : BoolFormula :=
   -- Premise: no head at i-1, i, or i+1 at time t
   let premise : BoolFormula :=
-    BoolFormula.and (BoolFormula.not (BoolFormula.var (headVar T n t (i-1))))
-      (BoolFormula.and (BoolFormula.not (BoolFormula.var (headVar T n t i)))
-                       (BoolFormula.not (BoolFormula.var (headVar T n t (i+1)))))
+    BoolFormula.and (BoolFormula.not (BoolFormula.var (headVar M T n t (i-1))))
+      (BoolFormula.and (BoolFormula.not (BoolFormula.var (headVar M T n t i)))
+                       (BoolFormula.not (BoolFormula.var (headVar M T n t (i+1)))))
   -- Conclusion: no head at i at time t+1, symbol unchanged
   let symUnchanged : BoolFormula :=
     BoolFormula.and (implies (BoolFormula.var (symVar M T n t i true))
@@ -528,7 +532,7 @@ def transNoHeadNearby (M : SimpleTM) (T : ℕ) (n : ℕ) (t : ℕ) (i : Int) : B
                     (implies (BoolFormula.var (symVar M T n t i false))
                              (BoolFormula.var (symVar M T n (t+1) i false)))
   let conclusion : BoolFormula :=
-    BoolFormula.and (BoolFormula.not (BoolFormula.var (headVar T n (t+1) i))) symUnchanged
+    BoolFormula.and (BoolFormula.not (BoolFormula.var (headVar M T n (t+1) i))) symUnchanged
   implies premise conclusion
 
 /-- **Full transition gadget for cell (t,i).**
@@ -566,7 +570,7 @@ def gadget_accept (M : SimpleTM) (T : ℕ) (n : ℕ) : BoolFormula :=
   let width := 2 * T + n + 1
   List.range width |>.map (fun k =>
     let i := (k : Int) - T
-    BoolFormula.and (BoolFormula.var (headVar T n T i))
+    BoolFormula.and (BoolFormula.var (headVar M T n T i))
                     (BoolFormula.var (stateVar M T n T i M.accept))
   ) |>.foldr BoolFormula.or BoolFormula.ff
 
@@ -605,7 +609,7 @@ def initial_gadget_satisfiable (M : SimpleTM) (w : BitString) (T : ℕ) :
     ∃ i : Int, 0 ≤ i.toNat ∧ i.toNat < 2 * T + n + 1 ∧
       (v = symVar M T n 0 i (if 0 ≤ i ∧ i < n then w[i.toNat]! else M.blank)) ∨
       -- Or v is the head var at position 0
-      (v = headVar T n 0 0) ∨
+      (v = headVar M T n 0 0) ∨
       -- Or v is the state var for start state at position 0
       (v = stateVar M T n 0 0 M.start)
   exact ⟨a_init, by sorry⟩  -- The evaluation proof requires case analysis on the formula structure
@@ -658,103 +662,119 @@ def cookLevinReduction (M : SimpleTM) (p : ℕ → ℕ) (w : BitString) : BitStr
 
 /-! ### Variable Encoding Injectivity
 
-These lemmas establish that the variable index encoding is injective,
-which is essential for proving gadget satisfaction. -/
+These lemmas establish that the variable index encoding is injective:
+different (t,i,s) tuples produce different variable indices. This is essential
+for proving that the table assignment satisfies the gadgets.
 
-/-- The cell width W = 2T + n + 1 is positive. -/
-def widthPositive (T : ℕ) (n : ℕ) : 0 < 2 * T + n + 1 := by omega
+With the `cellIndex * cellSize + offset` encoding, injectivity follows from
+Euclidean division: each variable index uniquely determines its cell and slot. -/
 
-/-- **Key encoding fact:** For i ∈ [-T, n+T], the value i.toNat + T is a valid
-    index in [0, 2T+n+1). This gives us a clean bijection between positions
-    and list indices. -/
-def posToIndex (T : ℕ) (n : ℕ) (i : Int) (hi : -T ≤ i ∧ i ≤ n + T) :
-    0 ≤ i.toNat + T ∧ i.toNat + T < 2 * T + n + 1 := by
-  constructor
-  · -- i.toNat ≥ 0 always, so i.toNat + T ≥ 0
-    omega
-  · -- Upper bound: if i ≥ 0 then i.toNat = i ≤ n+T, so i.toNat+T ≤ n+2T < 2T+n+1
-    -- If i < 0 then i.toNat = 0 (Lean's Int.toNat), so i.toNat+T = T < 2T+n+1
-    split_ifs at * with h_nonneg
-    · -- i ≥ 0: i.toNat = i.natAbs = i (as Nat)
-      have : (i : ℕ) ≤ n + T := by omega
-      omega
-    · -- i < 0: i.toNat = 0
-      simp [Int.toNat_of_nonpos]
-      omega
+/-- Each cell gets a positive number of variables. -/
+def cellSizePositive (M : SimpleTM) : 0 < cellSize M := by
+  simp [cellSize]
+  omega
 
-/-- **Injectivity of headVar:** If headVar(T,n,t,i) = headVar(T,n,t',i') with valid positions,
-    then t = t' and i = i'. -/
+/-- **Cell index injectivity:** If cellIndex(T,n,t,i) = cellIndex(T,n,t',i') for
+    positions in the valid range, then t=t' and i=i'. -/
+def cellIndex_injective (T : ℕ) (n : ℕ)
+    (t t' : Fin (T + 1)) (i i' : Int)
+    (hi : -T ≤ i ∧ i ≤ n + T) (hi' : -T ≤ i' ∧ i' ≤ n + T)
+    (h : cellIndex T n t.val i = cellIndex T n t'.val i') :
+    t.val = t'.val ∧ i = i' := by
+  simp [cellIndex] at h
+  -- t * W + (i+T).toNat = t' * W + (i'+T).toNat where W = 2T+n+1
+  have hW : 0 < 2 * T + n + 1 := by omega
+  have hi_nat : (i + T).toNat = i + T := by
+    have : 0 ≤ i + T := by omega
+    exact Int.toNat_of_nonneg this
+  have hi'_nat : (i' + T).toNat = i' + T := by
+    have : 0 ≤ i' + T := by omega
+    exact Int.toNat_of_nonneg this
+  rw [hi_nat, hi'_nat] at h
+  -- Both (i+T) and (i'+T) are in [0, W-1], so unique representation as t*W + r
+  have hmod_left : (t.val * (2*T+n+1) + (i+T).toNat) % (2*T+n+1) = (i+T).toNat := by
+    simp [Nat.add_mod, Nat.mul_mod, Nat.mod_eq_of_lt] <;> omega
+  have hmod_right : (t'.val * (2*T+n+1) + (i'+T).toNat) % (2*T+n+1) = (i'+T).toNat := by
+    simp [Nat.add_mod, Nat.mul_mod, Nat.mod_eq_of_lt] <;> omega
+  have hi_eq : (i + T).toNat = (i' + T).toNat := by
+    rw [h] at hmod_left
+    simp [hmod_right] at hmod_left
+    exact hmod_left
+  have ht_eq : t.val = t'.val := by omega
+  have hi_int_eq : i = i' := by omega
+  exact ⟨ht_eq, hi_int_eq⟩
+
+/-- **headVar injectivity:** headVar(M,T,n,t,i) = headVar(M,T,n,t',i') implies t=t', i=i'. -/
 def headVar_injective (M : SimpleTM) (T : ℕ) (n : ℕ)
     (t t' : Fin (T + 1)) (i i' : Int)
     (hi : -T ≤ i ∧ i ≤ n + T) (hi' : -T ≤ i' ∧ i' ≤ n + T)
-    (h : headVar T n t i = headVar T n t'.val i') :
+    (h : headVar M T n t.val i = headVar M T n t'.val i') :
     t.val = t'.val ∧ i = i' := by
-  simp [headVar, headVarBase] at h
-  -- (t.val * W + i.toNat) * (q+3) = (t'.val * W + i'.toNat) * (q+3)
-  have hq : 0 < M.q + 3 := by omega
-  have : t.val * (2*T+n+1) + i.toNat = t'.val * (2*T+n+1) + i'.toNat := by
-    apply Nat.mul_right_injective' hq
+  simp [headVar] at h
+  have hcell : cellIndex T n t.val i = cellIndex T n t'.val i' := by
+    apply Nat.mul_right_injective' (cellSizePositive M)
     exact h
-  -- Use the division algorithm: a*W + r = b*W + r' with r,r' < W implies a=b, r=r'
-  have hr : i.toNat < 2*T+n+1 := by
-    split_ifs at * with h_nonneg
-    · have : (i : ℕ) ≤ n + T := by omega
-      omega
-    · simp [Int.toNat_of_nonpos]; omega
-  have hr' : i'.toNat < 2*T+n+1 := by
-    split_ifs at * with h_nonneg
-    · have : (i' : ℕ) ≤ n + T := by omega
-      omega
-    · simp [Int.toNat_of_nonpos]; omega
-  -- Now apply the unique division property
-  have ht_eq : t.val = t'.val := by
-    -- From t*W + r = t'*W + r' with r,r' < W:
-    -- t*W - t'*W = r' - r, so (t-t')*W = r' - r
-    -- |r' - r| < W, so the only multiple of W in that range is 0
-    have hdiff : (t.val * (2*T+n+1) + i.toNat) - (t'.val * (2*T+n+1) + i'.toNat) = 0 := by omega
-    -- This means t*W + r = t'*W + r'
-    -- If t > t', then t*W ≥ (t'+1)*W = t'*W + W > t'*W + r' (since r' < W), contradiction
-    -- Similarly if t < t'. So t = t'.
-    by_contra hneq
-    cases' Nat.lt_or_gt hneq with hlt hgt
-    · -- t.val < t'.val, so t'.val ≥ t.val + 1
-      have : t'.val * (2*T+n+1) ≥ (t.val + 1) * (2*T+n+1) := by
-        apply Nat.mul_le_mul_right (2*T+n+1)
-        omega
-      have : t'.val * (2*T+n+1) + i'.toNat ≥ (t.val + 1) * (2*T+n+1) := by omega
-      have : (t.val + 1) * (2*T+n+1) > t.val * (2*T+n+1) + i.toNat := by
-        -- (t+1)*W = t*W + W > t*W + r since r < W
-        have hW_pos : 0 < 2*T+n+1 := widthPositive T n
-        nlinarith
-      omega
-    · -- t.val > t'.val: symmetric argument
-      have : t.val * (2*T+n+1) ≥ (t'.val + 1) * (2*T+n+1) := by
-        apply Nat.mul_le_mul_right (2*T+n+1)
-        omega
-      have : t.val * (2*T+n+1) + i.toNat ≥ (t'.val + 1) * (2*T+n+1) := by omega
-      have : (t'.val + 1) * (2*T+n+1) > t'.val * (2*T+n+1) + i'.toNat := by
-        nlinarith [widthPositive T n]
-      omega
-  -- With t = t', we get (i+T).toNat = (i'+T).toNat
-  have hi_off_eq : (i + T).toNat = (i' + T).toNat := by
-    simp [ht_eq, headVarBase, posOffset] at this
+  exact cellIndex_injective T n t t' i i' hi hi' hcell
+
+/-- **stateVar injectivity:** stateVar equality implies all components equal. -/
+def stateVar_injective (M : SimpleTM) (T : ℕ) (n : ℕ)
+    (t t' : Fin (T + 1)) (i i' : Int) (s s' : Fin M.q)
+    (hi : -T ≤ i ∧ i ≤ n + T) (hi' : -T ≤ i' ∧ i' ≤ n + T)
+    (h : stateVar M T n t.val i s = stateVar M T n t'.val i' s') :
+    t.val = t'.val ∧ i = i' ∧ s = s' := by
+  simp [stateVar] at h
+  have hs_bound : 1 + s.val < cellSize M := by simp [cellSize]; omega
+  have hs'_bound : 1 + s'.val < cellSize M := by simp [cellSize]; omega
+  have hcell : cellIndex T n t.val i = cellIndex T n t'.val i' := by
+    have hdiv_left : (cellIndex T n t.val i * cellSize M + 1 + s.val) / cellSize M = cellIndex T n t.val i := by
+      apply Nat.div_eq_of_lt_le <;> omega
+    have hdiv_right : (cellIndex T n t'.val i' * cellSize M + 1 + s'.val) / cellSize M = cellIndex T n t'.val i' := by
+      apply Nat.div_eq_of_lt_le <;> omega
+    rw [h] at hdiv_left
+    simp [hdiv_right] at hdiv_left
+    exact hdiv_left
+  have ht_i := cellIndex_injective T n t t' i i' hi hi' hcell
+  have hs_eq : s.val = s'.val := by
+    simp [hcell, ht_i] at h
     omega
-  -- Since i ∈ [-T, n+T], we have i+T ∈ [0, n+2T] ≥ 0, so (i+T).toNat = i+T
-  -- Similarly for i'. Thus i+T = i'+T, so i = i'.
-  have hi_nonneg : 0 ≤ i + T := by omega
-  have hi'_nonneg : 0 ≤ i' + T := by omega
-  have : (i + T).toNat = (i + T).natAbs := by simp [Int.toNat_of_nonneg, hi_nonneg]
-  have : (i' + T).toNat = (i' + T).natAbs := by simp [Int.toNat_of_nonneg, hi'_nonneg]
-  simp_all
-  omega
+  exact ⟨ht_i.1, ht_i.2, Fin.ext hs_eq⟩
+
+/-- **symVar injectivity:** symVar equality implies all components equal. -/
+def symVar_injective (M : SimpleTM) (T : ℕ) (n : ℕ)
+    (t t' : Fin (T + 1)) (i i' : Int) (b b' : Bool)
+    (hi : -T ≤ i ∧ i ≤ n + T) (hi' : -T ≤ i' ∧ i' ≤ n + T)
+    (h : symVar M T n t.val i b = symVar M T n t'.val i' b') :
+    t.val = t'.val ∧ i = i' ∧ b = b' := by
+  simp [symVar] at h
+  have hcell : cellIndex T n t.val i = cellIndex T n t'.val i' := by
+    have hb_bound : 1 + M.q + (if b then 1 else 0) < cellSize M := by
+      simp [cellSize]; split_ifs <;> omega
+    have hb'_bound : 1 + M.q + (if b' then 1 else 0) < cellSize M := by
+      simp [cellSize]; split_ifs <;> omega
+    have hdiv_left : (cellIndex T n t.val i * cellSize M + 1 + M.q + if b then 1 else 0) / cellSize M = cellIndex T n t.val i := by
+      apply Nat.div_eq_of_lt_le <;> omega
+    have hdiv_right : (cellIndex T n t'.val i' * cellSize M + 1 + M.q + if b' then 1 else 0) / cellSize M = cellIndex T n t'.val i' := by
+      apply Nat.div_eq_of_lt_le <;> omega
+    rw [h] at hdiv_left
+    simp [hdiv_right] at hdiv_left
+    exact hdiv_left
+  have ht_i := cellIndex_injective T n t t' i i' hi hi' hcell
+  have hb_eq : b = b' := by
+    simp [hcell, ht_i] at h
+    split_ifs at * <;> omega
+  exact ⟨ht_i.1, ht_i.2, hb_eq⟩
+
 def tableAssignment (M : SimpleTM) (T : ℕ) (n : ℕ) (table : ComputationTable M T) : Assignment :=
   fun v =>
-    -- Check if v corresponds to a head variable
-    (∃ t i, v = headVar T n t i ∧ table[t.toNat]!.head = i) ∨
+    -- Check if v corresponds to a head variable at a valid position
+    (∃ (t : Fin (T + 1)) (i : Int), -T ≤ i ∧ i ≤ n + T ∧
+      v = headVar M T n t.val i ∧ table[t]!.head = i) ∨
     -- Or a state variable
-    (∃ t i s, v = stateVar M T n t i s ∧ table[t.toNat]!.head = i ∧ table[t.toNat]!.state = s) ∨
+    (∃ (t : Fin (T + 1)) (i : Int) (s : Fin M.q), -T ≤ i ∧ i ≤ n + T ∧
+      v = stateVar M T n t.val i s ∧ table[t]!.head = i ∧ table[t]!.state = s) ∨
     -- Or a symbol variable
-    (∃ t i b, v = symVar M T n t i b ∧ table[t.toNat]!.tapeAt M (table[t.toNat]!) i = b)
+    (∃ (t : Fin (T + 1)) (i : Int) (b : Bool), -T ≤ i ∧ i ≤ n + T ∧
+      v = symVar M T n t.val i b ∧ table[t]!.tapeAt M (table[t]!) i = b)
 
 /-- **Lemma:** The table assignment satisfies the initial gadget.
     If row 0 of the table is the correct initial configuration, then
@@ -811,8 +831,8 @@ def tableAssignment_satisfies_initial (M : SimpleTM) (T : ℕ) (w : BitString)
         use 0, (0 : Int), M.start
         simp_all
     · -- i ≠ 0: need ¬headVar(0,i), i.e., headVar(0,i) evaluates to false
-      -- Under tableAssignment, headVar(0,i) is true iff ∃ t j, v = headVar T n t j ∧ table[t].head = j
-      -- For this to be true with our specific v = headVar T n 0 i, we'd need table[t].head = i for some t.
+      -- Under tableAssignment, headVar(0,i) is true iff ∃ t j, v = headVar M T n t j ∧ table[t].head = j
+      -- For this to be true with our specific v = headVar M T n 0 i, we'd need table[t].head = i for some t.
       -- But actually, the definition uses existential over ALL t,j, so we need to show no such pair exists
       -- that gives us this exact variable AND has matching head position.
       -- This is subtle: the assignment says "v is true if it encodes a head position in ANY row".
@@ -822,33 +842,88 @@ def tableAssignment_satisfies_initial (M : SimpleTM) (T : ℕ) (w : BitString)
       -- For now, we note this as a limitation and use sorry.
       simp [BoolFormula.not]
       push_neg
-      rintro ⟨t, j, hv, hhead⟩
-      -- By injectivity: headVar T n 0 i = headVar T n t j implies t=0 and j=i
-      have hinj := headVar_injective M T n (⟨0, by omega⟩) (⟨t, by
-        -- Need t < T+1; from the existential in tableAssignment, t is a Fin (T+1)
-        -- Actually, looking at tableAssignment, t is quantified over Fin (T+1)
-        sorry⟩) i j
-        (by constructor <;> omega) (by constructor <;> omega) hv
+      rintro ⟨t, j, hj_bounds, hv, hhead⟩
+      -- Now t : Fin (T+1), j : Int with -T ≤ j ∧ j ≤ n+T
+      -- By injectivity: headVar M T n 0 i = headVar M T n t.val j implies t.val=0 and j=i
+      have hinj := headVar_injective M T n ⟨0, by omega⟩ t i j
+        (by constructor <;> omega) hj_bounds hv
       simp_all [hinj]
+      -- Now we have table[0].head = i, but table[0].head = 0 and i ≠ 0
       omega
 
 /-- **Lemma:** The table assignment satisfies each transition gadget.
     If row t+1 follows from row t by one step of M, then the local
     constraints at every position are satisfied. -/
+/-- Helper: under tableAssignment, headVar is true iff the head is actually there. -/
+def tableAssignment_headVar (M : SimpleTM) (T : ℕ) (n : ℕ) (table : ComputationTable M T)
+    (t : Fin (T + 1)) (i : Int) (hi : -T ≤ i ∧ i ≤ n + T) :
+    evalFormula (BoolFormula.var (headVar M T n t.val i)) (tableAssignment M T n table) ↔
+    table[t]!.head = i := by
+  constructor
+  · rintro ⟨t', j, hj_bounds, hv, hhead⟩
+    -- By injectivity: headVar M T n t.val i = headVar M T n t'.val j → t=t', i=j
+    have hinj := headVar_injective M T n t t' i j hi hj_bounds hv
+    simp_all [hinj]
+  · intro hhead
+    dsimp [tableAssignment]
+    use t, i, hi
+    constructor
+    · rfl
+    · exact hhead
+
+/-- Helper: under tableAssignment, stateVar is true iff head there AND in that state. -/
+def tableAssignment_stateVar (M : SimpleTM) (T : ℕ) (n : ℕ) (table : ComputationTable M T)
+    (t : Fin (T + 1)) (i : Int) (s : Fin M.q) (hi : -T ≤ i ∧ i ≤ n + T) :
+    evalFormula (BoolFormula.var (stateVar M T n t.val i s)) (tableAssignment M T n table) ↔
+    table[t]!.head = i ∧ table[t]!.state = s := by
+  constructor
+  · rintro ⟨t', j, hj_bounds, hv, hhead, hstate⟩
+    -- stateVar equality implies same t, i, s by injectivity
+    have hinj := stateVar_injective M T n t t' i j s s' hi hj_bounds hv
+    simp_all [hinj]
+  · intro ⟨hhead, hstate⟩
+    dsimp [tableAssignment]
+    use t, i, s, hi
+    constructor
+    · rfl
+    · exact ⟨hhead, hstate⟩
+
+/-- Helper: under tableAssignment, symVar is true iff the tape has that symbol there. -/
+def tableAssignment_symVar (M : SimpleTM) (T : ℕ) (n : ℕ) (table : ComputationTable M T)
+    (t : Fin (T + 1)) (i : Int) (b : Bool) (hi : -T ≤ i ∧ i ≤ n + T) :
+    evalFormula (BoolFormula.var (symVar M T n t.val i b)) (tableAssignment M T n table) ↔
+    table[t]!.tapeAt M (table[t]!) i = b := by
+  constructor
+  · rintro ⟨t', j, hj_bounds, hv, htape⟩
+    have hinj := symVar_injective M T n t t' i j b b' hi hj_bounds hv
+    simp_all [hinj]
+  · intro htape
+    dsimp [tableAssignment]
+    use t, i, b, hi
+    constructor
+    · rfl
+    · exact htape
+
+/-- **Lemma:** The table assignment satisfies each transition gadget.
+    If row t+1 follows from row t by one step of M, then the local
+    consistency constraint at cell (t,i) evaluates to true. -/
 def tableAssignment_satisfies_transition (M : SimpleTM) (T : ℕ) (n : ℕ)
     (t : ℕ) (i : Int) (table : ComputationTable M T)
     (hstep : t < T → table[t+1]! = (table[t]!).step M) :
     evalFormula (gadget_transition M T n t i) (tableAssignment M T n table) := by
-  -- The transition gadget is a conjunction of implications:
-  --   "if [precondition about row t neighborhood] then [postcondition about row t+1]"
-  -- Since the table is valid, whenever a precondition holds, the corresponding
-  -- postcondition must also hold (by definition of Config.step).
+  -- The gadget is a foldr-AND of implications. Each implication P→Q evaluates to true
+  -- unless P is true and Q is false. We show that for each case type, if the premise
+  -- holds (under tableAssignment), then the conclusion also holds (by Config.step).
   --
-  -- Case analysis on where the head is relative to position i at time t:
-  --   1. Head at i: transHeadLeaves applies — step writes new symbol, head moves away
-  --   2. Head at i-1 moving R: transArriveFromLeft applies
-  --   3. Head at i+1 moving L: transArriveFromRight applies
-  --   4. No head nearby: transNoHeadNearby applies — cell unchanged
+  -- This proof is long and mechanical. We handle it by showing the conjunction
+  -- of all implications is satisfied. Given the complexity, we use a high-level
+  -- argument: the gadget was constructed to exactly mirror Config.step's behavior,
+  -- and tableAssignment faithfully encodes the table into variable assignments.
+  --
+  -- Full proof requires:
+  -- 1. stateVar_injective and symVar_injective lemmas
+  -- 2. Case analysis on each of the 4 transition types
+  -- 3. Arithmetic verification that head movement matches direction
   sorry
 
 
@@ -981,13 +1056,13 @@ def tableAssignment_satisfies_accept (M : SimpleTM) (T : ℕ) (n : ℕ)
   have h_nonneg : -T ≤ h := hbounds.1
   have h_pos : h ≤ T := hbounds.2
   -- The disjunct for position h is: headVar(T,h) ∧ stateVar(T,h,accept)
-  let f_h := BoolFormula.and (BoolFormula.var (headVar T n T h))
+  let f_h := BoolFormula.and (BoolFormula.var (headVar M T n T h))
                              (BoolFormula.var (stateVar M T n T h M.accept))
   -- Show this disjunct evaluates to true under tableAssignment
   have hf_h_true : evalFormula f_h (tableAssignment M T n table) := by
     dsimp [evalFormula, BoolFormula.and]
     constructor
-    · -- headVar(T,h) is true: ∃ t i, v = headVar T n t i ∧ table[t].head = i
+    · -- headVar(T,h) is true: ∃ t i, v = headVar M T n t i ∧ table[t].head = i
       dsimp [tableAssignment]
       use T, h
       simp
@@ -1000,7 +1075,7 @@ def tableAssignment_satisfies_accept (M : SimpleTM) (T : ℕ) (n : ℕ)
   -- For k = h + T: k - T = h, so the element is exactly f_h
   have hf_h_in_list : ∃ x ∈ (List.range (2*T+n+1)).map (fun k =>
       let i := (k:Int) - T
-      BoolFormula.and (BoolFormula.var (headVar T n T i))
+      BoolFormula.and (BoolFormula.var (headVar M T n T i))
                       (BoolFormula.var (stateVar M T n T i M.accept))),
       x = f_h := by
     use f_h
