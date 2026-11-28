@@ -696,6 +696,51 @@ def tableAssignment_satisfies_transition (M : SimpleTM) (T : ℕ) (n : ℕ)
   --   4. No head nearby: transNoHeadNearby applies — cell unchanged
   sorry
 
+
+/-- **Lemma:** In a T-step computation, the head can be at most T positions
+    away from its starting position. Starting at 0 with input of length n,
+    the head stays in [-T, T] ⊆ [-T, n+T]. -/
+def headStaysInBounds (M : SimpleTM) (T : ℕ) (n : ℕ) (table : ComputationTable M T)
+    (hvalid : validTable M T (List.replicate n false) table) :
+    ∀ t ≤ T, -T ≤ table[t]!.head ∧ table[t]!.head ≤ T := by
+  intro t ht
+  induction t with
+  | zero =>
+    -- At time 0, head is at position 0 (initial config)
+    have h0 : table[0]! = Config.initial M (List.replicate n false) := by
+      simp [validTable] at hvalid
+      exact hvalid.2.1
+    rw [h0]
+    dsimp [Config.initial]
+    constructor <;> omega
+  | succ t ih =>
+    -- At time t+1, head moved exactly 1 position from time t
+    have hstep : table[t+1]! = (table[t]!).step M := by
+      simp [validTable] at hvalid
+      exact (hvalid.2.2.1) t (by omega)
+    rw [hstep]
+    -- Config.step sets head to (old_head - 1) or (old_head + 1)
+    dsimp only [Config.step]
+    have ih_t := ih (by omega)
+    -- The new head is either old_head - 1 or old_head + 1
+    split_ifs with hdir
+    · -- dir = L: new head = old_head - 1
+      constructor
+      · -- Lower bound: -(t+1) ≤ old_head - 1
+        have hl : -T ≤ table[t]!.head := ih_t.1
+        omega
+      · -- Upper bound: old_head - 1 ≤ T
+        have hu : table[t]!.head ≤ T := ih_t.2
+        omega
+    · -- dir = R: new head = old_head + 1
+      constructor
+      · -- Lower bound: -(t+1) ≤ old_head + 1
+        have hl : -T ≤ table[t]!.head := ih_t.1
+        omega
+      · -- Upper bound: old_head + 1 ≤ T
+        have hu : table[t]!.head ≤ T := ih_t.2
+        omega
+
 /-- **Helper:** If a formula in a list evaluates to true under assignment a,
     then the foldr-OR of the whole list also evaluates to true. -/
 def evalOrList_true_if_element_true {α} (fs : List BoolFormula) (a : Assignment) (i : ℕ)
