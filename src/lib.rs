@@ -32,6 +32,7 @@ pub mod bell;
 pub mod benchmarks;
 pub mod chaitin;
 pub mod collapse;
+pub mod crypto_economics;
 pub mod deutsch;
 pub mod euler;
 pub mod everett;

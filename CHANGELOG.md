@@ -6,6 +6,14 @@ All notable changes to shor-grover-exploration are documented here.
 
 ### Added
 
+**Cryptographic Economics Station (`crypto_economics.rs`):**
+- `show_crypto_economics_station()` — The negative value of security through obscurity in the post-P world.
+- EXPERIMENT 1: Complexity gap analysis — why Google/Cogentic's L_N[1/3, 105] bound does not break RSA-2048 (same α=1/3 as GNFS, worse constant c).
+- EXPERIMENT 2: Obscurity theater — all "custom" secret formats collapse to four regex shapes; naming conventions add cost, not security.
+- EXPERIMENT 3: RSA (integer factorization) vs Bitcoin/ECC (elliptic curve discrete log) — different mathematical problems, one break does not imply the other.
+- EXPERIMENT 4: Impairment test — which security controls survive if cryptographic hardness assumptions fail? Process-based controls survive; hardness-based ones face write-down.
+- Primary sources cited: Aaronson blog (Nov 24-26), Nature explainer (Nov 26), Google Cogentic README, OpenAI preprints (VP≠VNP, ω≤9/4), Anthropic formal-math PR #51.
+
 **Riemann Hypothesis Station — Shape Tests 8-11:**
 - SHAPE TEST 8 (`shape_test_depth_constraint`) — Rigorous depth-dependent W/H constraint analysis. Model B (W/H depends on N_smooth) wins with slope -0.70, 67% variance explained by depth. Phase transition at peak 10-12 where variance collapses from ~2.3 to 0.94.
 - SHAPE TEST 9 (`shape_test_edge_partition_and_mapping`) — Edge partition and distance mapping. Reveals layered dimension discovery: correlation connects at peak 20, edge structure at T=33, W/H stabilizes at peak 47. Strong level repulsion near peaks (all spacings < 0.5).
