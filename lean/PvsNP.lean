@@ -574,6 +574,41 @@ def gadget_accept (M : SimpleTM) (T : ℕ) (n : ℕ) : BoolFormula :=
                     (BoolFormula.var (stateVar M T n T i M.accept))
   ) |>.foldr BoolFormula.or BoolFormula.ff
 
+
+/-- **Gadget: State uniqueness.** For each cell (t,i), at most one state variable is true. -/
+def gadget_stateUniqueness (M : SimpleTM) (T : ℕ) (n : ℕ) (t : ℕ) (i : Int) : BoolFormula :=
+  let states : List (Fin M.q) := List.range M.q |>.map (fun k => ⟨k, by omega⟩)
+  -- For each pair of distinct states q1 ≠ q2: ¬(stateVar(q1) ∧ stateVar(q2))
+  let pairs : List BoolFormula :=
+    states.bind (fun q1 => states.filter (fun q2 => q1 ≠ q2) |>.map (fun q2 =>
+      BoolFormula.not (BoolFormula.and
+        (BoolFormula.var (stateVar M T n t i q1))
+        (BoolFormula.var (stateVar M T n t i q2))))))
+  List.foldr BoolFormula.and BoolFormula.tt pairs
+
+/-- **Gadget: Symbol consistency.** For each cell (t,i), exactly one symbol variable is true. -/
+def gadget_symbolConsistency (M : SimpleTM) (T : ℕ) (n : ℕ) (t : ℕ) (i : Int) : BoolFormula :=
+  -- At least one symbol: symVar(true) ∨ symVar(false)
+  let atLeastOne : BoolFormula :=
+    BoolFormula.or (BoolFormula.var (symVar M T n t i true))
+                   (BoolFormula.var (symVar M T n t i false))
+  -- At most one symbol: ¬(symVar(true) ∧ symVar(false))
+  let atMostOne : BoolFormula :=
+    BoolFormula.not (BoolFormula.and
+      (BoolFormula.var (symVar M T n t i true))
+      (BoolFormula.var (symVar M T n t i false)))
+  BoolFormula.and atLeastOne atMostOne
+
+/-- **Gadget: Full consistency.** State uniqueness + symbol consistency for all cells. -/
+def gadget_consistency (M : SimpleTM) (T : ℕ) (n : ℕ) : BoolFormula :=
+  let positions : List Int := List.range (2 * T + n + 1) |>.map (fun k => (k : Int) - T)
+  let allCells : List BoolFormula :=
+    List.bind (fun t => positions.map (fun i =>
+      BoolFormula.and (gadget_stateUniqueness M T n t i)
+                      (gadget_symbolConsistency M T n t i)))
+              (List.range (T + 1))
+  List.foldr BoolFormula.and BoolFormula.tt allCells
+
 /-- **The Cook-Levin formula:** Conjunction of all gadgets.
     φ(w) = initial ∧ (∀t,i. transition(t,i)) ∧ accept
 
@@ -586,7 +621,8 @@ def cookLevinFormula (M : SimpleTM) (T : ℕ) (w : BitString) : BoolFormula :=
   BoolFormula.and (gadget_initial M w T)
     (BoolFormula.and
       (List.foldr BoolFormula.and BoolFormula.tt transitions)
-      (gadget_accept M T n))
+      (BoolFormula.and (gadget_consistency M T n)
+                       (gadget_accept M T n)))
 
 /-! ### Correctness Lemmas (incremental) -/
 
@@ -1480,12 +1516,131 @@ def satAssign_uniqueState (M : SimpleTM) (T : ℕ) (w : BitString) (a : Assignme
     (hhead : evalFormula (BoolFormula.var (headVar M T n t.val i)) a) :
     ∃! s : Fin M.q, evalFormula (BoolFormula.var (stateVar M T n t.val i s)) a := by
   let n := w.length
-  -- This follows from the transition gadget constraints which enforce
-  -- that head and state variables are consistent. The proof requires
-  -- analyzing how the implications in gadget_transition constrain states.
-  -- For row 0, it's direct from the initial gadget.
-  -- For later rows, it propagates through transitions.
-  sorry
+  -- The consistency gadget ensures at most one state var is true per cell.
+  -- We also need to show at least one is true (from the head being present).
+  dsimp [cookLevinFormula] at ha
+  simp [evalFormula, BoolFormula.and] at ha
+  -- Extract the consistency gadget satisfaction
+  have hcons : evalFormula (gadget_consistency M T n) a := by
+    aesop
+  -- From consistency: at most one state is true for cell (t,i)
+  have hatmostOne : ∀ q1 q2 : Fin M.q, q1 ≠ q2 →
+      ¬(evalFormula (BoolFormula.var (stateVar M T n t.val i q1)) a ∧
+        evalFormula (BoolFormula.var (stateVar M T n t.val i q2)) a) := by
+    dsimp [gadget_consistency] at hcons
+    apply evalFoldrAnd_true.mp hcons
+    use t.val, i
+    constructor
+    · simp [List.mem_range]; omega
+    · intro q1 q2 hneq
+      dsimp [BoolFormula.and] at *
+      simp [evalFormula] at *
+      -- The stateUniqueness gadget gives us the result directly
+      aesop
+  -- Existence: if head is at (t,i), some state must be true
+  -- This follows from the initial/transition gadgets
+  have hexists : ∃ s : Fin M.q, evalFormula (BoolFormula.var (stateVar M T n t.val i s)) a := by
+    cases t with
+    | zero =>
+      -- Row 0: head at 0 with start state (from initial gadget)
+      have hrow0 : i = 0 := by
+        -- satAssign_row0_headAtZero gives us this
+        exact satAssign_row0_headAtZero M T w a ha (Fin.zero : Fin (T+1)) i hhead hi_bounds
+      rw [hrow0]
+      use M.start
+      dsimp [cookLevinFormula] at ha
+      simp [evalFormula, BoolFormula.and] at ha
+      have hinit : evalFormula (gadget_initial M w T) a := by aesop
+      dsimp [gadget_initial] at hinit
+      apply evalFoldrAnd_true.mp hinit
+      use 0  -- position 0 is at index T in the list
+      constructor
+      · simp [List.mem_range]; omega
+      · dsimp [gadget_initial_cell]
+        split_ifs <;> simp_all [evalFormula, BoolFormula.and, BoolFormula.not]
+        <;> aesop
+    | succ t' =>
+      -- Later rows: head arrived via transition, state set by arrival gadget
+      -- This is the hard part — need to trace back where the head came from
+      sorry
+  -- Uniqueness follows from hatmostOne
+  rcases hexists with ⟨s0, hs0⟩
+  refine ⟨s0, hs0, ?_⟩
+  intro s1 hs1
+  by_contra hneq
+  push_neg at hneq
+  have hboth := hatmostOne s0 s1 hneq
+  exact hboth ⟨hs0, hs1⟩
+
+
+/-- **Lemma:** The table assignment satisfies state uniqueness. -/
+def tableAssignment_satisfies_stateUniqueness (M : SimpleTM) (T : ℕ) (n : ℕ)
+    (table : ComputationTable M T) (hvalid : validTable M T (List.replicate n false) table)
+    (t : ℕ) (i : Int) (q1 q2 : Fin M.q) (hq : q1 ≠ q2) :
+    ¬(evalFormula (BoolFormula.var (stateVar M T n t i q1)) (tableAssignment M T n table) ∧
+      evalFormula (BoolFormula.var (stateVar M T n t i q2)) (tableAssignment M T n table)) := by
+  intro hboth
+  dsimp [tableAssignment, stateVar] at hboth
+  -- Both states can't be true because the config has exactly one state
+  rcases hboth with ⟨h1, h2⟩
+  simp at h1 h2
+  -- h1 says table[t].state = q1 (when head is at i), h2 says table[t].state = q2
+  have h_eq : q1 = q2 := by
+    cases t <;> try omega
+    · -- t < T+1, so table[t] exists
+      simp [Fin.val_injective] at *
+      aesop
+  contradiction
+
+/-- **Lemma:** The table assignment satisfies symbol consistency. -/
+def tableAssignment_satisfies_symbolConsistency (M : SimpleTM) (T : ℕ) (n : ℕ)
+    (table : ComputationTable M T) (hvalid : validTable M T (List.replicate n false) table)
+    (t : ℕ) (i : Int) :
+    evalFormula (BoolFormula.or 
+      (BoolFormula.var (symVar M T n t i true))
+      (BoolFormula.var (symVar M T n t i false))) (tableAssignment M T n table) ∧
+    ¬(evalFormula (BoolFormula.var (symVar M T n t i true)) (tableAssignment M T n table) ∧
+      evalFormula (BoolFormula.var (symVar M T n t i false)) (tableAssignment M T n table)) := by
+  dsimp [tableAssignment, symVar]
+  constructor
+  · -- At least one symbol is true: the actual tape symbol
+    apply Or.inl
+    simp
+    aesop
+  · -- At most one: can't have both true and false
+    intro hboth
+    rcases hboth with ⟨h1, h2⟩
+    simp at h1 h2
+    aesop
+
+/-- **Lemma:** The table assignment satisfies the full consistency gadget. -/
+def tableAssignment_satisfies_consistency (M : SimpleTM) (T : ℕ) (n : ℕ)
+    (table : ComputationTable M T) (hvalid : validTable M T (List.replicate n false) table) :
+    evalFormula (gadget_consistency M T n) (tableAssignment M T n table) := by
+  dsimp [gadget_consistency]
+  apply evalFoldrAnd_true
+  intro x hx
+  -- x is a conjunction of stateUniqueness and symbolConsistency for some cell
+  rcases List.mem_bind.mp hx with ⟨t, ht, i, hi, rfl⟩
+  rcases List.mem_range.mp ht with ⟨_, hlt⟩
+  dsimp only [BoolFormula.and]
+  simp [evalFormula]
+  constructor
+  · -- State uniqueness for this cell
+    dsimp [gadget_stateUniqueness]
+    apply evalFoldrAnd_true
+    intro y hy
+    rcases List.mem_bind.mp hy with ⟨q1, _, q2, hq2, rfl⟩
+    simp [List.filter, BoolFormula.not, BoolFormula.and] at *
+    -- Need to show ¬(stateVar(q1) ∧ stateVar(q2)) when q1 ≠ q2
+    intro hboth
+    have hneq : q1 ≠ q2 := by aesop
+    exact tableAssignment_satisfies_stateUniqueness M T n table hvalid t i q1 q2 hneq
+  · -- Symbol consistency for this cell
+    dsimp [gadget_symbolConsistency]
+    simp [evalFormula, BoolFormula.and, BoolFormula.or, BoolFormula.not]
+    exact tableAssignment_satisfies_symbolConsistency M T n table hvalid t i
+
 
 /-- **Theorem:** The Cook-Levin reduction is correct.
     M accepts w within T steps ⟺ φ(w) is satisfiable. -/
