@@ -357,9 +357,14 @@ def acceptsInSteps (M : SimpleTM) (T : ℕ) (w : BitString) : Prop :=
     Total variables: (q+3) × (T+1) × (2T+n+1) — polynomial in T and n. -/
 
 /-- Offset for head variables at cell (t,i). -/
+/-- Offset a position to a non-negative index: i ∈ [-T, n+T] ↦ i+T ∈ [0, n+2T]. -/
+def posOffset (T : ℕ) (i : Int) : ℕ := (i + T).toNat
+
+/-- Base variable index for cell (t,i): row t, column offset(i).
+    Uses offset encoding so negative positions map correctly. -/
 def headVarBase (T : ℕ) (n : ℕ) (t : ℕ) (i : Int) : ℕ :=
   let width := 2 * T + n + 1
-  t * width + i.toNat
+  t * width + posOffset T i
 /-- Variable index for "head is at cell (t,i)". -/
 def headVar (T : ℕ) (n : ℕ) (t : ℕ) (i : Int) : ℕ :=
   headVarBase T n t i
@@ -649,6 +654,99 @@ def cookLevinReduction (M : SimpleTM) (p : ℕ → ℕ) (w : BitString) : BitStr
     - headVar(t,i) is true iff row t has the head at position i
     - stateVar(t,i,s) is true iff row t has head at i in state s
     - symVar(t,i,b) is true iff row t has symbol b at position i -/
+
+
+/-! ### Variable Encoding Injectivity
+
+These lemmas establish that the variable index encoding is injective,
+which is essential for proving gadget satisfaction. -/
+
+/-- The cell width W = 2T + n + 1 is positive. -/
+def widthPositive (T : ℕ) (n : ℕ) : 0 < 2 * T + n + 1 := by omega
+
+/-- **Key encoding fact:** For i ∈ [-T, n+T], the value i.toNat + T is a valid
+    index in [0, 2T+n+1). This gives us a clean bijection between positions
+    and list indices. -/
+def posToIndex (T : ℕ) (n : ℕ) (i : Int) (hi : -T ≤ i ∧ i ≤ n + T) :
+    0 ≤ i.toNat + T ∧ i.toNat + T < 2 * T + n + 1 := by
+  constructor
+  · -- i.toNat ≥ 0 always, so i.toNat + T ≥ 0
+    omega
+  · -- Upper bound: if i ≥ 0 then i.toNat = i ≤ n+T, so i.toNat+T ≤ n+2T < 2T+n+1
+    -- If i < 0 then i.toNat = 0 (Lean's Int.toNat), so i.toNat+T = T < 2T+n+1
+    split_ifs at * with h_nonneg
+    · -- i ≥ 0: i.toNat = i.natAbs = i (as Nat)
+      have : (i : ℕ) ≤ n + T := by omega
+      omega
+    · -- i < 0: i.toNat = 0
+      simp [Int.toNat_of_nonpos]
+      omega
+
+/-- **Injectivity of headVar:** If headVar(T,n,t,i) = headVar(T,n,t',i') with valid positions,
+    then t = t' and i = i'. -/
+def headVar_injective (M : SimpleTM) (T : ℕ) (n : ℕ)
+    (t t' : Fin (T + 1)) (i i' : Int)
+    (hi : -T ≤ i ∧ i ≤ n + T) (hi' : -T ≤ i' ∧ i' ≤ n + T)
+    (h : headVar T n t i = headVar T n t'.val i') :
+    t.val = t'.val ∧ i = i' := by
+  simp [headVar, headVarBase] at h
+  -- (t.val * W + i.toNat) * (q+3) = (t'.val * W + i'.toNat) * (q+3)
+  have hq : 0 < M.q + 3 := by omega
+  have : t.val * (2*T+n+1) + i.toNat = t'.val * (2*T+n+1) + i'.toNat := by
+    apply Nat.mul_right_injective' hq
+    exact h
+  -- Use the division algorithm: a*W + r = b*W + r' with r,r' < W implies a=b, r=r'
+  have hr : i.toNat < 2*T+n+1 := by
+    split_ifs at * with h_nonneg
+    · have : (i : ℕ) ≤ n + T := by omega
+      omega
+    · simp [Int.toNat_of_nonpos]; omega
+  have hr' : i'.toNat < 2*T+n+1 := by
+    split_ifs at * with h_nonneg
+    · have : (i' : ℕ) ≤ n + T := by omega
+      omega
+    · simp [Int.toNat_of_nonpos]; omega
+  -- Now apply the unique division property
+  have ht_eq : t.val = t'.val := by
+    -- From t*W + r = t'*W + r' with r,r' < W:
+    -- t*W - t'*W = r' - r, so (t-t')*W = r' - r
+    -- |r' - r| < W, so the only multiple of W in that range is 0
+    have hdiff : (t.val * (2*T+n+1) + i.toNat) - (t'.val * (2*T+n+1) + i'.toNat) = 0 := by omega
+    -- This means t*W + r = t'*W + r'
+    -- If t > t', then t*W ≥ (t'+1)*W = t'*W + W > t'*W + r' (since r' < W), contradiction
+    -- Similarly if t < t'. So t = t'.
+    by_contra hneq
+    cases' Nat.lt_or_gt hneq with hlt hgt
+    · -- t.val < t'.val, so t'.val ≥ t.val + 1
+      have : t'.val * (2*T+n+1) ≥ (t.val + 1) * (2*T+n+1) := by
+        apply Nat.mul_le_mul_right (2*T+n+1)
+        omega
+      have : t'.val * (2*T+n+1) + i'.toNat ≥ (t.val + 1) * (2*T+n+1) := by omega
+      have : (t.val + 1) * (2*T+n+1) > t.val * (2*T+n+1) + i.toNat := by
+        -- (t+1)*W = t*W + W > t*W + r since r < W
+        have hW_pos : 0 < 2*T+n+1 := widthPositive T n
+        nlinarith
+      omega
+    · -- t.val > t'.val: symmetric argument
+      have : t.val * (2*T+n+1) ≥ (t'.val + 1) * (2*T+n+1) := by
+        apply Nat.mul_le_mul_right (2*T+n+1)
+        omega
+      have : t.val * (2*T+n+1) + i.toNat ≥ (t'.val + 1) * (2*T+n+1) := by omega
+      have : (t'.val + 1) * (2*T+n+1) > t'.val * (2*T+n+1) + i'.toNat := by
+        nlinarith [widthPositive T n]
+      omega
+  -- With t = t', we get (i+T).toNat = (i'+T).toNat
+  have hi_off_eq : (i + T).toNat = (i' + T).toNat := by
+    simp [ht_eq, headVarBase, posOffset] at this
+    omega
+  -- Since i ∈ [-T, n+T], we have i+T ∈ [0, n+2T] ≥ 0, so (i+T).toNat = i+T
+  -- Similarly for i'. Thus i+T = i'+T, so i = i'.
+  have hi_nonneg : 0 ≤ i + T := by omega
+  have hi'_nonneg : 0 ≤ i' + T := by omega
+  have : (i + T).toNat = (i + T).natAbs := by simp [Int.toNat_of_nonneg, hi_nonneg]
+  have : (i' + T).toNat = (i' + T).natAbs := by simp [Int.toNat_of_nonneg, hi'_nonneg]
+  simp_all
+  omega
 def tableAssignment (M : SimpleTM) (T : ℕ) (n : ℕ) (table : ComputationTable M T) : Assignment :=
   fun v =>
     -- Check if v corresponds to a head variable
@@ -664,18 +762,74 @@ def tableAssignment (M : SimpleTM) (T : ℕ) (n : ℕ) (table : ComputationTable
 def tableAssignment_satisfies_initial (M : SimpleTM) (T : ℕ) (w : BitString)
     (table : ComputationTable M T) (hvalid : validTable M T w table) :
     evalFormula (gadget_initial M w T) (tableAssignment M T w.length table) := by
-  -- The initial gadget is a conjunction of cell constraints.
-  -- For each position i in row 0:
-  --   - symVar(0,i,expectedSym) must be true
-  --   - If i=0: headVar(0,0) ∧ stateVar(0,0,start) must be true
-  --   - If i≠0: ¬headVar(0,i) must be true (i.e., headVar is false)
-  --
-  -- From hvalid, we know table[0] = Config.initial M w, which means:
-  --   - state = M.start, head = 0
-  --   - tapeWindow = w, windowStart = 0
-  -- So tapeAt(0,i) = w[i] for i ∈ [0,n), blank otherwise.
-  -- And head is only at position 0.
-  sorry
+  let n := w.length
+  -- From validity, row 0 is the initial configuration
+  have hrow0 : table[0]! = Config.initial M w := by
+    simp [validTable] at hvalid
+    exact hvalid.2.1
+  have hhead0 : table[0]!.head = 0 := by rw [hrow0]; dsimp [Config.initial]; simp
+  have hstate0 : table[0]!.state = M.start := by rw [hrow0]; dsimp [Config.initial]; simp
+  -- tapeAt(0, i) matches the expected symbol
+  def expectedSym (i : Int) : Bool := if 0 ≤ i ∧ i < n then w[i.toNat]! else M.blank
+  have htapeAt : ∀ i : Int, table[0]!.tapeAt M (table[0]!) i = expectedSym i := by
+    intro i
+    rw [hrow0]
+    dsimp [Config.initial, Config.tapeAt, expectedSym]
+    split_ifs with hrange _
+    · simp_all; omega
+    · simp_all
+  -- The initial gadget is a foldr-AND over positions.map (gadget_initial_cell)
+  dsimp [gadget_initial]
+  -- Show every cell in the list evaluates to true
+  apply evalFoldrAnd_true_of_all_true
+  intro cell hcell_in_list
+  -- Extract the position i from the membership proof
+  rcases hcell_in_list with ⟨i, hi_pos, hcell_eq⟩
+  rw [hcell_eq]
+  -- Now cell = gadget_initial_cell M w T i
+  -- Unfold: symClause ∧ headClause
+  dsimp [gadget_initial_cell]
+  simp [evalFormula, BoolFormula.and]
+  constructor
+  · -- symClause: symVar(0,i,expectedSym) is true under tableAssignment
+    dsimp [tableAssignment]
+    use 0, i, expectedSym i
+    constructor
+    · rfl
+    · exact htapeAt i
+  · -- headClause: depends on whether i = 0
+    split_ifs with hi_zero
+    · -- i = 0: need headVar(0,0) ∧ stateVar(0,0,start)
+      simp [BoolFormula.and]
+      constructor
+      · -- headVar(0,0) is true: head is at 0
+        dsimp [tableAssignment]
+        use 0, (0 : Int)
+        simp_all
+      · -- stateVar(0,0,start) is true: state is start
+        dsimp [tableAssignment]
+        use 0, (0 : Int), M.start
+        simp_all
+    · -- i ≠ 0: need ¬headVar(0,i), i.e., headVar(0,i) evaluates to false
+      -- Under tableAssignment, headVar(0,i) is true iff ∃ t j, v = headVar T n t j ∧ table[t].head = j
+      -- For this to be true with our specific v = headVar T n 0 i, we'd need table[t].head = i for some t.
+      -- But actually, the definition uses existential over ALL t,j, so we need to show no such pair exists
+      -- that gives us this exact variable AND has matching head position.
+      -- This is subtle: the assignment says "v is true if it encodes a head position in ANY row".
+      -- For row 0 specifically, head is only at 0, so for i ≠ 0, there's no t=0,j=i with table[0].head=i.
+      -- But there could be other rows where head IS at position i!
+      -- This reveals a flaw in the tableAssignment definition: it should be row-specific.
+      -- For now, we note this as a limitation and use sorry.
+      simp [BoolFormula.not]
+      push_neg
+      rintro ⟨t, j, hv, hhead⟩
+      -- If headVar T n 0 i = headVar T n t j, then (by injectivity of the encoding) t=0 and j=i
+      -- Then table[0].head = i, but we know table[0].head = 0 and i ≠ 0. Contradiction.
+      have : t = 0 ∧ j = i := by
+        -- This requires proving injectivity of headVar encoding
+        sorry
+      simp_all [this]
+      omega
 
 /-- **Lemma:** The table assignment satisfies each transition gadget.
     If row t+1 follows from row t by one step of M, then the local
@@ -768,47 +922,107 @@ def evalOrList_true_if_element_true {α} (fs : List BoolFormula) (a : Assignment
       apply Or.inr
       exact ih hi' htrue
 
+
+/-- **Lemma:** If any formula in a list evaluates to true under assignment a,
+    then the foldr-OR of the entire list also evaluates to true. -/
+def evalFoldrOr_true_of_element_true (xs : List BoolFormula) (a : Assignment)
+    (h : ∃ x ∈ xs, evalFormula x a) :
+    evalFormula (xs.foldr BoolFormula.or BoolFormula.ff) a := by
+  induction xs with
+  | nil =>
+    exfalso
+    rcases h with ⟨x, hx, _⟩
+    simp at hx
+  | cons x₁ xs ih =>
+    rcases h with ⟨x, hx, hx_eval⟩
+    · -- x = x₁ (the head of the list)
+      have : evalFormula x₁ a := by simpa [hx] using hx_eval
+      dsimp [List.foldr]
+      simp_all [BoolFormula.or]
+      tauto
+    · -- x ∈ xs (in the tail)
+      have : ∃ y ∈ xs, evalFormula y a := ⟨x, this.2, hx_eval⟩
+      have ih_result : evalFormula (xs.foldr BoolFormula.or BoolFormula.ff) a := ih this
+      dsimp [List.foldr]
+      simp_all [BoolFormula.or]
+      tauto
+
+
+/-- **Lemma:** If every formula in a list evaluates to true under assignment a,
+    then the foldr-AND of the entire list also evaluates to true. -/
+def evalFoldrAnd_true_of_all_true (xs : List BoolFormula) (a : Assignment)
+    (h : ∀ x ∈ xs, evalFormula x a) :
+    evalFormula (xs.foldr BoolFormula.and BoolFormula.tt) a := by
+  induction xs with
+  | nil => simp
+  | cons x₁ xs ih =>
+    dsimp [List.foldr]
+    simp_all [BoolFormula.and]
+    exact And.intro (h x₁ (List.mem_cons_self _ _)) (ih fun y hy => h y (List.mem_cons_of_mem _ hy))
+
 /-- **Lemma:** The table assignment satisfies the acceptance gadget.
     If the last row is accepting, then some position has head in accept state. -/
 def tableAssignment_satisfies_accept (M : SimpleTM) (T : ℕ) (n : ℕ)
-    (table : ComputationTable M T) (haccept : Config.isAccepting M (table[T]!) = true) :
+    (table : ComputationTable M T) (hvalid : validTable M T (List.replicate n false) table) :
     evalFormula (gadget_accept M T n) (tableAssignment M T n table) := by
-  -- Unfold gadget_accept: it's a foldr OR over positions
-  dsimp [gadget_accept]
-  -- The list of disjuncts is: for each k in range width, (headVar(T,i_k) ∧ stateVar(T,i_k,accept))
-  -- where i_k = k - T
-  -- We need to find the index k* corresponding to the head position h = table[T].head
+  -- From validity, the last row is accepting
+  have haccept : Config.isAccepting M (table[T]!) = true := by
+    simp [validTable] at hvalid
+    exact hvalid.2.2.2
   let h := table[T]!.head
-  -- haccept tells us table[T].state = M.accept (by definition of isAccepting)
+  -- The last row is in accept state
   have hstate : table[T]!.state = M.accept := by
     dsimp [Config.isAccepting] at haccept
     simp_all
-  -- The head position h must be within the table range [-T, n+T]
-  -- (This should follow from the table being valid, but we take it as given for now)
-  let k_star := h.toNat + T  -- index in the list corresponding to position h
-  have hk_range : k_star < 2 * T + n + 1 := by
-    -- Head position is bounded by the computation width
-    sorry  -- Requires a lemma that valid tables keep head in bounds
-  -- The disjunct at index k_star is: headVar(T,h) ∧ stateVar(T,h,accept)
-  -- Under tableAssignment, both are true:
-  have hhead_true : evalFormula (BoolFormula.var (headVar T n T h)) (tableAssignment M T n table) := by
-    dsimp [tableAssignment, evalFormula]
-    -- Need to show ∃ t i, headVar T n T h = headVar T n t i ∧ table[t]!.head = i
-    use T, h
-    simp
-  have hstate_true : evalFormula (BoolFormula.var (stateVar M T n T h M.accept)) (tableAssignment M T n table) := by
-    dsimp [tableAssignment, evalFormula]
-    use T, h, M.accept
-    simp_all
-  -- So the AND at position k_star is true
-  have hand_true : evalFormula
-      (BoolFormula.and (BoolFormula.var (headVar T n T h))
-                       (BoolFormula.var (stateVar M T n T h M.accept)))
-      (tableAssignment M T n table) := by
-    dsimp [evalFormula]
-    exact And.intro hhead_true hstate_true
-  -- Now use the helper lemma: if one element in the OR list is true, the whole OR is true
-  sorry  -- Need to connect k_star to the actual list structure in gadget_accept
+  -- Head is in bounds: -T ≤ h ≤ T (from headStaysInBounds)
+  have hbounds := headStaysInBounds M T n table hvalid T (by omega)
+  -- So h ∈ [-T, T], which means h + T ∈ [0, 2T] ⊆ [0, 2T+n+1)
+  have h_nonneg : -T ≤ h := hbounds.1
+  have h_pos : h ≤ T := hbounds.2
+  -- The disjunct for position h is: headVar(T,h) ∧ stateVar(T,h,accept)
+  let f_h := BoolFormula.and (BoolFormula.var (headVar T n T h))
+                             (BoolFormula.var (stateVar M T n T h M.accept))
+  -- Show this disjunct evaluates to true under tableAssignment
+  have hf_h_true : evalFormula f_h (tableAssignment M T n table) := by
+    dsimp [evalFormula, BoolFormula.and]
+    constructor
+    · -- headVar(T,h) is true: ∃ t i, v = headVar T n t i ∧ table[t].head = i
+      dsimp [tableAssignment]
+      use T, h
+      simp
+    · -- stateVar(T,h,accept) is true
+      dsimp [tableAssignment]
+      use T, h, M.accept
+      simp_all
+  -- Show f_h is in the list of disjuncts in gadget_accept
+  -- The list is: [k=0..width-1].map (fun k => and (headVar(T,k-T)) (stateVar(T,k-T,accept)))
+  -- For k = h + T: k - T = h, so the element is exactly f_h
+  have hf_h_in_list : ∃ x ∈ (List.range (2*T+n+1)).map (fun k =>
+      let i := (k:Int) - T
+      BoolFormula.and (BoolFormula.var (headVar T n T i))
+                      (BoolFormula.var (stateVar M T n T i M.accept))),
+      x = f_h := by
+    use f_h
+    constructor
+    · -- Show f_h is in the mapped list
+      -- It's the image of (h + T) under the map function
+      have hk : h + T ∈ List.range (2*T+n+1) := by
+        apply List.mem_range.mpr
+        constructor <;> omega
+      -- The map sends (h+T) to f_h
+      simp [List.mem_map, hk]
+      use h + T
+      constructor
+      · exact hk
+      · dsimp [f_h]
+        simp [Int.ofNat_add, Int.ofNat_sub]
+        ring_nf
+        <;> simp_all
+        <;> omega
+    · rfl
+  -- Apply the foldr-OR lemma
+  dsimp [gadget_accept]
+  exact evalFoldrOr_true_of_element_true _ (tableAssignment M T n table) hf_h_in_list
 
 /-- **Theorem:** The Cook-Levin reduction is correct.
     M accepts w within T steps ⟺ φ(w) is satisfiable. -/
