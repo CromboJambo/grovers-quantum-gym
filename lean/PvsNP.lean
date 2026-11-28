@@ -1292,6 +1292,116 @@ def tableAssignment_satisfies_accept (M : SimpleTM) (T : ℕ) (n : ℕ)
   dsimp [gadget_accept]
   exact evalFoldrOr_true_of_element_true _ (tableAssignment M T n table) hf_h_in_list
 
+
+/-! ### Completeness Direction Helpers -/
+
+/-- From a satisfying assignment, extract the head position in row t.
+    The initial gadget ensures row 0 has head at position 0;
+    transition gadgets propagate uniqueness to all rows. -/
+def extractHeadPos (M : SimpleTM) (T : ℕ) (n : ℕ) (a : Assignment)
+    (ha_formula : evalFormula (cookLevinFormula M T (List.replicate n false)) a)
+    (t : Fin (T + 1)) : Int := by
+  -- We'll construct this using the classical choice principle.
+  -- First we need to prove existence and uniqueness, then use Classical.choose.
+  -- For now, define it via a search over all positions.
+  let positions : List Int := List.range (2 * T + n + 1) |>.map (fun k => (k : Int) - T)
+  -- Find the position where headVar is true
+  match positions.filter (fun i => evalFormula (BoolFormula.var (headVar M T n t.val i)) a) with
+  | [] => 0  -- fallback (shouldn't happen for valid satisfying assignments)
+  | i :: _ => i
+
+/-- Lemma: Under a satisfying assignment, row 0 has its head at position 0. -/
+def satAssign_row0_headAtZero (M : SimpleTM) (T : ℕ) (w : BitString) (a : Assignment)
+    (ha : evalFormula (cookLevinFormula M T w) a) :
+    evalFormula (BoolFormula.var (headVar M T n 0 0)) a := by
+  let n := w.length
+  dsimp [cookLevinFormula] at ha
+  simp [evalFormula, BoolFormula.and] at ha
+  -- ha.1 is the initial gadget evaluation
+  have hinit : evalFormula (gadget_initial M w T) a := ha.1
+  dsimp [gadget_initial] at hinit
+  apply evalFoldrAnd_true.mp hinit
+  -- Position 0 corresponds to index T in the range
+  use T
+  constructor
+  · simp [List.mem_range]; omega
+  · -- The element at position T is gadget_initial_cell M w T 0
+    dsimp [gadget_initial_cell]
+    split_ifs <;> simp_all
+    · -- i = 0 case: headVar ∧ stateVar ∧ symVar
+      simp [evalFormula, BoolFormula.and]
+      exact ‹_›.1
+    · exfalso; omega
+
+
+/-- **Key Lemma:** Under a satisfying assignment, each row has exactly one head position.
+    This is what allows us to extract a valid computation table from the assignment. -/
+def satAssign_uniqueHead (M : SimpleTM) (T : ℕ) (w : BitString) (a : Assignment)
+    (ha : evalFormula (cookLevinFormula M T w) a)
+    (t : Fin (T + 1)) :
+    ∃! i : Int, -T ≤ i ∧ i ≤ (w.length : ℤ) + T ∧
+      evalFormula (BoolFormula.var (headVar M T n t.val i)) a := by
+  let n := w.length
+  -- Prove by induction on t
+  have h_ind : ∀ t' : Fin (T + 1),
+      ∃! i : Int, -T ≤ i ∧ i ≤ (n : ℤ) + T ∧
+        evalFormula (BoolFormula.var (headVar M T n t'.val i)) a := by
+    intro t'
+    induction t' with
+    | zero =>
+      -- Base case: row 0 has head at position 0 (from initial gadget)
+      use 0
+      constructor
+      · -- Existence: head at 0
+        constructor <;> simp_all [Int.le_refl]
+        · dsimp [cookLevinFormula] at ha
+          simp [evalFormula, BoolFormula.and] at ha
+          have hinit : evalFormula (gadget_initial M w T) a := ha.1
+          dsimp [gadget_initial] at hinit
+          apply evalFoldrAnd_true.mp hinit
+          use T
+          constructor <;> simp_all [List.mem_range, Int.ofNat_add, Int.ofNat_sub] <;> omega
+          · dsimp [gadget_initial_cell]
+            split_ifs <;> simp_all [evalFormula, BoolFormula.and]
+            <;> aesop
+      · -- Uniqueness: no other position has head
+        intro j hj
+        have hj_bounds : -T ≤ j ∧ j ≤ (n : ℤ) + T := hj.1
+        have hj_head : evalFormula (BoolFormula.var (headVar M T n 0 j)) a := hj.2
+        by_contra hneq
+        push_neg at hneq
+        -- j ≠ 0, so initial gadget says ¬headVar(0,j)
+        dsimp [cookLevinFormula] at ha
+        simp [evalFormula, BoolFormula.and] at ha
+        have hinit : evalFormula (gadget_initial M w T) a := ha.1
+        dsimp [gadget_initial] at hinit
+        apply evalFoldrAnd_true.mp hinit
+        -- Find j in the position list
+        use ((j + T).toNat : ℕ)
+        constructor
+        · simp [List.mem_range]; omega
+        · dsimp [gadget_initial_cell]
+          split_ifs <;> simp_all [evalFormula, BoolFormula.and, BoolFormula.not]
+          <;> aesop
+    | succ t' ih =>
+      -- Inductive step: row t'+1 has unique head derived from row t'
+      rcases ih with ⟨h, h_exists, h_unique⟩
+      -- h_exists: -T ≤ h ∧ h ≤ n+T ∧ head at h in row t'
+      have hh_bounds : -T ≤ h ∧ h ≤ (n : ℤ) + T := h_exists.1
+      have hh_head : evalFormula (BoolFormula.var (headVar M T n t'.val h)) a := h_exists.2
+      
+      -- Get the state at h in row t' to determine direction
+      have hstate : ∃ s : Fin M.q, evalFormula (BoolFormula.var (stateVar M T n t'.val h s)) a := by
+        -- From transition gadget: head at h implies some state
+        sorry
+      
+      -- This proof is getting very complex. The full uniqueness proof requires
+      -- detailed case analysis on the transition direction. For now, we establish
+      -- the structure and leave the inductive step as a targeted sorry.
+      sorry
+  
+  exact h_ind t'
+
 /-- **Theorem:** The Cook-Levin reduction is correct.
     M accepts w within T steps ⟺ φ(w) is satisfiable. -/
 def cookLevinCorrect (M : SimpleTM) (T : ℕ) (w : BitString) :
