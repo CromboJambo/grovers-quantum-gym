@@ -612,7 +612,20 @@ def initial_gadget_satisfiable (M : SimpleTM) (w : BitString) (T : ℕ) :
       (v = headVar M T n 0 0) ∨
       -- Or v is the state var for start state at position 0
       (v = stateVar M T n 0 0 M.start)
-  exact ⟨a_init, by sorry⟩  -- The evaluation proof requires case analysis on the formula structure
+  exact ⟨a_init, by
+    -- Use tableAssignment_satisfies_initial with a trivial valid table
+    -- (the initial configuration repeated T times won't work since it's not a valid computation,
+    -- but we can construct a valid table that starts correctly)
+    -- Actually, a_init is defined to match the initial row of any valid table.
+    -- The gadget only constrains row 0, so we just need row 0 to be correct.
+    dsimp [gadget_initial] at *
+    apply evalFoldrAnd_true
+    intro x hx
+    rcases List.mem_range.mp (by simpa using hx) with ⟨k, hk⟩
+    let i := (k : Int) - T
+    dsimp [gadget_initial_cell] at *
+    split_ifs at * <;> simp_all [evalFormula, BoolFormula.and, BoolFormula.or, BoolFormula.not]
+    <;> aesop⟩
 
 
 /-! ### Formula Size Analysis -/
