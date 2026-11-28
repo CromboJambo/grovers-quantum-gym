@@ -259,7 +259,6 @@ def PolyTimeReducible (L L' : DecisionProblem) : Prop :=
     ∀ w, L w = L' (f w)
 
 
-/-- Reductions are transitive. -/
 /-! ### Transitivity of Polynomial-Time Reductions -/
 
 /-- **Lemma:** If f is computable in polynomial time p(n) and g is computable
@@ -269,18 +268,16 @@ def PolyTimeReducible (L L' : DecisionProblem) : Prop :=
     output of length ≤ p(n) + c (a TM writes at most one symbol per step).
     Then g runs on this output in ≤ q(p(n) + c) steps. Total: p(n) + q(p(n) + c),
     which is polynomial since the composition of polynomials is polynomial. -/
-theorem polyTimeCompositionBound {p q : Polynomial ℕ} (hp : 0 < p.degreeWithZero) (hq : 0 < q.degreeWithZero) :
+theorem polyTimeCompositionBound {p q : Polynomial ℕ} (hp : 0 < p.natDegree) (hq : 0 < q.natDegree) :
     ∃ r : Polynomial ℕ, ∀ n, p.eval n + q.eval (p.eval n + 1) ≤ r.eval n := by
-  -- The composition of polynomials is a polynomial with degree deg(p) * deg(q)
-  use p ^ q.natDegree
+  -- Use r = p + q.comp (p + 1). Then r.eval n = p.eval n + q.eval (p.eval n + 1),
+  -- so the inequality is actually an equality.
+  use p + q.comp (p + Polynomial.C 1)
   intro n
-  -- This is an upper bound; the exact inequality requires case analysis on degrees
-  -- but the key fact is that p(n) + q(p(n)+1) grows at most as fast as some polynomial
-  have hp_pos : 0 ≤ p.eval n := by positivity
-  have hq_pos : 0 ≤ q.eval (p.eval n + 1) := by positivity
-  -- For large enough n, the dominant term of p^n dominates both p and q(p+1)
-  -- This is a standard result in asymptotic analysis
-  omega
+  have hq : q.eval (p.eval n + 1) = (q.comp (p + Polynomial.C 1)).eval n := by
+    simp [Polynomial.eval_comp, Polynomial.eval_add, Polynomial.eval_C]
+  rw [hq, Polynomial.eval_add]
+  rfl
 
 /-- Reductions are transitive: if L ≤ₚ M and M ≤ₚ N then L ≤ₚ N.
 
@@ -350,7 +347,7 @@ structure Config (M : SimpleTM) where
 /-- The full tape symbol at a given absolute position. -/
 def Config.tapeAt (M : SimpleTM) (c : Config M) (pos : Int) : Bool :=
   let rel := pos - c.windowStart
-  if 0 ≤ rel ∧ rel < c.tapeWindow.length then c.tapeWindow[rel]! else M.blank
+  if 0 ≤ rel ∧ rel < c.tapeWindow.length then c.tapeWindow[rel.toNat]! else M.blank
 
 /-- One step of the TM. Updates state, head position, and tape symbol under head. -/
 def Config.step (M : SimpleTM) (c : Config M) : Config M :=
