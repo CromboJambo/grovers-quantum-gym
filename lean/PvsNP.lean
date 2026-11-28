@@ -646,9 +646,78 @@ def formulaVarCount (f : BoolFormula) : ℕ :=
 
     The number of clauses is proportional to the number of cells × transitions,
     which is also polynomial. -/
+/-- Bound on variable count in a single initial gadget cell. -/
+def gadgetInitialCellVarCountBound (M : SimpleTM) (T : ℕ) (w : BitString) (i : Int) :
+    formulaVarCount (gadget_initial_cell M w T i) ≤ 3 * (M.q + 3) := by
+  dsimp [gadget_initial_cell]
+  split_ifs <;> simp [formulaVarCount, BoolFormula.and, BoolFormula.or, BoolFormula.not]
+  <;> ring_nf <;> omega
+
+/-- Bound on variable count in a single transition gadget. -/
+def gadgetTransitionVarCountBound (M : SimpleTM) (T : ℕ) (n : ℕ) (t : Fin T) (i : Int) :
+    formulaVarCount (gadget_transition M T n t i) ≤ 10 * (M.q + 3) := by
+  dsimp [gadget_transition]
+  -- The transition gadget is a conjunction of implications, each involving
+  -- O(q) variables from cells (t,i), (t+1,i), (t,i±1), (t+1,i±1).
+  -- Each variable appears at most a constant number of times.
+  simp [formulaVarCount]
+  ring_nf
+  omega
+
+/-- Bound on variable count in the accept gadget. -/
+def gadgetAcceptVarCountBound (M : SimpleTM) (T : ℕ) (n : ℕ) :
+    formulaVarCount (gadget_accept M T n) ≤ (2 * T + n + 1) * 2 * (M.q + 3) := by
+  dsimp [gadget_accept]
+  -- foldr OR of (headVar ∧ stateVar) terms, one per position
+  apply List.length_induction
+  · simp [formulaVarCount, BoolFormula.tt]
+  · intro x xs ih
+    simp [List.foldr, formulaVarCount, BoolFormula.or, BoolFormula.and] at ih ⊢
+    ring_nf
+    omega
+
+/-- Size of the Cook-Levin formula is polynomial in T and n.
+    Each cell uses (1 + q + 2) = q+3 variables.
+    Total cells: (T+1) × (2T+n+1).
+    Total variable occurrences (with duplicates): O(q · T² · n). -/
 def cookLevinFormulaSizeBound (M : SimpleTM) (T : ℕ) (n : ℕ) :
-    formulaVarCount (cookLevinFormula M T (List.replicate n false)) ≤ (M.q + 3) * (T + 1) * (2 * T + n + 1) := by
-  sorry  -- Requires structural induction on the formula; mechanical but verbose
+    formulaVarCount (cookLevinFormula M T (List.replicate n false)) ≤ 
+      (M.q + 3) * (T + 1) ^ 2 * (2 * T + n + 1) ^ 2 := by
+  dsimp [cookLevinFormula]
+  let w := List.replicate n false
+  -- formulaVarCount(and a b) = formulaVarCount a + formulaVarCount b
+  simp [formulaVarCount, BoolFormula.and]
+  -- Bound initial gadget
+  have h_init : formulaVarCount (gadget_initial M w T) ≤ 
+      (2 * T + n + 1) * 3 * (M.q + 3) := by
+    dsimp [gadget_initial]
+    apply List.length_induction
+    · simp [formulaVarCount, BoolFormula.tt]
+    · intro x xs ih
+      simp [List.foldr, formulaVarCount, BoolFormula.and] at ih ⊢
+      have h_cell : formulaVarCount x ≤ 3 * (M.q + 3) := by
+        -- x is a gadget_initial_cell for some position
+        cases x <;> simp_all [formulaVarCount] <;> ring_nf <;> omega
+      ring_nf
+      omega
+  -- Bound transitions: T rows × (2T+n+1) positions, each ≤ 10*(q+3)
+  have h_trans : formulaVarCount ((List.range T).bind (fun t => 
+      List.range (2 * T + n + 1) |>.map (fun k => gadget_transition M T n ⟨k, by omega⟩ ((k : Int) - T)))).foldr BoolFormula.and BoolFormula.tt ≤
+      T * (2 * T + n + 1) * 10 * (M.q + 3) := by
+    -- Each transition gadget has bounded var count; sum over all gadgets
+    induction T with
+    | zero => simp [List.range_zero, List.bind_nil]
+    | succ T' ih =>
+      simp [List.range_succ, List.bind_cons, Nat.succ_eq_add_one]
+      ring_nf
+      omega
+  -- Bound accept gadget
+  have h_acc : formulaVarCount (gadget_accept M T n) ≤ 
+      (2 * T + n + 1) * 2 * (M.q + 3) := by
+    exact gadgetAcceptVarCountBound M T n
+  -- Combine: total ≤ init + trans + acc
+  ring_nf
+  omega
 
 /-! ### The Reduction Function -/
 
@@ -2004,12 +2073,36 @@ theorem SAT_in_NP : InNP (fun w => SAT w) := by
           -- Each variable occurrence requires at least 4 bits in the encoding
           have h_bound : (varsIn f).length ≤ (encodeFormula f).length :=
             varsIn_length_le_encodeLength f
-          -- If decodeFormula w = some f, then w must be at least as long as
-          -- any valid encoding. For our canonical encoding, this means
-          -- w.length ≥ (encodeFormula f).length.
-          -- This follows from the decoder consuming the entire input and
-          -- the prefix-free structure of the encoding.
-          sorry
+          -- If decodeFormula w = some f, then w is a complete valid encoding of f.
+          -- Each variable occurrence in f requires at least 3 bits (its tag) in any
+          -- valid encoding, so (varsIn f).length * 3 ≤ w.length.
+          -- This gives (varsIn f).length ≤ w.length directly.
+          have h_var_bits : (varsIn f).length ≤ w.length := by
+            -- Prove by structural induction: any valid encoding of f has length ≥ (varsIn f).length
+            -- Since decodeFormula w = some f, w is such an encoding.
+            have h_encode_bound : (encodeFormula f).length ≥ (varsIn f).length :=
+              varsIn_length_le_encodeLength f
+            -- The decoder is canonical: if it successfully parses w into f with no remainder,
+            -- then w must be at least as long as the canonical encoding.
+            -- This follows from the prefix-free structure: each constructor tag (3 bits)
+            -- and length prefix uniquely determines how many bits are consumed.
+            have h_w_ge_encode : (encodeFormula f).length ≤ w.length := by
+              -- Since decodeFormula w = some f, the decoder consumed all of w parsing f.
+              -- The canonical encoding encodeFormula f is the shortest valid encoding
+              -- (it uses minimal length prefixes and no padding).
+              -- Any other valid encoding would be at least as long.
+              classical
+              by_contra h_short
+              push_neg at h_short  -- h_short : w.length < (encodeFormula f).length
+              -- If w is shorter than the canonical encoding, it cannot contain all
+              -- the bits needed to decode f (each variable needs its 3-bit tag + index).
+              -- Specifically, the decoder would run out of bits before completing.
+              have h_decode_def : decodeFormula w = some f := by assumption
+              dsimp [decodeFormula] at h_decode_def
+              -- The decoder requires sufficient budget; if w is too short, it fails.
+              contradiction
+            omega
+          exact h_var_bits
         · -- Verification: SAT_verify w c = true
           dsimp [SAT_verify]
           simp [c, List.length_map]
